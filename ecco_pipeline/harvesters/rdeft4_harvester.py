@@ -40,18 +40,38 @@ def get_credentials(url):
     """Get user credentials from .netrc or prompt for input."""
     credentials = None
     errprefix = ''
-
-    username = None
-    password = None
+    try:
+        info = netrc.netrc()
+        username, account, password = info.authenticators(
+            urlparse(URS_URL).hostname)
+        errprefix = 'netrc error: '
+    except Exception as e:
+        if (not ('No such file' in str(e))):
+            print('netrc error: {0}'.format(str(e)))
+        username = None
+        password = None
 
     while not credentials:
         if not username:
             username = 'ecco_access'  # hardcoded username
             password = 'ECCOAccess1'  # hardcoded password
         credentials = '{0}:{1}'.format(username, password)
-
         credentials = base64.b64encode(
-            credentials.encode('utf-8')).decode()
+            credentials.encode('ascii')).decode('ascii')
+
+        if url:
+            try:
+                req = Request(url)
+                req.add_header('Authorization',
+                               'Basic {0}'.format(credentials))
+                opener = build_opener(HTTPCookieProcessor())
+                opener.open(req)
+            except HTTPError:
+                print(errprefix + 'Incorrect username or password')
+                errprefix = ''
+                credentials = None
+                username = None
+                password = None
 
     return credentials
 
@@ -94,40 +114,39 @@ def cmr_filter_urls(search_results):
     if 'feed' not in search_results or 'entry' not in search_results['feed']:
         return []
 
-    entries = [e['links'] for e in search_results['feed']['entry']
+    entries = [e['links']
+               for e in search_results['feed']['entry']
                if 'links' in e]
-    ids = [e['id'] for e in search_results['feed']['entry']]
+    # Flatten "entries" to a simple list of links
+    links = list(itertools.chain(*entries))
 
     urls = []
     unique_filenames = set()
-    for link_list, id in zip(entries, ids):
-        for link in link_list:
-            if 'href' not in link:
-                # Exclude links with nothing to download
-                continue
-            if 'inherited' in link and link['inherited'] is True:
-                # Why are we excluding these links?
-                continue
-            if 'rel' in link and 'data#' not in link['rel']:
-                # Exclude links which are not classified by CMR as "data" or "metadata"
-                continue
+    for link in links:
+        if 'href' not in link:
+            # Exclude links with nothing to download
+            continue
+        if 'inherited' in link and link['inherited'] is True:
+            # Why are we excluding these links?
+            continue
+        if 'rel' in link and 'data#' not in link['rel']:
+            # Exclude links which are not classified by CMR as "data" or "metadata"
+            continue
 
-            if 'title' in link and 'opendap' in link['title'].lower():
-                # Exclude OPeNDAP links--they are responsible for many duplicates
-                # This is a hack; when the metadata is updated to properly identify
-                # non-datapool links, we should be able to do this in a non-hack way
-                continue
+        if 'title' in link and 'opendap' in link['title'].lower():
+            # Exclude OPeNDAP links--they are responsible for many duplicates
+            # This is a hack; when the metadata is updated to properly identify
+            # non-datapool links, we should be able to do this in a non-hack way
+            continue
 
-            filename = link['href'].split('/')[-1]
-            if 'md5' in filename:
-                continue
-            if 's3credentials' in filename:
-                continue
-            if filename in unique_filenames:
-                # Exclude links with duplicate filenames (they would overwrite)
-                continue
-            unique_filenames.add(filename)
-            urls.append((link['href'], id))
+        filename = link['href'].split('/')[-1]
+        if filename in unique_filenames:
+            # Exclude links with duplicate filenames (they would overwrite)
+            continue
+        unique_filenames.add(filename)
+
+        urls.append(link['href'])
+
     return urls
 
 
@@ -142,6 +161,7 @@ def cmr_search(short_name, version, time_start, time_end,
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
+    print(cmr_query_url)
     try:
         urls = []
         while True:
@@ -256,136 +276,197 @@ def harvester(config, output_path, grids_to_use=[]):
 
     item = {}
 
-    start_time_dt = datetime.strptime(start_time, "%Y%m%dT%H:%M:%SZ")
-    end_time_dt = datetime.strptime(end_time, "%Y%m%dT%H:%M:%SZ")
-    start_string = datetime.strftime(start_time_dt, "%Y-%m-%dT00:00:00Z")
-    end_string = datetime.strftime(end_time_dt, "%Y-%m-%dT00:00:00Z")
+    start_year = start_time[:4]
+    end_year = end_time[:4]
+    years = np.arange(int(start_year), int(end_year) + 1)
+    start_time_dt = datetime.strptime(start_time, date_regex)
+    end_time_dt = datetime.strptime(end_time, date_regex)
 
-    url_list = cmr_search(short_name, version, start_string, end_string)
+    url_list = cmr_search(short_name, version, start_time, end_time)
 
-    for url, id in url_list:
-        # Date in filename is end date of 30 day period
-        filename = url.split('/')[-1]
+    for year in years:
 
-        date = getdate(regex, filename)
-        dt = datetime.strptime(date, "%Y%m%d")
-        new_date_format = datetime.strftime(dt, "%Y-%m-%dT00:00:00Z")
-        
-        year = new_date_format[:4]
+        iso_dates_at_end_of_month = []
 
-        local_fp = f'{target_dir}{year}/{filename}'
+        # pull one record per month
+        for month in range(1, 13):
+            # to find the last day of the month, we go up one month,
+            # and back one day
+            #   if Jan-Nov, then we'll go forward one month to Feb-Dec
+            if month < 12:
+                cur_mon_year = np.datetime64(
+                    str(year) + '-' + str(month+1).zfill(2))
+            # for december we go up one year, and set month to january
+            else:
+                cur_mon_year = np.datetime64(str(year+1) + '-' + str('01'))
 
-        if not os.path.exists(f'{target_dir}{year}/'):
-            os.makedirs(f'{target_dir}{year}/')
+            # then back one day
+            last_day_of_month = cur_mon_year - np.timedelta64(1, 'D')
 
-        # Extract metadata from xml file associated with .nc file
-        meta_url = f'https://cmr.earthdata.nasa.gov/search/concepts/{id}.json'
+            iso_dates_at_end_of_month.append(
+                (str(last_day_of_month)).replace('-', ''))
 
-        r = requests.get(meta_url)
-        meta = r.json()
-        modified_time = datetime.strptime(f'{meta["updated"].split(".")[0]}Z', time_format)   
+        url_dict = {}
 
-        # check if file in download date range
-        if (start_time_dt <= dt) and (end_time_dt >= dt):
-            item = {}
-            item['type_s'] = 'granule'
-            item['date_s'] = new_date_format
-            item['dataset_s'] = dataset_name
-            item['filename_s'] = filename
-            item['source_s'] = url
-            item['modified_time_dt'] = str(modified_time)
+        # Data filenames contain end of time coverage. To get data covering an
+        # entire calendar month, we only look at files with the last day of the
+        # month in the filename.
+        for file_date in iso_dates_at_end_of_month:
+            end_of_month_url = [
+                url for url in url_list if file_date in url and file_date < end_time.replace('-', '')[:9]]
 
-            descendants_item = {}
-            descendants_item['type_s'] = 'descendants'
-            descendants_item['date_s'] = item["date_s"]
-            descendants_item['dataset_s'] = item['dataset_s']
-            descendants_item['filename_s'] = filename
-            descendants_item['source_s'] = item['source_s']
+            if end_of_month_url:
+                url_dict[file_date] = end_of_month_url[0]
 
-            updating = False
+        for file_date, url in url_dict.items():
+            # Date in filename is end date of 30 day period
+            filename = url.split('/')[-1]
 
-            try:
-                updating = (not filename in docs.keys()) or \
-                            (not docs[filename]['harvest_success_b']) or \
-                            (docs[filename]['download_time_dt'] < str(modified_time))
+            date = getdate(regex, filename)
+            dt = datetime.strptime(date, "%Y%m%d")
+            new_date_format = f'{date[:4]}-{date[4:6]}-{date[6:]}T00:00:00Z'
 
-                # If updating, download file if necessary
-                if updating:
-                    # If file doesn't exist locally, download it
-                    if not os.path.exists(local_fp):
-                        print(f' - Downloading {filename} to {local_fp}')
+            tb, _ = date_time.make_time_bounds_from_ds64(np.datetime64(
+                new_date_format) + np.timedelta64(1, 'D'), 'AVG_MON')
+            new_date_format = f'{str(tb[0])[:10]}T00:00:00Z'
+            year = new_date_format[:4]
 
-                        credentials = get_credentials(url)
-                        req = Request(url)
-                        req.add_header('Authorization',
-                                        'Basic {0}'.format(credentials))
-                        opener = build_opener(HTTPCookieProcessor())
-                        data = opener.open(req).read()
-                        open(local_fp, 'wb').write(data)
+            local_fp = f'{target_dir}{year}/{filename}'
 
-                    # If file exists locally, but is out of date, download it
-                    elif datetime.fromtimestamp(os.path.getmtime(local_fp)) <= modified_time:
-                        print(
-                            f' - Updating {filename} and downloading to {local_fp}')
+            if not os.path.exists(f'{target_dir}{year}/'):
+                os.makedirs(f'{target_dir}{year}/')
 
-                        credentials = get_credentials(url)
-                        req = Request(url)
-                        req.add_header('Authorization',
-                                        'Basic {0}'.format(credentials))
-                        opener = build_opener(HTTPCookieProcessor())
-                        data = opener.open(req).read()
-                        open(local_fp, 'wb').write(data)
+            # Extract metadata from xml file associated with .nc file
+            xml_url = f'{url}.xml'
+            credentials = get_credentials(xml_url)
+            req = Request(xml_url)
+            req.add_header('Authorization',
+                           'Basic {0}'.format(credentials))
+            opener = build_opener(HTTPCookieProcessor())
+            data = opener.open(req).read()
+            root = fromstring(data)
+
+            # modified time
+            modified_time = root.find(
+                'GranuleURMetaData').find('LastUpdate').text.replace(' ', 'T')
+            modified_time = f'{modified_time[:-1]}Z'
+
+            # time coverage start and end
+            original_start_time = root.find('GranuleURMetaData').find(
+                'RangeDateTime').find('RangeBeginningTime').text
+            original_start_date = root.find('GranuleURMetaData').find(
+                'RangeDateTime').find('RangeBeginningDate').text
+            original_end_time = root.find('GranuleURMetaData').find(
+                'RangeDateTime').find('RangeEndingTime').text
+            original_end_date = root.find('GranuleURMetaData').find(
+                'RangeDateTime').find('RangeEndingDate').text
+
+            # Not currently used to create time bounds
+            time_coverage_start = f'{original_start_date}T{original_start_time}'
+            time_coverage_end = f'{original_end_date}T{original_end_time}'
+
+            # check if file in download date range
+            if (start_time_dt <= dt) and (end_time_dt >= dt):
+                item = {}
+                item['type_s'] = 'granule'
+                item['date_s'] = new_date_format
+                item['dataset_s'] = dataset_name
+                item['filename_s'] = filename
+                item['source_s'] = url
+                item['modified_time_dt'] = modified_time
+
+                descendants_item = {}
+                descendants_item['type_s'] = 'descendants'
+                descendants_item['date_s'] = item["date_s"]
+                descendants_item['dataset_s'] = item['dataset_s']
+                descendants_item['filename_s'] = filename
+                descendants_item['source_s'] = item['source_s']
+
+                updating = False
+
+                try:
+                    updating = (not filename in docs.keys()) or \
+                               (not docs[filename]['harvest_success_b']) or \
+                               (docs[filename]['download_time_dt']
+                                < modified_time)
+
+                    # If updating, download file if necessary
+                    if updating:
+                        # If file doesn't exist locally, download it
+                        if not os.path.exists(local_fp):
+                            print(f' - Downloading {filename} to {local_fp}')
+
+                            credentials = get_credentials(url)
+                            req = Request(url)
+                            req.add_header('Authorization',
+                                           'Basic {0}'.format(credentials))
+                            opener = build_opener(HTTPCookieProcessor())
+                            data = opener.open(req).read()
+                            open(local_fp, 'wb').write(data)
+
+                        # If file exists locally, but is out of date, download it
+                        elif str(datetime.fromtimestamp(os.path.getmtime(local_fp))) <= modified_time:
+                            print(
+                                f' - Updating {filename} and downloading to {local_fp}')
+
+                            credentials = get_credentials(url)
+                            req = Request(url)
+                            req.add_header('Authorization',
+                                           'Basic {0}'.format(credentials))
+                            opener = build_opener(HTTPCookieProcessor())
+                            data = opener.open(req).read()
+                            open(local_fp, 'wb').write(data)
+
+                        else:
+                            print(
+                                f' - {filename} already downloaded and up to date')
+
+                        if filename in docs.keys():
+                            item['id'] = docs[filename]['id']
+
+                        # calculate checksum and expected file size
+                        item['checksum_s'] = file_utils.md5(local_fp)
+                        item['pre_transformation_file_path_s'] = local_fp
+                        item['harvest_success_b'] = True
+                        item['file_size_l'] = os.path.getsize(local_fp)
 
                     else:
                         print(
                             f' - {filename} already downloaded and up to date')
 
-                    if filename in docs.keys():
-                        item['id'] = docs[filename]['id']
+                except Exception as e:
+                    print('error', e)
+                    if updating:
+                        print(f'    - {filename} failed to download')
 
-                    # calculate checksum and expected file size
-                    item['checksum_s'] = file_utils.md5(local_fp)
-                    item['pre_transformation_file_path_s'] = local_fp
-                    item['harvest_success_b'] = True
-                    item['file_size_l'] = os.path.getsize(local_fp)
+                        item['harvest_success_b'] = False
+                        item['filename'] = ''
+                        item['pre_transformation_file_path_s'] = ''
+                        item['file_size_l'] = 0
 
-                else:
-                    print(
-                        f' - {filename} already downloaded and up to date')
-
-            except Exception as e:
-                print('error', e)
                 if updating:
-                    print(f'    - {filename} failed to download')
+                    item['download_time_dt'] = chk_time
 
-                    item['harvest_success_b'] = False
-                    item['filename'] = ''
-                    item['pre_transformation_file_path_s'] = ''
-                    item['file_size_l'] = 0
+                    # Update Solr entry using id if it exists
 
-            if updating:
-                item['download_time_dt'] = chk_time
+                    key = descendants_item['date_s']
 
-                # Update Solr entry using id if it exists
+                    if key in descendants_docs.keys():
+                        descendants_item['id'] = descendants_docs[key]['id']
 
-                key = descendants_item['date_s']
+                    descendants_item['harvest_success_b'] = item['harvest_success_b']
+                    descendants_item['pre_transformation_file_path_s'] = item['pre_transformation_file_path_s']
+                    entries_for_solr.append(descendants_item)
 
-                if key in descendants_docs.keys():
-                    descendants_item['id'] = descendants_docs[key]['id']
+                    start_times.append(datetime.strptime(
+                        new_date_format, date_regex))
+                    end_times.append(datetime.strptime(
+                        new_date_format, date_regex))
 
-                descendants_item['harvest_success_b'] = item['harvest_success_b']
-                descendants_item['pre_transformation_file_path_s'] = item['pre_transformation_file_path_s']
-                entries_for_solr.append(descendants_item)
-
-                start_times.append(datetime.strptime(
-                    new_date_format, date_regex))
-                end_times.append(datetime.strptime(
-                    new_date_format, date_regex))
-
-                # add item to metadata json
-                entries_for_solr.append(item)
-                # store meta for last successful download
-                last_success_item = item
+                    # add item to metadata json
+                    entries_for_solr.append(item)
+                    # store meta for last successful download
+                    last_success_item = item
 
     print(f'\nDownloading {dataset_name} complete\n')
 

@@ -128,6 +128,7 @@ def harvester(config, output_path, grids_to_use=[]):
                  "dc": "http://purl.org/dc/terms/",
                  "time": "http://a9.com/-/opensearch/extensions/time/1.0/"}
 
+    print(url)
     xml = parse(urlopen(url))
     items = xml.findall('{%(atom)s}entry' % namespace)
 
