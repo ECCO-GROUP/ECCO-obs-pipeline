@@ -12,7 +12,7 @@ import yaml
 import grids_to_solr
 from aggregation import aggregation
 from conf.global_settings import OUTPUT_DIR, SOLR_COLLECTION
-from grid_transformation import grid_transformation_local
+from grid_transformation import check_transformations
 from utils import solr_utils
 
 ###########
@@ -159,12 +159,9 @@ def run_transformation(datasets, output_dir, multiprocessing, user_cpus, wipe, g
             with open(Path(f'conf/ds_configs/{ds}.yaml'), 'r') as stream:
                 config = yaml.load(stream, yaml.Loader)
 
-            status = grid_transformation_local.main(config,
-                                                    output_dir,
-                                                    multiprocessing,
-                                                    user_cpus,
-                                                    wipe,
-                                                    grids_to_use)
+            status = check_transformations.main(config, output_dir,
+                                                multiprocessing, user_cpus,
+                                                wipe, grids_to_use)
             ds_status[ds].append(status)
 
             log.info(f'{ds} transformation complete. {status}')

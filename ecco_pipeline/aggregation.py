@@ -1,6 +1,5 @@
 import json
 import logging
-import sys
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -8,13 +7,12 @@ from pathlib import Path
 import numpy as np
 import xarray as xr
 from netCDF4 import default_fillvals  # pylint: disable=no-name-in-module
-from utils import solr_utils, generalized_functions, records, date_time
 
+from utils import date_time, ecco_functions, records, solr_utils
 
 logging.config.fileConfig('logs/log.ini', disable_existing_loggers=False)
 log = logging.getLogger(__name__)
 np.warnings.filterwarnings('ignore')
-
 
 def years_to_aggregate(dataset_name, grid_name):
 
@@ -345,7 +343,7 @@ def aggregation(output_dir, config, grids_to_use=[]):
 
                 try:
                     # Performs the aggreagtion of the yearly data, and saves it
-                    empty_year = generalized_functions.generalized_aggregate_and_save(daily_DS_year_merged,
+                    empty_year = ecco_functions.generalized_aggregate_and_save(daily_DS_year_merged,
                                                                    data_var,
                                                                    config['do_monthly_aggregation'],
                                                                    int(year),

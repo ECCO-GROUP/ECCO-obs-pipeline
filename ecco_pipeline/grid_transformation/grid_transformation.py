@@ -2,15 +2,14 @@ import logging
 import logging.config
 import os
 import pickle
-import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import pyresample as pr
 import xarray as xr
 from netCDF4 import default_fillvals  # pylint: disable=no-name-in-module
-from utils import file_utils, solr_utils, generalized_functions, records, date_time, mapping
+from utils import file_utils, solr_utils, ecco_functions, records, date_time, mapping
 
 np.warnings.filterwarnings('ignore')
 
@@ -137,7 +136,7 @@ def transformation(source_file_path, remaining_transformations, output_dir, conf
                 hemi_data_max_lat = config[f'data_max_lat{hemi}']
 
                 source_grid_min_L, source_grid_max_L, source_grid, \
-                    data_grid_lons, data_grid_lats = generalized_functions.generalized_grid_product(short_name,
+                    data_grid_lons, data_grid_lats = ecco_functions.generalized_grid_product(short_name,
                                                                                  data_res,
                                                                                  hemi_data_max_lat,
                                                                                  hemi_area_extent,
@@ -145,7 +144,7 @@ def transformation(source_file_path, remaining_transformations, output_dir, conf
                                                                                  hemi_proj_info)
             else:
                 source_grid_min_L, source_grid_max_L, source_grid, \
-                    data_grid_lons, data_grid_lats = generalized_functions.generalized_grid_product(short_name,
+                    data_grid_lons, data_grid_lats = ecco_functions.generalized_grid_product(short_name,
                                                                                  data_res,
                                                                                  config['data_max_lat'],
                                                                                  config['area_extent'],
@@ -317,9 +316,8 @@ def transformation(source_file_path, remaining_transformations, output_dir, conf
             field_DS = field_DS.drop('time_start')
             field_DS = field_DS.drop('time_end')
 
-            # Change .bz2 file extension to .nc
-            if 'bz2' in file_name:
-                file_name = file_name[:-3] + 'nc'
+            if file_name.endswith('.nc4'):
+                file_name = file_name.replace('.nc4', '.nc')
 
             output_filename = f'{grid_name}_{field_name}_{file_name}'
             output_path = f'{output_dir}/{dataset_name}/transformed_products/{grid_name}/transformed/{field_name}/'
@@ -429,7 +427,7 @@ def run_in_any_env(model_grid, grid_name, grid_type, fields, factors, ds, record
     # =====================================================
     if pre_transformations:
         for func_to_run in pre_transformations:
-            callable_func = getattr(ea, func_to_run)
+            callable_func = getattr(ecco_functions, func_to_run)
             try:
                 ds = callable_func(ds)
             except Exception as e:
@@ -449,7 +447,7 @@ def run_in_any_env(model_grid, grid_name, grid_type, fields, factors, ds, record
             f'    - Transforming {record_file_name} for field {field_name}')
 
         try:
-            field_DA = generalized_functions.generalized_transform_to_model_grid_solr(data_field_info, record_date, model_grid, grid_type,
+            field_DA = ecco_functions.generalized_transform_to_model_grid_solr(data_field_info, record_date, model_grid, grid_type,
                                                                    array_precision, record_file_name, data_time_scale,
                                                                    extra_information, ds, factors, time_zone_included_with_time,
                                                                    grid_name)
@@ -460,8 +458,7 @@ def run_in_any_env(model_grid, grid_name, grid_type, fields, factors, ds, record
             # =====================================================
             if post_transformations:
                 for func_to_run in post_transformations:
-                    callable_func = getattr(ea, func_to_run)
-
+                    callable_func = getattr(ecco_functions, func_to_run)
                     try:
                         field_DA = callable_func(field_DA, field_name)
                     except Exception as e:

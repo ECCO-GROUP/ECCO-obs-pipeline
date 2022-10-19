@@ -1,16 +1,6 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Sun Jun 21 10:10:13 2020
-
-@author: Ian
-"""
-
 import numpy as np
 
 
-
-
-# %%
 def llc_tiles_to_compact(data_tiles, less_output = False):
     """
 

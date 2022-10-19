@@ -1,15 +1,7 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Sun Jun 21 17:24:13 2020
-
-@author: Ian
-"""
 import xarray as xr
 import numpy as np
-from netCDF4 import default_fillvals
 from pathlib import Path
 from utils.llc_array_conversion import llc_tiles_to_compact
-
 
 
 def make_empty_record(standard_name, long_name, units,
