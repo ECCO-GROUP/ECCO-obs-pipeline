@@ -1,6 +1,5 @@
 import argparse
 import logging
-import logging.config
 import os
 from collections import defaultdict
 from multiprocessing import cpu_count
@@ -13,14 +12,13 @@ import grids_to_solr
 from aggregation import aggregation
 from conf.global_settings import OUTPUT_DIR, SOLR_COLLECTION
 from grid_transformation import check_transformations
-from utils import solr_utils
+from utils import solr_utils, log_config
 
 ###########
 # Perform set up and verify system elements
 ###########
 
-logging.config.fileConfig('logs/log.ini', disable_existing_loggers=False)
-log = logging.getLogger(__name__)
+log_config.configure_logging(False)
 
 # Set package logging level to WARNING
 logging.getLogger("requests").setLevel(logging.WARNING)
@@ -28,24 +26,21 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 # Verify output directory is valid
 if not Path.is_dir(OUTPUT_DIR):
-    print('Missing output directory. Please fill in. Exiting.')
-    log.fatal('Missing output directory. Please fill in. Exiting.')
+    logging.fatal('Missing output directory. Please fill in. Exiting.')
     exit()
-print(f'\nUsing output directory: {OUTPUT_DIR}')
-print(f'\nUsing Solr collection: {SOLR_COLLECTION}')
+
+logging.info(f'Using output directory: {OUTPUT_DIR}')
+logging.info(f'Using Solr collection: {SOLR_COLLECTION}')
 
 # Verify solr is running
 try:
     solr_utils.ping_solr()
 except requests.ConnectionError:
-    print('\nSolr is not currently running! Start Solr and try again.\n')
-    log.fatal('Solr is not currently running! Start Solr and try again.')
+    logging.fatal('Solr is not currently running! Start Solr and try again.')
     exit()
+
 if not solr_utils.core_check():
-    print(
-        f'Solr core {SOLR_COLLECTION} does not exist. Add a core using "bin/solr create -c {{collection_name}}".')
-    log.fatal(
-        f'Solr core {SOLR_COLLECTION} does not exist. Add a core using "bin/solr create -c {{collection_name}}".')
+    logging.fatal(f'Solr core {SOLR_COLLECTION} does not exist. Add a core using "bin/solr create -c {{collection_name}}".')
     exit()
 
 ds_status = defaultdict(list)
@@ -115,8 +110,7 @@ def run_harvester(datasets, output_dir, grids_to_use):
             try:
                 harvester_type = config['harvester_type']
             except:
-                log.exception(
-                    f'Harvester type missing from {ds} config. Exiting.')
+                logging.fatal(f'Harvester type missing from {ds} config. Exiting.')
                 exit()
             if harvester_type == 'cmr':
                 from harvesters.cmr_harvester import harvester
@@ -129,19 +123,16 @@ def run_harvester(datasets, output_dir, grids_to_use):
             elif harvester_type == 'rdeft4':
                 from harvesters.rdeft4_harvester import harvester
             else:
-                print(f'{harvester_type} is not a supported harvester type.')
-                log.exception(
-                    f'{harvester_type} is not a supported harvester type.')
+                logging.fatal(f'{harvester_type} is not a supported harvester type.')
                 exit()
 
             status = harvester(config, output_dir, grids_to_use)
             ds_status[ds].append(status)
-            log.info(f'{ds} harvesting complete. {status}')
+            logging.info(f'{ds} harvesting complete. {status}')
             print('\033[92mHarvest successful\033[0m')
         except Exception as e:
             ds_status[ds].append('Harvesting encountered error.')
-            print(e)
-            log.exception(f'{ds} harvesting failed. {e}')
+            logging.exception(f'{ds} harvesting failed. {e}')
             print('\033[91mHarvesting failed\033[0m')
         print('=========================================================')
 
@@ -164,11 +155,11 @@ def run_transformation(datasets, output_dir, multiprocessing, user_cpus, wipe, g
                                                 wipe, grids_to_use)
             ds_status[ds].append(status)
 
-            log.info(f'{ds} transformation complete. {status}')
+            logging.info(f'{ds} transformation complete. {status}')
             print('\033[92mTransformation successful\033[0m')
         except:
             ds_status[ds].append('Transformation encountered error.')
-            log.exception(f'{ds} transformation failed.')
+            logging.exception(f'{ds} transformation failed.')
             print('\033[91mTransformation failed\033[0m')
         print('=========================================================')
 
@@ -189,11 +180,11 @@ def run_aggregation(datasets, output_dir, grids_to_use):
             status = aggregation(output_dir, config, grids_to_use)
             ds_status[ds].append(status)
 
-            log.info(f'{ds} aggregation complete. {status}')
+            logging.info(f'{ds} aggregation complete. {status}')
             print('\033[92mAggregation successful\033[0m')
         except Exception as e:
             ds_status[ds].append('Aggregation encountered error.')
-            log.info(f'{ds} aggregation failed: {e}')
+            logging.info(f'{ds} aggregation failed: {e}')
             print('\033[91mAggregation failed\033[0m')
         print('=========================================================')
 
@@ -228,14 +219,13 @@ if __name__ == '__main__':
 
             if grids_not_in_solr:
                 for name in grids_not_in_solr:
-                    print(
-                        f'Grid "{name}" not in Solr. Ensure it\'s file name is present in grids_config.yaml and run pipeline with the --grids_to_solr argument')
+                    logging.exception(f'Grid "{name}" not in Solr. Ensure it\'s file name is present in grids_config.yaml and run pipeline with the --grids_to_solr argument')
                 exit()
-            log.debug('Successfully updated grids on Solr.')
+            logging.info('Successfully updated grids on Solr.')
             print('\033[92mgrids_to_solr successful\033[0m')
         except Exception as e:
             print('\033[91mgrids_to_solr failed\033[0m')
-            log.exception(e)
+            logging.exception(e)
         print('=========================================================')
 
     # ------------------- Multiprocessing -------------------
@@ -243,9 +233,9 @@ if __name__ == '__main__':
     user_cpus = args.multiprocesses
 
     if multiprocessing:
-        print(f'Using {user_cpus} processes for multiprocess transformations')
+        logging.debug(f'Using {user_cpus} processes for multiprocess transformations')
     else:
-        print('Using single process transformations')
+        logging.debug('Using single process transformations')
 
     # ------------------- Run pipeline -------------------
     while True:

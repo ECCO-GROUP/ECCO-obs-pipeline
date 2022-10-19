@@ -10,8 +10,6 @@ from netCDF4 import default_fillvals  # pylint: disable=no-name-in-module
 
 from utils import date_time, ecco_functions, records, solr_utils
 
-logging.config.fileConfig('logs/log.ini', disable_existing_loggers=False)
-log = logging.getLogger(__name__)
 np.warnings.filterwarnings('ignore')
 
 def years_to_aggregate(dataset_name, grid_name):
@@ -126,11 +124,8 @@ def aggregation(output_dir, config, grids_to_use=[]):
 
         if not years:
             # If no years to aggregate for this grid, continue to next grid
-            print(f'No updated years to aggregate for {grid_name}')
+            logging.info(f'No updated years to aggregate for {grid_name}')
             continue
-
-        print(
-            f'\nAggregating years {min(years)} to {max(years)} for {grid_name}\n')
 
         model_grid = xr.open_dataset(grid_path, decode_times=True)
 
@@ -155,8 +150,7 @@ def aggregation(output_dir, config, grids_to_use=[]):
 
                 field_name = field['name_s']
 
-                print(
-                    f'\n====== Aggregating {str(year)}_{grid_name}_{field_name} ======\n')
+                logging.info(f'Aggregating {str(year)}_{grid_name}_{field_name}')
 
                 json_output = {}
                 transformations = []
@@ -344,30 +338,23 @@ def aggregation(output_dir, config, grids_to_use=[]):
                 try:
                     # Performs the aggreagtion of the yearly data, and saves it
                     empty_year = ecco_functions.generalized_aggregate_and_save(daily_DS_year_merged,
-                                                                   data_var,
-                                                                   config['do_monthly_aggregation'],
-                                                                   int(year),
-                                                                   config['skipna_in_mean'],
-                                                                   output_filenames,
-                                                                   fill_values,
-                                                                   output_dirs,
-                                                                   binary_dtype,
-                                                                   grid_type,
-                                                                   on_aws=False,
-                                                                   save_binary=config['save_binary'],
+                                                                   data_var, config['do_monthly_aggregation'],
+                                                                   int(year), config['skipna_in_mean'],
+                                                                   output_filenames, fill_values,
+                                                                   output_dirs, binary_dtype, grid_type,
+                                                                   on_aws=False, save_binary=config['save_binary'],
                                                                    save_netcdf=config['save_netcdf'],
                                                                    remove_nan_days_from_data=config[
                                                                        'remove_nan_days_from_data'],
                                                                    data_time_scale=data_time_scale,
                                                                    uuids=uuids)
 
-                    print(
-                        f' - Saving {str(year)}_{grid_name}_{field_name} file(s) DONE')
+                    logging.info(f'Saving {str(year)}_{grid_name}_{field_name} file(s) DONE')
 
                     success = True
 
                 except Exception as e:
-                    log.exception(f'{dataset_name} aggregation error! {e}')
+                    logging.exception(f'Error aggregating {dataset_name}. {e}')
                     empty_year = True
                     success = False
                     solr_output_filepaths = {'daily_bin': '',
@@ -488,8 +475,7 @@ def aggregation(output_dir, config, grids_to_use=[]):
                 r = solr_utils.solr_update(update_body, r=True)
 
                 if r.status_code != 200:
-                    print(
-                        f'Failed to update Solr aggregation entry for {field_name} in {dataset_name} for {year} and grid {grid_name}')
+                    logging.exception(f'Failed to update Solr aggregation entry for {field_name} in {dataset_name} for {year} and grid {grid_name}')
 
                 # Query for descendants entries from this year
                 fq = ['type_s:descendants',
@@ -516,16 +502,14 @@ def aggregation(output_dir, config, grids_to_use=[]):
                         r = solr_utils.solr_update(update_body, r=True)
 
                         if r.status_code != 200:
-                            print(
-                                f'Failed to update Solr aggregation entry for {field_name} in {dataset_name} for {year} and grid {grid_name}')
+                            logging.exception(f'Failed to update Solr aggregation entry for {field_name} in {dataset_name} for {year} and grid {grid_name}')
 
                 fq = [f'dataset_s:{dataset_name}', 'type_s:aggregation',
                       f'grid_name_s:{grid_name}', f'field_s:{field_name}', f'year_s:{year}']
                 docs = solr_utils.solr_query(fq)
 
                 # Export annual descendants JSON file for each aggregation created
-                print(
-                    f' - Exporting {year} descendants for grid {grid_name} and field {field_name}')
+                logging.debug(f'Exporting {year} descendants for grid {grid_name} and field {field_name}')
                 json_output['aggregation'] = docs
                 json_output['transformations'] = transformations
                 json_output_path = f'{output_dir}/{dataset_name}/transformed_products/{grid_name}/aggregated/{field_name}/{dataset_name}_{field_name}_{grid_name}_{year}_descendants'
@@ -564,10 +548,8 @@ def aggregation(output_dir, config, grids_to_use=[]):
     r = solr_utils.solr_update(update_body, r=True)
 
     if r.status_code == 200:
-        print(
-            f'\nSuccessfully updated Solr with aggregation information for {dataset_name}\n')
+        logging.debug(f'Successfully updated Solr with aggregation information for {dataset_name}')
     else:
-        print(
-            f'\nFailed to update Solr dataset entry with aggregation information for {dataset_name}\n')
+        logging.exception(f'Failed to update Solr dataset entry with aggregation information for {dataset_name}')
 
     return aggregation_status

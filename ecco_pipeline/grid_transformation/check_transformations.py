@@ -1,18 +1,17 @@
 import itertools
 import logging
-import logging.config
 import os
 from collections import defaultdict
 from multiprocessing import Pool
 
 import requests
-
+from conf.global_settings import SOLR_COLLECTION, SOLR_HOST
 from utils import solr_utils
-from conf.global_settings import SOLR_HOST, SOLR_COLLECTION
+
 from grid_transformation.grid_transformation import transformation
 
-logging.config.fileConfig('logs/log.ini', disable_existing_loggers=False)
-log = logging.getLogger(__name__)
+# logging.config.fileConfig('logs/log.ini', disable_existing_loggers=False)
+# log = logging.getLogger(__name__)
 
 
 def get_remaining_transformations(config, granule_file_path, grids):
@@ -137,7 +136,7 @@ def multiprocess_transformation(granule, config, output_path, grids):
 
     # Skips granules that weren't harvested properly
     if f == '':
-        print("ERROR - pre transformation path doesn't exist")
+        logging.exception("pre transformation path doesn't exist")
         return ('', '')
 
     # Get transformations to be completed for this file
@@ -146,12 +145,11 @@ def multiprocess_transformation(granule, config, output_path, grids):
     # Perform remaining transformations
     if remaining_transformations:
         grids_updated, year = transformation(
-            f, remaining_transformations, output_path, config, verbose=False)
+            f, remaining_transformations, output_path, config)
 
         return (grids_updated, year)
     else:
-        print(
-            f' - CPU id {os.getpid()} no new transformations for {granule["filename_s"]}')
+        logging.debug(f'CPU id {os.getpid()} no new transformations for {granule["filename_s"]}')
         return ('', '')
 
 
@@ -170,8 +168,7 @@ def main(config, output_path, multiprocessing=False, user_cpus=1, wipe=False, gr
         os.makedirs(output_path)
 
     if wipe:
-        print(
-            'Removing transformations with out of sync version numbers from Solr and disk')
+        logging.info('Removing transformations with out of sync version numbers from Solr and disk')
         delete_mismatch_transformations(config)
 
     # Get all harvested granules for this dataset
@@ -193,8 +190,11 @@ def main(config, output_path, multiprocessing=False, user_cpus=1, wipe=False, gr
         # PRE GENERATE FACTORS TO ACCOMODATE MULTIPROCESSING
         # Query for dataset metadata
         fq = [f'dataset_s:{dataset_name}', 'type_s:dataset']
-        dataset_metadata = solr_utils.solr_query(fq)[0]
-
+        try:
+            dataset_metadata = solr_utils.solr_query(fq)[0]
+        except:
+            logging.exception(f'No dataset found in solr for {dataset_name}')
+            exit()
         # Precompute grid factors using one dataset data file
         # (or one from each hemisphere, if data is hemispherical) before running main loop
         data_for_factors = []
@@ -242,7 +242,7 @@ def main(config, output_path, multiprocessing=False, user_cpus=1, wipe=False, gr
                 config, file_path, grids)
 
             grids_updated, year = transformation(
-                file_path, remaining_transformations, output_path, config, verbose=True)
+                file_path, remaining_transformations, output_path, config)
 
             for grid in grids_updated:
                 if year not in years_updated[grid]:
@@ -256,10 +256,10 @@ def main(config, output_path, multiprocessing=False, user_cpus=1, wipe=False, gr
 
         grid_years_list = []
 
-        print('\nUSING MULTIPROCESSING. LOW VERBOSITY FOR TRANSFORMATIONS.\n')
+        logging.debug('Using multiprocessing for transformations.')
 
         # for grid in grids:
-        print(f'Running transformations for {grids} grids\n')
+        logging.info(f'Running transformations for {grids} grids')
 
         with Pool(processes=user_cpus) as pool:
             grid_years_list = pool.starmap(
@@ -280,7 +280,7 @@ def main(config, output_path, multiprocessing=False, user_cpus=1, wipe=False, gr
 
             # Skips granules that weren't harvested properly
             if f == '':
-                print("ERROR - pre transformation path doesn't exist")
+                logging.exception("pre transformation path doesn't exist")
                 continue
 
             # Get transformations to be completed for this file
@@ -290,7 +290,7 @@ def main(config, output_path, multiprocessing=False, user_cpus=1, wipe=False, gr
             # Perform remaining transformations
             if remaining_transformations:
                 grids_updated, year = transformation(
-                    f, remaining_transformations, output_path, config, verbose=True)
+                    f, remaining_transformations, output_path, config)
 
                 for grid in grids_updated:
                     if grid in years_updated.keys():
@@ -299,8 +299,7 @@ def main(config, output_path, multiprocessing=False, user_cpus=1, wipe=False, gr
                     else:
                         years_updated[grid] = [year]
             else:
-                print(
-                    f' - CPU id {os.getpid()} no new transformations for {granule["filename_s"]}')
+                logging.debug(f'CPU id {os.getpid()} no new transformations for {granule["filename_s"]}')
 
     # Query Solr for dataset metadata
     fq = [f'dataset_s:{dataset_name}', 'type_s:dataset']
@@ -334,11 +333,9 @@ def main(config, output_path, multiprocessing=False, user_cpus=1, wipe=False, gr
     r = solr_utils.solr_update(update_body, r=True)
 
     if r.status_code == 200:
-        print(
-            f'\nSuccessfully updated Solr with transformation information for {dataset_name}\n')
+        logging.debug(f'Successfully updated Solr with transformation information for {dataset_name}')
     else:
-        print(
-            f'\nFailed to update Solr with transformation information for {dataset_name}\n')
+        logging.exception(f'Failed to update Solr with transformation information for {dataset_name}')
 
     return transformation_status
 
