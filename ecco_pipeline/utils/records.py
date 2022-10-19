@@ -1,16 +1,7 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Sun Jun 21 17:24:13 2020
-
-@author: Ian
-"""
 import xarray as xr
 import numpy as np
-from netCDF4 import default_fillvals
 from pathlib import Path
-from .llc_array_conversion import llc_tiles_to_compact
-
-# %%
+from utils.llc_array_conversion import llc_tiles_to_compact
 
 
 def make_empty_record(standard_name, long_name, units,
@@ -108,8 +99,6 @@ def make_empty_record(standard_name, long_name, units,
     data_DA.name = 'Default empty model grid record'
 
     return data_DA
-
-# %%
 
 
 def save_to_disk(data,
@@ -222,5 +211,3 @@ def save_to_disk(data,
         # the actual saving (so easy with xarray!)
         data_DS.to_netcdf(netcdf_output_filename,  encoding=encoding)
         data_DS.close()
-
-# %%

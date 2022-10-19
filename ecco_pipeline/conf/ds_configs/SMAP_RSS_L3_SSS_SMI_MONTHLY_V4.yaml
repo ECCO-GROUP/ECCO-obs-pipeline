@@ -1,13 +1,15 @@
 ds_name: SMAP_RSS_L3_SSS_SMI_MONTHLY_V4 # Name for dataset
-start: "19800101T00:00:00Z" # yyyymmddThh:mm:ssZ
-end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
+start: "20150101T00:00:00Z" # yyyymmddThh:mm:ssZ
+end: "20150601T00:00:00Z" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 date_regex: "%Y-%m-%dT%H:%M:%SZ" # does not change
 
 # Provider specifications
-harvester_type: podaac
-host: https://podaac.jpl.nasa.gov/ws/search/granule/?format=atom&pretty=false&itemsPerPage=300000 # does not change
-user: anonymous # does not change
-podaac_id: "PODAAC-SMP40-3SMCS"
+harvester_type: cmr
+cmr_short_name: "SMAP_RSS_L3_SSS_SMI_MONTHLY_V4"
+cmr_version: "4.0"
+regex: '\d{4}_\d{2}'
+filename_date_fmt: '%Y_%m'
+provider: 'archive.podaac'
 
 # Metadata
 aggregated: false # if data is available aggregated

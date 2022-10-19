@@ -1,17 +1,6 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Sun Jun 21 19:28:40 2020
-
-@author: Ian
-"""
 import numpy as np
 import pyresample as pr
 
-
-# %%
-
-
-# %%
 def transform_to_target_grid(source_indices_within_target_radius_i,
                              num_source_indices_within_target_radius_i,
                              nearest_source_index_to_target_index_i,
@@ -74,7 +63,6 @@ def transform_to_target_grid(source_indices_within_target_radius_i,
     return source_on_target_grid
 
 
-# %%
 def find_mappings_from_source_to_target(source_grid, target_grid,
                                         target_grid_radius,
                                         source_grid_min_L, source_grid_max_L,

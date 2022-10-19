@@ -1,6 +1,5 @@
 import json
 import logging
-import sys
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -8,18 +7,12 @@ from pathlib import Path
 import numpy as np
 import xarray as xr
 from netCDF4 import default_fillvals  # pylint: disable=no-name-in-module
-from utils import solr_utils
+
+from utils import date_time, ecco_functions, records, solr_utils
 
 logging.config.fileConfig('logs/log.ini', disable_existing_loggers=False)
 log = logging.getLogger(__name__)
 np.warnings.filterwarnings('ignore')
-
-try:
-    sys.path.append(str(Path('../ecco-cloud-utils/').resolve()))
-    import ecco_cloud_utils as ea  # pylint: disable=import-error
-except Exception as e:
-    log.exception(e)
-
 
 def years_to_aggregate(dataset_name, grid_name):
 
@@ -63,13 +56,6 @@ def aggregation(output_dir, config, grids_to_use=[]):
     """
     Aggregates data into annual files, saves them, and updates Solr
     """
-
-    # =====================================================
-    # Code to import ecco utils locally...
-    # =====================================================
-    sys.path.append('../ecco-cloud-utils/')
-    import ecco_cloud_utils as ea  # pylint: disable=import-error
-
     # =====================================================
     # Set configuration options and Solr metadata
     # =====================================================
@@ -262,7 +248,7 @@ def aggregation(output_dir, config, grids_to_use=[]):
                         data_DS = opened_datasets[0][0]
                         data_var = opened_datasets[0][1]
                     else:
-                        data_DA = ea.make_empty_record(
+                        data_DA = records.make_empty_record(
                             field['standard_name_s'], field['long_name_s'], field['units_s'], date, model_grid, grid_type, array_precision)
                         data_DA.name = data_var
 
@@ -286,7 +272,7 @@ def aggregation(output_dir, config, grids_to_use=[]):
                             end_time = data_DS.time_end.values + \
                                 np.timedelta64(1, 'D')
 
-                        _, ct = ea.make_time_bounds_from_ds64(
+                        _, ct = date_time.make_time_bounds_from_ds64(
                             np.datetime64(end_time[0], 'ns'), 'AVG_MON')
                         data_DS.time.values[0] = ct
 
@@ -357,7 +343,7 @@ def aggregation(output_dir, config, grids_to_use=[]):
 
                 try:
                     # Performs the aggreagtion of the yearly data, and saves it
-                    empty_year = ea.generalized_aggregate_and_save(daily_DS_year_merged,
+                    empty_year = ecco_functions.generalized_aggregate_and_save(daily_DS_year_merged,
                                                                    data_var,
                                                                    config['do_monthly_aggregation'],
                                                                    int(year),

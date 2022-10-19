@@ -4,7 +4,7 @@ end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 date_regex: "%Y-%m-%dT%H:%M:%SZ" # does not change
 
 # Provider specifications
-harvester_type: cmr
+harvester_type: rdeft4
 cmr_short_name: "RDEFT4"
 cmr_version: "1"
 regex: '\d{8}'
