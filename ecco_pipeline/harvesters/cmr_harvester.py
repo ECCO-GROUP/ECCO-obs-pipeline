@@ -1,22 +1,14 @@
 import base64
-import itertools
 import json
 import logging
-import netrc
 import os
-import re
 import ssl
 import sys
 from datetime import datetime
-from pathlib import Path
-from urllib.error import HTTPError
-from urllib.parse import urlparse
 from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
-from xml.etree.ElementTree import fromstring
 
-import numpy as np
 import requests
-from utils import file_utils, solr_utils, date_time
+from utils import file_utils, solr_utils
 
 logging.config.fileConfig('logs/log.ini', disable_existing_loggers=False)
 log = logging.getLogger(__name__)
@@ -37,46 +29,17 @@ CMR_FILE_URL = ('{0}/search/granules.json?'
 
 
 def get_credentials(url):
-    """Get user credentials from .netrc or prompt for input."""
-    credentials = None
-    errprefix = ''
-
-    username = None
-    password = None
-
-    while not credentials:
-        if not username:
-            username = 'ecco_access'  # hardcoded username
-            password = 'ECCOAccess1'  # hardcoded password
-        credentials = '{0}:{1}'.format(username, password)
-
-        credentials = base64.b64encode(
-            credentials.encode('utf-8')).decode()
-
+    username = 'ecco_access'
+    password = 'ECCOAccess1'
+    credentials = f'{username}:{password}'
+    credentials = base64.b64encode(credentials.encode('utf-8')).decode()
     return credentials
 
 
-def build_version_query_params(version):
-    desired_pad_length = 3
-    if len(version) > desired_pad_length:
-        print('Version string too long: "{0}"'.format(version))
-        quit()
-
-    version = str(int(version))  # Strip off any leading zeros
-    query_params = ''
-
-    while len(version) <= desired_pad_length:
-        padded_version = version.zfill(desired_pad_length)
-        query_params += '&version={0}'.format(padded_version)
-        desired_pad_length -= 1
-    return query_params
-
-
-def build_cmr_query_url(short_name, version, time_start, time_end,
+def build_cmr_query_url(short_name, time_start, time_end,
                         bounding_box=None, polygon=None,
                         filename_filter=None):
     params = '&short_name={0}'.format(short_name)
-    # params += build_version_query_params(version)
     params += '&temporal[]={0},{1}'.format(time_start, time_end)
     if polygon:
         params += '&polygon={0}'.format(polygon)
@@ -89,7 +52,7 @@ def build_cmr_query_url(short_name, version, time_start, time_end,
     return CMR_FILE_URL + params
 
 
-def cmr_filter_urls(search_results):
+def cmr_filter_urls(search_results, provider):
     """Select only the desired data files from CMR response."""
     if 'feed' not in search_results or 'entry' not in search_results['feed']:
         return []
@@ -103,38 +66,34 @@ def cmr_filter_urls(search_results):
     for link_list, id in zip(entries, ids):
         for link in link_list:
             if 'href' not in link:
-                # Exclude links with nothing to download
                 continue
             if 'inherited' in link and link['inherited'] is True:
-                # Why are we excluding these links?
                 continue
-            if 'rel' in link and 'data#' not in link['rel']:
-                # Exclude links which are not classified by CMR as "data" or "metadata"
+            if provider not in link['href']:
                 continue
 
-            if 'title' in link and 'opendap' in link['title'].lower():
-                # Exclude OPeNDAP links--they are responsible for many duplicates
-                # This is a hack; when the metadata is updated to properly identify
-                # non-datapool links, we should be able to do this in a non-hack way
-                continue
+            if link['href'].endswith('.html'):
+                link['href'] = link['href'].replace('.html', '.nc4')
 
             filename = link['href'].split('/')[-1]
-            if 'md5' in filename:
+
+            if 'md5' in filename or 'tif' in filename or 'txt' in filename:
                 continue
             if 's3credentials' in filename:
                 continue
             if filename in unique_filenames:
-                # Exclude links with duplicate filenames (they would overwrite)
                 continue
+
             unique_filenames.add(filename)
+            
             urls.append((link['href'], id))
     return urls
 
 
-def cmr_search(short_name, version, time_start, time_end,
+def cmr_search(short_name, provider, time_start, time_end,
                bounding_box='', polygon='', filename_filter=''):
     """Perform a scrolling CMR query for files matching input criteria."""
-    cmr_query_url = build_cmr_query_url(short_name=short_name, version=version,
+    cmr_query_url = build_cmr_query_url(short_name=short_name,
                                         time_start=time_start, time_end=time_end,
                                         bounding_box=bounding_box,
                                         polygon=polygon, filename_filter=filename_filter)
@@ -158,7 +117,7 @@ def cmr_search(short_name, version, time_start, time_end,
 
             search_page = response.read()
             search_page = json.loads(search_page.decode('utf-8'))
-            url_scroll_results = cmr_filter_urls(search_page)
+            url_scroll_results = cmr_filter_urls(search_page, provider)
             if not url_scroll_results:
                 break
             if hits > CMR_PAGE_SIZE:
@@ -171,15 +130,6 @@ def cmr_search(short_name, version, time_start, time_end,
         return urls
     except KeyboardInterrupt:
         quit()
-
-
-def getdate(regex, fname):
-
-    ex = re.compile(regex)
-    match = re.search(ex, fname)
-    date = match.group()
-    return date
-
 
 def harvester(config, output_path, grids_to_use=[]):
     """
@@ -200,7 +150,7 @@ def harvester(config, output_path, grids_to_use=[]):
     data_time_scale = config['data_time_scale']
 
     if end_time == 'NOW':
-        end_time = datetime.utcnow().strftime(date_regex)
+        end_time = datetime.utcnow().strftime('%Y%m%dT%H:%M:%SZ')
 
     target_dir = f'{output_path}/{dataset_name}/harvested_granules/'
 
@@ -252,7 +202,8 @@ def harvester(config, output_path, grids_to_use=[]):
     # Setup EDSC loop variables
     # =====================================================
     short_name = config['cmr_short_name']
-    version = config['cmr_version']
+    provider = config.get('provider')
+    filename_date_fmt = config['filename_date_fmt']
 
     item = {}
 
@@ -261,14 +212,14 @@ def harvester(config, output_path, grids_to_use=[]):
     start_string = datetime.strftime(start_time_dt, "%Y-%m-%dT00:00:00Z")
     end_string = datetime.strftime(end_time_dt, "%Y-%m-%dT00:00:00Z")
 
-    url_list = cmr_search(short_name, version, start_string, end_string)
+    url_list = cmr_search(short_name, provider, start_string, end_string)
 
     for url, id in url_list:
         # Date in filename is end date of 30 day period
         filename = url.split('/')[-1]
 
-        date = getdate(regex, filename)
-        dt = datetime.strptime(date, "%Y%m%d")
+        date = file_utils.get_date(regex, filename)
+        dt = datetime.strptime(date, filename_date_fmt)
         new_date_format = datetime.strftime(dt, "%Y-%m-%dT00:00:00Z")
         
         year = new_date_format[:4]
@@ -280,7 +231,6 @@ def harvester(config, output_path, grids_to_use=[]):
 
         # Extract metadata from xml file associated with .nc file
         meta_url = f'https://cmr.earthdata.nasa.gov/search/concepts/{id}.json'
-
         r = requests.get(meta_url)
         meta = r.json()
         modified_time = datetime.strptime(f'{meta["updated"].split(".")[0]}Z', time_format)   
@@ -314,7 +264,6 @@ def harvester(config, output_path, grids_to_use=[]):
                     # If file doesn't exist locally, download it
                     if not os.path.exists(local_fp):
                         print(f' - Downloading {filename} to {local_fp}')
-
                         credentials = get_credentials(url)
                         req = Request(url)
                         req.add_header('Authorization',

@@ -1,6 +1,6 @@
 ds_name: SEA_SURFACE_HEIGHT_ALT_GRIDS_L4_2SATS_5DAY_6THDEG_V_JPL1812 # Name for dataset
 start: "20000101T00:00:00Z" # yyyymmddThh:mm:ssZ
-end: "20000201T00:00:00Z" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
+end: "20000301T00:00:00Z" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 date_regex: "%Y-%m-%dT%H:%M:%SZ" # does not change
 
 # Provider specifications
@@ -8,6 +8,9 @@ harvester_type: cmr
 cmr_short_name: "SEA_SURFACE_HEIGHT_ALT_GRIDS_L4_2SATS_5DAY_6THDEG_V_JPL1812"
 cmr_version: "1812"
 regex: '\d{8}'
+filename_date_fmt: '%Y%m%d'
+provider: 'archive.podaac'
+
 # Metadata
 aggregated: false # if data is available aggregated
 data_time_scale: "daily" # daily or monthly

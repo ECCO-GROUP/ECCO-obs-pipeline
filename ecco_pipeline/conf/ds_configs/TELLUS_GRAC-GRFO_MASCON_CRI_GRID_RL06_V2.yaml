@@ -4,10 +4,12 @@ end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 date_regex: "%Y-%m-%dT%H:%M:%SZ" # does not change
 
 # Provider specifications
-harvester_type: "podaac"
-host: https://podaac.jpl.nasa.gov/ws/search/granule/?format=atom&pretty=false&itemsPerPage=300000 # does not change
-user: anonymous # does not change
-podaac_id: "PODAAC-TEMSC-3JC62"
+harvester_type: cmr
+cmr_short_name: "TELLUS_GRAC-GRFO_MASCON_CRI_GRID_RL06_V2"
+cmr_version: "02"
+regex: '\d{6}'
+filename_date_fmt: '%Y%m'
+provider: 'archive.podaac'
 
 # Metadata
 aggregated: true # if data is available aggregated

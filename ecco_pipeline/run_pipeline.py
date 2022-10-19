@@ -6,14 +6,14 @@ from collections import defaultdict
 from multiprocessing import cpu_count
 from pathlib import Path
 
-from conf.global_settings import OUTPUT_DIR, SOLR_COLLECTION
-import grids_to_solr
-from grid_transformation import grid_transformation_local
-from aggregation import aggregation
-from utils import solr_utils
-
 import requests
 import yaml
+
+import grids_to_solr
+from aggregation import aggregation
+from conf.global_settings import OUTPUT_DIR, SOLR_COLLECTION
+from grid_transformation import grid_transformation_local
+from utils import solr_utils
 
 ###########
 # Perform set up and verify system elements
@@ -120,14 +120,14 @@ def run_harvester(datasets, output_dir, grids_to_use):
                 exit()
             if harvester_type == 'cmr':
                 from harvesters.cmr_harvester import harvester
-            elif harvester_type == 'podaac':
-                from harvesters.podaac_harvester import harvester
             elif harvester_type == 'osisaf_ftp':
                 from harvesters.osisaf_ftp_harvester import harvester
             elif harvester_type == 'nsidc_ftp':
                 from harvesters.nsidc_ftp_harvester import harvester
             elif harvester_type == 'ifremer_ftp':
                 from harvesters.ifremer_ftp_harvester import harvester
+            elif harvester_type == 'rdeft4':
+                from harvesters.rdeft4_harvester import harvester
             else:
                 print(f'{harvester_type} is not a supported harvester type.')
                 log.exception(
