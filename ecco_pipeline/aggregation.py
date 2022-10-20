@@ -6,7 +6,8 @@ from pathlib import Path
 
 import numpy as np
 import xarray as xr
-from netCDF4 import default_fillvals  # pylint: disable=no-name-in-module
+from conf.global_settings import OUTPUT_DIR
+import netCDF4 as nc4
 
 from utils import date_time, ecco_functions, records, solr_utils
 
@@ -50,7 +51,7 @@ def years_to_aggregate(dataset_name, grid_name):
     return years
 
 
-def aggregation(output_dir, config, grids_to_use=[]):
+def aggregation(config, grids_to_use=[]):
     """
     Aggregates data into annual files, saves them, and updates Solr
     """
@@ -92,11 +93,11 @@ def aggregation(output_dir, config, grids_to_use=[]):
     # Define fill values for binary and netcdf
     if array_precision == np.float32:
         binary_dtype = '>f4'
-        netcdf_fill_value = default_fillvals['f4']
+        netcdf_fill_value = nc4.default_fillvals['f4']
 
     elif array_precision == np.float64:
         binary_dtype = '>f8'
-        netcdf_fill_value = default_fillvals['f8']
+        netcdf_fill_value = nc4.default_fillvals['f8']
 
     fill_values = {'binary': -9999, 'netcdf': netcdf_fill_value}
 
@@ -315,7 +316,7 @@ def aggregation(output_dir, config, grids_to_use=[]):
                 output_filenames = {'shortest': shortest_filename,
                                     'monthly': monthly_filename}
 
-                output_path = f'{output_dir}/{dataset_name}/transformed_products/{grid_name}/aggregated/{field_name}/'
+                output_path = f'{OUTPUT_DIR}/{dataset_name}/transformed_products/{grid_name}/aggregated/{field_name}/'
 
                 bin_output_dir = Path(output_path) / 'bin'
                 bin_output_dir.mkdir(parents=True, exist_ok=True)
@@ -512,7 +513,7 @@ def aggregation(output_dir, config, grids_to_use=[]):
                 logging.debug(f'Exporting {year} descendants for grid {grid_name} and field {field_name}')
                 json_output['aggregation'] = docs
                 json_output['transformations'] = transformations
-                json_output_path = f'{output_dir}/{dataset_name}/transformed_products/{grid_name}/aggregated/{field_name}/{dataset_name}_{field_name}_{grid_name}_{year}_descendants'
+                json_output_path = f'{OUTPUT_DIR}/{dataset_name}/transformed_products/{grid_name}/aggregated/{field_name}/{dataset_name}_{field_name}_{grid_name}_{year}_descendants'
                 with open(json_output_path, 'w') as f:
                     resp_out = json.dumps(json_output, indent=4)
                     f.write(resp_out)

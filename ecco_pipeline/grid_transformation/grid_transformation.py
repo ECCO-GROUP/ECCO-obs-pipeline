@@ -7,12 +7,13 @@ from pathlib import Path
 import numpy as np
 import pyresample as pr
 import xarray as xr
-from netCDF4 import default_fillvals  # pylint: disable=no-name-in-module
+import netCDF4 as nc4
 from utils import file_utils, solr_utils, ecco_functions, records, date_time, mapping
+from conf.global_settings import OUTPUT_DIR
 
 np.warnings.filterwarnings('ignore')
 
-def transformation(source_file_path, remaining_transformations, output_dir, config):
+def transformation(source_file_path, remaining_transformations, config):
     """
     Performs and saves locally all remaining transformations for a given source granule
     Updates Solr with transformation entries and updates descendants, and dataset entries
@@ -24,11 +25,11 @@ def transformation(source_file_path, remaining_transformations, output_dir, conf
     # Define fill values for binary and netcdf
     if array_precision == np.float32:
         binary_dtype = '>f4'
-        netcdf_fill_value = default_fillvals['f4']
+        netcdf_fill_value = nc4.default_fillvals['f4']
 
     elif array_precision == np.float64:
         binary_dtype = '>f8'
-        netcdf_fill_value = default_fillvals['f8']
+        netcdf_fill_value = nc4.default_fillvals['f8']
 
     fill_values = {'binary': -9999, 'netcdf': netcdf_fill_value}
 
@@ -174,7 +175,7 @@ def transformation(source_file_path, remaining_transformations, output_dir, conf
                        nearest_source_index_to_target_index_i)
 
             logging.debug(f' - Saving {grid_name} factors')
-            factors_path = f'{output_dir}/{dataset_name}/transformed_products/{grid_name}/'
+            factors_path = f'{OUTPUT_DIR}/{dataset_name}/transformed_products/{grid_name}/'
 
             # Create directory if needed and save factors
             if not os.path.exists(factors_path):
@@ -308,7 +309,7 @@ def transformation(source_file_path, remaining_transformations, output_dir, conf
                 file_name = file_name.replace('.nc4', '.nc')
 
             output_filename = f'{grid_name}_{field_name}_{file_name}'
-            output_path = f'{output_dir}/{dataset_name}/transformed_products/{grid_name}/transformed/{field_name}/'
+            output_path = f'{OUTPUT_DIR}/{dataset_name}/transformed_products/{grid_name}/transformed/{field_name}/'
             transformed_location = f'{output_path}{output_filename}'
 
             Path(output_path).mkdir(parents=True, exist_ok=True)

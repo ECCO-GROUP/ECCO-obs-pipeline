@@ -8,18 +8,14 @@ import re
 import ssl
 import sys
 from datetime import datetime
-from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import urlparse
 from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 from xml.etree.ElementTree import fromstring
 
 import numpy as np
-import requests
 from utils import file_utils, solr_utils, date_time
 
-logging.config.fileConfig('logs/log.ini', disable_existing_loggers=False)
-log = logging.getLogger(__name__)
 
 """
 CMR code comes from downloadable Python script found here: https://nsidc.org/data/RDEFT4
@@ -47,7 +43,7 @@ def get_credentials(url):
         errprefix = 'netrc error: '
     except Exception as e:
         if (not ('No such file' in str(e))):
-            print('netrc error: {0}'.format(str(e)))
+            logging.exception('netrc error: {0}'.format(str(e)))
         username = None
         password = None
 
@@ -67,7 +63,7 @@ def get_credentials(url):
                 opener = build_opener(HTTPCookieProcessor())
                 opener.open(req)
             except HTTPError:
-                print(errprefix + 'Incorrect username or password')
+                logging.exception(errprefix + 'Incorrect username or password')
                 errprefix = ''
                 credentials = None
                 username = None
@@ -79,7 +75,7 @@ def get_credentials(url):
 def build_version_query_params(version):
     desired_pad_length = 3
     if len(version) > desired_pad_length:
-        print('Version string too long: "{0}"'.format(version))
+        logging.exception('Version string too long: "{0}"'.format(version))
         quit()
 
     version = str(int(version))  # Strip off any leading zeros
@@ -161,7 +157,7 @@ def cmr_search(short_name, version, time_start, time_end,
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
-    print(cmr_query_url)
+
     try:
         urls = []
         while True:
@@ -181,13 +177,8 @@ def cmr_search(short_name, version, time_start, time_end,
             url_scroll_results = cmr_filter_urls(search_page)
             if not url_scroll_results:
                 break
-            if hits > CMR_PAGE_SIZE:
-                print('.', end='')
-                sys.stdout.flush()
             urls += url_scroll_results
 
-        if hits > CMR_PAGE_SIZE:
-            print()
         return urls
     except KeyboardInterrupt:
         quit()
@@ -236,7 +227,7 @@ def harvester(config, output_path, grids_to_use=[]):
 
 
     solr_utils.clean_solr(config, grids_to_use)
-    print(f'Downloading {dataset_name} files to {target_dir}\n')
+    logging.info(f'Downloading {dataset_name} files to {target_dir}')
 
     # =====================================================
     # Pull existing entries from Solr
@@ -394,7 +385,7 @@ def harvester(config, output_path, grids_to_use=[]):
                     if updating:
                         # If file doesn't exist locally, download it
                         if not os.path.exists(local_fp):
-                            print(f' - Downloading {filename} to {local_fp}')
+                            logging.info(f'Downloading {filename} to {local_fp}')
 
                             credentials = get_credentials(url)
                             req = Request(url)
@@ -406,8 +397,7 @@ def harvester(config, output_path, grids_to_use=[]):
 
                         # If file exists locally, but is out of date, download it
                         elif str(datetime.fromtimestamp(os.path.getmtime(local_fp))) <= modified_time:
-                            print(
-                                f' - Updating {filename} and downloading to {local_fp}')
+                            logging.info(f'Updating {filename} and downloading to {local_fp}')
 
                             credentials = get_credentials(url)
                             req = Request(url)
@@ -418,8 +408,7 @@ def harvester(config, output_path, grids_to_use=[]):
                             open(local_fp, 'wb').write(data)
 
                         else:
-                            print(
-                                f' - {filename} already downloaded and up to date')
+                            logging.debug(f'{filename} already downloaded and up to date')
 
                         if filename in docs.keys():
                             item['id'] = docs[filename]['id']
@@ -431,13 +420,12 @@ def harvester(config, output_path, grids_to_use=[]):
                         item['file_size_l'] = os.path.getsize(local_fp)
 
                     else:
-                        print(
-                            f' - {filename} already downloaded and up to date')
+                        logging.debug(f'{filename} already downloaded and up to date')
 
                 except Exception as e:
-                    print('error', e)
+                    logging.exception('error', e)
                     if updating:
-                        print(f'    - {filename} failed to download')
+                        logging.debug(f'{filename} failed to download')
 
                         item['harvest_success_b'] = False
                         item['filename'] = ''
@@ -468,16 +456,16 @@ def harvester(config, output_path, grids_to_use=[]):
                     # store meta for last successful download
                     last_success_item = item
 
-    print(f'\nDownloading {dataset_name} complete\n')
+    logging.info(f'Downloading {dataset_name} complete')
 
     # Only update Solr harvested entries if there are fresh downloads
     if entries_for_solr:
         # Update Solr with downloaded granule metadata entries
         r = solr_utils.solr_update(entries_for_solr, r=True)
         if r.status_code == 200:
-            print('Successfully created or updated Solr harvested documents')
+            logging.debug('Successfully created or updated Solr harvested documents')
         else:
-            print('Failed to create Solr harvested documents')
+            logging.exception('Failed to create Solr harvested documents')
 
     # Query for Solr failed harvest documents
     fq = ['type_s:granule',
@@ -542,9 +530,9 @@ def harvester(config, output_path, grids_to_use=[]):
         r = solr_utils.solr_update([ds_meta], r=True)
 
         if r.status_code == 200:
-            print('Successfully created Solr dataset document')
+            logging.debug('Successfully created Solr dataset document')
         else:
-            print('Failed to create Solr dataset document')
+            logging.exception('Failed to create Solr dataset document')
 
         # If the dataset entry needs to be created, so do the field entries
 
@@ -577,9 +565,9 @@ def harvester(config, output_path, grids_to_use=[]):
             r = solr_utils.solr_update(body, r=True)
 
             if r.status_code == 200:
-                print('Successfully created Solr field documents')
+                logging.debug('Successfully created Solr field documents')
             else:
-                print('Failed to create Solr field documents')
+                logging.exception('Failed to create Solr field documents')
 
     # if dataset entry exists, update download time, converage start date, coverage end date
     else:
@@ -613,7 +601,7 @@ def harvester(config, output_path, grids_to_use=[]):
         r = solr_utils.solr_update([update_doc], r=True)
 
         if r.status_code == 200:
-            print('Successfully updated Solr dataset document\n')
+            logging.debug('Successfully updated Solr dataset document')
         else:
-            print('Failed to update Solr dataset document\n')
+            logging.exception('Failed to update Solr dataset document')
     return harvest_status
