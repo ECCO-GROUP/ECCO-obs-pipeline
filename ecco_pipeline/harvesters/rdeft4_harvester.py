@@ -6,7 +6,6 @@ import netrc
 import os
 import re
 import ssl
-import sys
 from datetime import datetime
 from urllib.error import HTTPError
 from urllib.parse import urlparse
@@ -14,6 +13,7 @@ from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 from xml.etree.ElementTree import fromstring
 
 import numpy as np
+from conf.global_settings import OUTPUT_DIR
 from utils import file_utils, solr_utils, date_time
 
 
@@ -192,7 +192,7 @@ def getdate(regex, fname):
     return date
 
 
-def harvester(config, output_path, grids_to_use=[]):
+def harvester(config, grids_to_use=[]):
     """
     Uses CMR search to find granules within date range given in harvester_config.yaml.
     Creates (or updates) Solr entries for dataset, harvested granule, fields,
@@ -213,7 +213,7 @@ def harvester(config, output_path, grids_to_use=[]):
     if end_time == 'NOW':
         end_time = datetime.utcnow().strftime(date_regex)
 
-    target_dir = f'{output_path}/{dataset_name}/harvested_granules/'
+    target_dir = f'{OUTPUT_DIR}/{dataset_name}/harvested_granules/'
 
     time_format = "%Y-%m-%dT%H:%M:%SZ"
     entries_for_solr = []

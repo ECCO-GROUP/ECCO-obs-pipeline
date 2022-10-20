@@ -8,6 +8,7 @@ from datetime import datetime
 from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
 import requests
+from conf.global_settings import OUTPUT_DIR
 from utils import file_utils, solr_utils
 
 
@@ -19,7 +20,7 @@ CMR_FILE_URL = ('{0}/search/granules.json?'
                 '&scroll=true&page_size={1}'.format(CMR_URL, CMR_PAGE_SIZE))
 
 
-def get_credentials(url):
+def get_credentials():
     username = 'ecco_access'
     password = 'ECCOAccess1'
     credentials = f'{username}:{password}'
@@ -122,7 +123,7 @@ def cmr_search(short_name, provider, time_start, time_end,
     except KeyboardInterrupt:
         quit()
 
-def harvester(config, output_path, grids_to_use=[]):
+def harvester(config, grids_to_use=[]):
     """
     Uses CMR search to find granules within date range given in harvester_config.yaml.
     Creates (or updates) Solr entries for dataset, harvested granule, fields,
@@ -143,7 +144,7 @@ def harvester(config, output_path, grids_to_use=[]):
     if end_time == 'NOW':
         end_time = datetime.utcnow().strftime('%Y%m%dT%H:%M:%SZ')
 
-    target_dir = f'{output_path}/{dataset_name}/harvested_granules/'
+    target_dir = f'{OUTPUT_DIR}/{dataset_name}/harvested_granules/'
 
     time_format = "%Y-%m-%dT%H:%M:%SZ"
     entries_for_solr = []
@@ -334,6 +335,8 @@ def harvester(config, output_path, grids_to_use=[]):
             logging.debug('Successfully created or updated Solr harvested documents')
         else:
             logging.exception('Failed to create Solr harvested documents')
+    else:
+        logging.debug('No downloads required.')
 
     # Query for Solr failed harvest documents
     fq = ['type_s:granule',

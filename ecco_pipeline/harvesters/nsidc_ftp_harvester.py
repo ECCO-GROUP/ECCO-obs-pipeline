@@ -5,10 +5,10 @@ from ftplib import FTP
 
 import numpy as np
 from dateutil import parser
-
+from conf.global_settings import OUTPUT_DIR
 from utils import file_utils, solr_utils
 
-def harvester(config, output_path, grids_to_use=[]):
+def harvester(config, grids_to_use=[]):
     """
     Pulls data files for NSIDC FTP id and date range given in harvester_config.yaml.
     Creates (or updates) Solr entries for dataset, harvested granule, fields,
@@ -28,7 +28,7 @@ def harvester(config, output_path, grids_to_use=[]):
     if end_time == 'NOW':
         end_time = datetime.utcnow().strftime("%Y%m%dT%H:%M:%SZ")
 
-    target_dir = f'{output_path}/{dataset_name}/harvested_granules/'
+    target_dir = f'{OUTPUT_DIR}/{dataset_name}/harvested_granules/'
 
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)

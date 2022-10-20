@@ -4,6 +4,7 @@ import os
 from collections import defaultdict
 from multiprocessing import cpu_count
 from pathlib import Path
+from typing import List
 
 import requests
 import yaml
@@ -29,8 +30,8 @@ if not Path.is_dir(OUTPUT_DIR):
     logging.fatal('Missing output directory. Please fill in. Exiting.')
     exit()
 
-logging.info(f'Using output directory: {OUTPUT_DIR}')
-logging.info(f'Using Solr collection: {SOLR_COLLECTION}')
+logging.debug(f'Using output directory: {OUTPUT_DIR}')
+logging.debug(f'Using Solr collection: {SOLR_COLLECTION}')
 
 # Verify solr is running
 try:
@@ -79,30 +80,10 @@ def create_parser():
     return parser
 
 
-def print_statuses():
-    print('\n=========================================================')
-    print(
-        '=================== \033[36mPrinting statuses\033[0m ===================')
-    print('=========================================================')
-
-    for ds, status_list in ds_status.items():
-        print(f'\033[93mPipeline status for {ds}\033[0m:')
-        for msg in status_list:
-            if 'success' in msg:
-                print(f'\t\033[92m{msg}\033[0m')
-            else:
-                print(f'\t\033[91m{msg}\033[0m')
-
-
-def run_harvester(datasets, output_dir, grids_to_use):
-    print('\n=========================================================')
-    print(
-        '================== \033[36mRunning harvesters\033[0m ===================')
-    print('=========================================================\n')
+def run_harvester(datasets, grids_to_use):
     for ds in datasets:
         try:
-            print(f'\033[93mRunning harvester for {ds}\033[0m')
-            print('=========================================================')
+            logging.info(f'Beginning harvesting {ds}')
 
             with open(Path(f'conf/ds_configs/{ds}.yaml'), 'r') as stream:
                 config = yaml.load(stream, yaml.Loader)
@@ -112,6 +93,7 @@ def run_harvester(datasets, output_dir, grids_to_use):
             except:
                 logging.fatal(f'Harvester type missing from {ds} config. Exiting.')
                 exit()
+
             if harvester_type == 'cmr':
                 from harvesters.cmr_harvester import harvester
             elif harvester_type == 'osisaf_ftp':
@@ -126,76 +108,45 @@ def run_harvester(datasets, output_dir, grids_to_use):
                 logging.fatal(f'{harvester_type} is not a supported harvester type.')
                 exit()
 
-            status = harvester(config, output_dir, grids_to_use)
-            ds_status[ds].append(status)
+            status = harvester(config, grids_to_use)
             logging.info(f'{ds} harvesting complete. {status}')
-            print('\033[92mHarvest successful\033[0m')
         except Exception as e:
-            ds_status[ds].append('Harvesting encountered error.')
             logging.exception(f'{ds} harvesting failed. {e}')
-            print('\033[91mHarvesting failed\033[0m')
-        print('=========================================================')
 
 
-def run_transformation(datasets, output_dir, multiprocessing, user_cpus, wipe, grids_to_use):
-    print('\n=========================================================')
-    print(
-        '=============== \033[36mRunning transformations\033[0m =================')
-    print('=========================================================\n')
+def run_transformation(datasets, multiprocessing, user_cpus, wipe, grids_to_use):
     for ds in datasets:
         try:
-            print(f'\033[93mRunning transformation for {ds}\033[0m')
-            print('=========================================================')
-
+            logging.info(f'Beginning transformations on {ds}')
             with open(Path(f'conf/ds_configs/{ds}.yaml'), 'r') as stream:
                 config = yaml.load(stream, yaml.Loader)
 
-            status = check_transformations.main(config, output_dir,
-                                                multiprocessing, user_cpus,
+            status = check_transformations.main(config, multiprocessing, user_cpus,
                                                 wipe, grids_to_use)
             ds_status[ds].append(status)
-
             logging.info(f'{ds} transformation complete. {status}')
-            print('\033[92mTransformation successful\033[0m')
         except:
-            ds_status[ds].append('Transformation encountered error.')
             logging.exception(f'{ds} transformation failed.')
-            print('\033[91mTransformation failed\033[0m')
-        print('=========================================================')
 
 
-def run_aggregation(datasets, output_dir, grids_to_use):
-    print('\n=========================================================')
-    print(
-        '================ \033[36mRunning aggregations\033[0m ===================')
-    print('=========================================================\n')
+def run_aggregation(datasets: List[str], grids_to_use):
     for ds in datasets:
         try:
-            print(f'\033[93mRunning aggregation for {ds}\033[0m')
-            print('=========================================================')
-
+            logging.info(f'Beginning aggregation on {ds}')
             with open(Path(f'conf/ds_configs/{ds}.yaml'), 'r') as stream:
                 config = yaml.load(stream, yaml.Loader)
 
-            status = aggregation(output_dir, config, grids_to_use)
+            status = aggregation(config, grids_to_use)
             ds_status[ds].append(status)
 
             logging.info(f'{ds} aggregation complete. {status}')
-            print('\033[92mAggregation successful\033[0m')
         except Exception as e:
-            ds_status[ds].append('Aggregation encountered error.')
             logging.info(f'{ds} aggregation failed: {e}')
-            print('\033[91mAggregation failed\033[0m')
-        print('=========================================================')
 
 
 if __name__ == '__main__':
     parser = create_parser()
     args = parser.parse_args()
-
-    print('\n=================================================')
-    print('========== ECCO PREPROCESSING PIPELINE ==========')
-    print('=================================================')
 
     # ------------------- Harvested Entry Validation -------------------
     if args.harvested_entry_validation:
@@ -212,8 +163,6 @@ if __name__ == '__main__':
     # ------------------- Grids to Solr -------------------
     if args.grids_to_solr or verify_grids or solr_utils.check_grids():
         try:
-            print(f'\n\033[93mRunning grids_to_solr\033[0m')
-            print('=========================================================')
             grids_not_in_solr = []
             grids_not_in_solr = grids_to_solr.main(grids_to_use, verify_grids)
 
@@ -222,11 +171,8 @@ if __name__ == '__main__':
                     logging.exception(f'Grid "{name}" not in Solr. Ensure it\'s file name is present in grids_config.yaml and run pipeline with the --grids_to_solr argument')
                 exit()
             logging.info('Successfully updated grids on Solr.')
-            print('\033[92mgrids_to_solr successful\033[0m')
         except Exception as e:
-            print('\033[91mgrids_to_solr failed\033[0m')
             logging.exception(e)
-        print('=========================================================')
 
     # ------------------- Multiprocessing -------------------
     multiprocessing = not args.single_processing
@@ -239,6 +185,7 @@ if __name__ == '__main__':
 
     # ------------------- Run pipeline -------------------
     while True:
+        print('\n===== ECCO PREPROCESSING PIPELINE =====')
         print('\n------------- OPTIONS -------------')
         print('1) Run all')
         print('2) Harvesters only')
@@ -249,9 +196,7 @@ if __name__ == '__main__':
         if chosen_option in ['1', '2', '3', '4']:
             break
         else:
-            print(
-                f'Unknown option entered, "{chosen_option}", please enter a valid option\n'
-            )
+            print(f'Unknown option entered, "{chosen_option}", please enter a valid option\n')
 
     datasets = [os.path.splitext(ds)[0] for ds in os.listdir(
         'conf/ds_configs') if ds != '.DS_Store' and 'tpl' not in ds]
@@ -262,21 +207,19 @@ if __name__ == '__main__':
     # Run all
     if chosen_option == '1':
         for ds in datasets:
-            run_harvester([ds], OUTPUT_DIR, grids_to_use)
-            run_transformation([ds], OUTPUT_DIR, multiprocessing,
-                               user_cpus, wipe, grids_to_use)
-            run_aggregation([ds], OUTPUT_DIR, grids_to_use)
+            run_harvester([ds], grids_to_use)
+            run_transformation([ds], multiprocessing, user_cpus, wipe, grids_to_use)
+            run_aggregation([ds], grids_to_use)
 
     # Run harvester
     elif chosen_option == '2':
-        run_harvester(datasets, OUTPUT_DIR, grids_to_use)
+        run_harvester(datasets, grids_to_use)
 
     # Run up through transformation
     elif chosen_option == '3':
         for ds in datasets:
-            run_harvester([ds], OUTPUT_DIR, grids_to_use)
-            run_transformation([ds], OUTPUT_DIR, multiprocessing,
-                               user_cpus, wipe, grids_to_use)
+            run_harvester([ds], grids_to_use)
+            run_transformation([ds], multiprocessing, user_cpus, wipe, grids_to_use)
 
     # Manually enter dataset and pipeline step(s)
     elif chosen_option == '4':
@@ -314,16 +257,12 @@ if __name__ == '__main__':
         wanted_steps = steps_dict[int(steps_index)]
 
         if 'harvest' in wanted_steps:
-            run_harvester([wanted_ds], OUTPUT_DIR, grids_to_use)
+            run_harvester([wanted_ds], grids_to_use)
         if 'transform' in wanted_steps:
-            run_transformation([wanted_ds], OUTPUT_DIR,
-                               multiprocessing, user_cpus, wipe, grids_to_use)
+            run_transformation([wanted_ds], multiprocessing, user_cpus, wipe, grids_to_use)
         if 'aggregate' in wanted_steps:
-            run_aggregation([wanted_ds], OUTPUT_DIR, grids_to_use)
+            run_aggregation([wanted_ds], grids_to_use)
         if wanted_steps == 'all':
-            run_harvester([wanted_ds], OUTPUT_DIR, grids_to_use)
-            run_transformation([wanted_ds], OUTPUT_DIR,
-                               multiprocessing, user_cpus, wipe, grids_to_use)
-            run_aggregation([wanted_ds], OUTPUT_DIR, grids_to_use)
-
-    print_statuses()
+            run_harvester([wanted_ds], grids_to_use)
+            run_transformation([wanted_ds], multiprocessing, user_cpus, wipe, grids_to_use)
+            run_aggregation([wanted_ds], grids_to_use)

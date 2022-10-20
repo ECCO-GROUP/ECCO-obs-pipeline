@@ -1,4 +1,5 @@
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 from datetime import datetime
 
@@ -16,7 +17,7 @@ def configure_logging(file_timestamp: bool = True, level: str = 'INFO') -> None:
         level=get_log_level(level),
         format='[%(levelname)s] %(asctime)s - %(message)s',
         handlers=[
-            logging.FileHandler(logfile_path),
+            RotatingFileHandler(logfile_path, maxBytes=10*1024*1024, backupCount=5),
             logging.StreamHandler()
         ]
     )
