@@ -1,7 +1,8 @@
 from pathlib import Path
 import logging
 import requests
-from conf.global_settings import OUTPUT_DIR, SOLR_COLLECTION
+from conf.global_settings import OUTPUT_DIR, SOLR_COLLECTION, GRIDS
+
 from utils import log_config, solr_utils, grids_to_solr
 
 def setup_logger(args):
@@ -48,15 +49,13 @@ def init_pipeline(args):
 
     if isinstance(args.grids_to_use, list):
         grids_to_use = args.grids_to_use
-        verify_grids = True
     else:
-        grids_to_use = []
-        verify_grids = False
+        grids_to_use = GRIDS
 
-    if args.grids_to_solr or verify_grids or solr_utils.check_grids():
+    if args.grids_to_solr or solr_utils.check_grids():
         try:
             grids_not_in_solr = []
-            grids_not_in_solr = grids_to_solr.main(grids_to_use, verify_grids)
+            grids_not_in_solr = grids_to_solr.main(grids_to_use)
 
             if grids_not_in_solr:
                 for name in grids_not_in_solr:
