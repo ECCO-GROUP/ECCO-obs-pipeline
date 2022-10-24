@@ -1,6 +1,6 @@
 import hashlib
 import re
-
+from datetime import datetime
 
 def md5(fname):
     """
@@ -33,3 +33,15 @@ def get_hemi(fname):
     if '_sh_' in fname:
         return 'sh'
     return ''
+
+
+def valid_date(filename, config):
+    file_date = get_date(config['regex'], filename)
+
+    start = config['start'][:8]
+    end = str(datetime.now)[
+        :8] if config['end'] == 'NOW' else config['end'][:8]
+
+    if file_date >= start and file_date <= end:
+        return True
+    return False

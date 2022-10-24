@@ -1,32 +1,14 @@
-import hashlib
 import logging
-import logging.config
 import os
-import re
 from datetime import datetime
 from ftplib import FTP
-from pathlib import Path
 
 import numpy as np
-import requests
 from dateutil import parser
+from conf.global_settings import OUTPUT_DIR
 from utils import file_utils, solr_utils
 
-logging.config.fileConfig('logs/log.ini', disable_existing_loggers=False)
-log = logging.getLogger(__name__)
-
-
-def getdate(regex, fname):
-    """
-    Extracts date from file name using regex
-    """
-    ex = re.compile(regex)
-    match = re.search(ex, fname)
-    date = match.group()
-    return date
-
-
-def harvester(config, output_path, grids_to_use=[]):
+def harvester(config, grids_to_use=[]):
     """
     Pulls data files for NSIDC FTP id and date range given in harvester_config.yaml.
     Creates (or updates) Solr entries for dataset, harvested granule, fields,
@@ -46,7 +28,7 @@ def harvester(config, output_path, grids_to_use=[]):
     if end_time == 'NOW':
         end_time = datetime.utcnow().strftime("%Y%m%dT%H:%M:%SZ")
 
-    target_dir = f'{output_path}/{dataset_name}/harvested_granules/'
+    target_dir = f'{OUTPUT_DIR}/{dataset_name}/harvested_granules/'
 
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
@@ -60,7 +42,7 @@ def harvester(config, output_path, grids_to_use=[]):
     updating = False
 
     solr_utils.clean_solr(config, grids_to_use)
-    print(f'Downloading {dataset_name} files to {target_dir}\n')
+    logging.info(f'Downloading {dataset_name} files to {target_dir}')
 
     # =====================================================
     # Pull existing entries from Solr
@@ -129,12 +111,9 @@ def harvester(config, output_path, grids_to_use=[]):
                 files = [e.split()[-1] for e in files]
 
                 if not files:
-                    print(f'No granules found for region {region} in {year}.')
+                    logging.info(f'No granules found for region {region} in {year}.')
             except:
-                log.exception(
-                    f'Error finding files at {ftp_dir}. Check harvester config.')
-                print(
-                    f'Error finding files at {ftp_dir}. Check harvester config.')
+                logging.exception(f'Error finding files at {ftp_dir}. Check harvester config.')
 
             for newfile in files:
                 try:
@@ -144,7 +123,7 @@ def harvester(config, output_path, grids_to_use=[]):
                     url = f'{ftp_dir}{newfile}'
 
                     # Extract the date from the filename
-                    date = getdate(config['regex'], newfile)
+                    date = file_utils.getdate(config['regex'], newfile)
                     date_time = datetime.strptime(date, "%Y%m%d")
                     new_date_format = f'{date[:4]}-{date[4:6]}-{date[6:]}T00:00:00Z'
 
@@ -201,7 +180,7 @@ def harvester(config, output_path, grids_to_use=[]):
 
                         # If file doesn't exist locally, download it
                         if not os.path.exists(local_fp):
-                            print(f' - Downloading {newfile} to {local_fp}')
+                            logging.info(f'Downloading {newfile} to {local_fp}')
                             try:
                                 with open(local_fp, 'wb') as f:
                                     ftp.retrbinary('RETR '+url, f.write)
@@ -210,8 +189,7 @@ def harvester(config, output_path, grids_to_use=[]):
 
                         # If file exists, but is out of date, download it
                         elif datetime.fromtimestamp(os.path.getmtime(local_fp)) <= mod_date_time:
-                            print(
-                                f' - Updating {newfile} and downloading to {local_fp}')
+                            logging.info(f'Updating {newfile} and downloading to {local_fp}')
                             try:
                                 with open(local_fp, 'wb') as f:
                                     ftp.retrbinary('RETR '+url, f.write)
@@ -219,8 +197,7 @@ def harvester(config, output_path, grids_to_use=[]):
                                 os.unlink(local_fp)
 
                         else:
-                            print(
-                                f' - {newfile} already downloaded and up to date')
+                            logging.debug(f'{newfile} already downloaded and up to date')
 
                         if newfile in docs.keys():
                             item['id'] = docs[newfile]['id']
@@ -232,14 +209,12 @@ def harvester(config, output_path, grids_to_use=[]):
                         item['file_size_l'] = os.path.getsize(local_fp)
 
                     else:
-                        print(
-                            f' - {newfile} already downloaded and up to date')
+                        logging.debug(f'{newfile} already downloaded and up to date')
 
                 except Exception as e:
-                    log.exception(e)
-                    print(f'    - {e}')
+                    logging.exception(e)
                     if updating:
-                        print(f'    - {newfile} failed to download')
+                        logging.debug(f'{newfile} failed to download')
 
                         item['harvest_success_b'] = False
                         item['pre_transformation_file_path_s'] = ''
@@ -266,7 +241,7 @@ def harvester(config, output_path, grids_to_use=[]):
                     if item['harvest_success_b']:
                         last_success_item = item
 
-    print(f'\nDownloading {dataset_name} complete\n')
+    logging.info(f'Downloading {dataset_name} complete')
 
     ftp.quit()
 
@@ -276,9 +251,9 @@ def harvester(config, output_path, grids_to_use=[]):
         r = solr_utils.solr_update(entries_for_solr, r=True)
 
         if r.status_code == 200:
-            print('Successfully created or updated Solr harvested documents')
+            logging.debug('Successfully created or updated Solr harvested documents')
         else:
-            print('Failed to create Solr harvested documents')
+            logging.exception('Failed to create Solr harvested documents')
 
     # Query for Solr failed harvest documents
     fq = ['type_s:granule',
@@ -344,9 +319,9 @@ def harvester(config, output_path, grids_to_use=[]):
         r = solr_utils.solr_update([ds_meta], r=True)
 
         if r.status_code == 200:
-            print('Successfully created Solr dataset document')
+            logging.debug('Successfully created Solr dataset document')
         else:
-            print('Failed to create Solr dataset document')
+            logging.exception('Failed to create Solr dataset document')
 
         # If the dataset entry needs to be created, so do the field entries
 
@@ -378,9 +353,9 @@ def harvester(config, output_path, grids_to_use=[]):
         r = solr_utils.solr_update(body, r=True)
 
         if r.status_code == 200:
-            print('Successfully created Solr field documents')
+            logging.debug('Successfully created Solr field documents')
         else:
-            print('Failed to create Solr field documents')
+            logging.exception('Failed to create Solr field documents')
 
     # if dataset entry exists, update download time, converage start date, coverage end date
     else:
@@ -414,7 +389,7 @@ def harvester(config, output_path, grids_to_use=[]):
         r = solr_utils.solr_update([update_doc], r=True)
 
         if r.status_code == 200:
-            print('Successfully updated Solr dataset document\n')
+            logging.debug('Successfully updated Solr dataset document')
         else:
-            print('Failed to update Solr dataset document\n')
+            logging.exception('Failed to update Solr dataset document')
     return harvest_status

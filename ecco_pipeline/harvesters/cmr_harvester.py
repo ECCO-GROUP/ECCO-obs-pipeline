@@ -8,17 +8,9 @@ from datetime import datetime
 from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
 import requests
+from conf.global_settings import OUTPUT_DIR
 from utils import file_utils, solr_utils
 
-logging.config.fileConfig('logs/log.ini', disable_existing_loggers=False)
-log = logging.getLogger(__name__)
-
-"""
-CMR code comes from downloadable Python script found here: https://nsidc.org/data/RDEFT4
-Harvester code has been modified to include CMR requirements.
-Earthdata credentials are currently hardcoded in the get_credentials() function.
-Credentials could be moved into config yaml or something else more secure. 
-"""
 
 CMR_URL = 'https://cmr.earthdata.nasa.gov'
 URS_URL = 'https://urs.earthdata.nasa.gov'
@@ -28,7 +20,7 @@ CMR_FILE_URL = ('{0}/search/granules.json?'
                 '&scroll=true&page_size={1}'.format(CMR_URL, CMR_PAGE_SIZE))
 
 
-def get_credentials(url):
+def get_credentials():
     username = 'ecco_access'
     password = 'ECCOAccess1'
     credentials = f'{username}:{password}'
@@ -131,7 +123,7 @@ def cmr_search(short_name, provider, time_start, time_end,
     except KeyboardInterrupt:
         quit()
 
-def harvester(config, output_path, grids_to_use=[]):
+def harvester(config, grids_to_use=[]):
     """
     Uses CMR search to find granules within date range given in harvester_config.yaml.
     Creates (or updates) Solr entries for dataset, harvested granule, fields,
@@ -152,7 +144,7 @@ def harvester(config, output_path, grids_to_use=[]):
     if end_time == 'NOW':
         end_time = datetime.utcnow().strftime('%Y%m%dT%H:%M:%SZ')
 
-    target_dir = f'{output_path}/{dataset_name}/harvested_granules/'
+    target_dir = f'{OUTPUT_DIR}/{dataset_name}/harvested_granules/'
 
     time_format = "%Y-%m-%dT%H:%M:%SZ"
     entries_for_solr = []
@@ -166,7 +158,7 @@ def harvester(config, output_path, grids_to_use=[]):
 
 
     solr_utils.clean_solr(config, grids_to_use)
-    print(f'Downloading {dataset_name} files to {target_dir}\n')
+    logging.info(f'Downloading {dataset_name} files to {target_dir}')
 
     # =====================================================
     # Pull existing entries from Solr
@@ -263,7 +255,7 @@ def harvester(config, output_path, grids_to_use=[]):
                 if updating:
                     # If file doesn't exist locally, download it
                     if not os.path.exists(local_fp):
-                        print(f' - Downloading {filename} to {local_fp}')
+                        logging.info(f'Downloading {filename} to {local_fp}')
                         credentials = get_credentials(url)
                         req = Request(url)
                         req.add_header('Authorization',
@@ -274,8 +266,7 @@ def harvester(config, output_path, grids_to_use=[]):
 
                     # If file exists locally, but is out of date, download it
                     elif datetime.fromtimestamp(os.path.getmtime(local_fp)) <= modified_time:
-                        print(
-                            f' - Updating {filename} and downloading to {local_fp}')
+                        logging.info(f'Updating {filename} and downloading to {local_fp}')
 
                         credentials = get_credentials(url)
                         req = Request(url)
@@ -286,8 +277,7 @@ def harvester(config, output_path, grids_to_use=[]):
                         open(local_fp, 'wb').write(data)
 
                     else:
-                        print(
-                            f' - {filename} already downloaded and up to date')
+                        logging.debug(f'{filename} already downloaded and up to date')
 
                     if filename in docs.keys():
                         item['id'] = docs[filename]['id']
@@ -299,13 +289,12 @@ def harvester(config, output_path, grids_to_use=[]):
                     item['file_size_l'] = os.path.getsize(local_fp)
 
                 else:
-                    print(
-                        f' - {filename} already downloaded and up to date')
+                    logging.debug(f'{filename} already downloaded and up to date')
 
             except Exception as e:
-                print('error', e)
+                logging.exception(e)
                 if updating:
-                    print(f'    - {filename} failed to download')
+                    logging.debug(f'{filename} failed to download')
 
                     item['harvest_success_b'] = False
                     item['filename'] = ''
@@ -336,16 +325,18 @@ def harvester(config, output_path, grids_to_use=[]):
                 # store meta for last successful download
                 last_success_item = item
 
-    print(f'\nDownloading {dataset_name} complete\n')
+    logging.info(f'Downloading {dataset_name} complete')
 
     # Only update Solr harvested entries if there are fresh downloads
     if entries_for_solr:
         # Update Solr with downloaded granule metadata entries
         r = solr_utils.solr_update(entries_for_solr, r=True)
         if r.status_code == 200:
-            print('Successfully created or updated Solr harvested documents')
+            logging.debug('Successfully created or updated Solr harvested documents')
         else:
-            print('Failed to create Solr harvested documents')
+            logging.exception('Failed to create Solr harvested documents')
+    else:
+        logging.debug('No downloads required.')
 
     # Query for Solr failed harvest documents
     fq = ['type_s:granule',
@@ -410,9 +401,9 @@ def harvester(config, output_path, grids_to_use=[]):
         r = solr_utils.solr_update([ds_meta], r=True)
 
         if r.status_code == 200:
-            print('Successfully created Solr dataset document')
+            logging.debug('Successfully created Solr dataset document')
         else:
-            print('Failed to create Solr dataset document')
+            logging.exception('Failed to create Solr dataset document')
 
         # If the dataset entry needs to be created, so do the field entries
 
@@ -445,9 +436,9 @@ def harvester(config, output_path, grids_to_use=[]):
             r = solr_utils.solr_update(body, r=True)
 
             if r.status_code == 200:
-                print('Successfully created Solr field documents')
+                logging.debug('Successfully created Solr field documents')
             else:
-                print('Failed to create Solr field documents')
+                logging.exception('Failed to create Solr field documents')
 
     # if dataset entry exists, update download time, converage start date, coverage end date
     else:
@@ -481,7 +472,7 @@ def harvester(config, output_path, grids_to_use=[]):
         r = solr_utils.solr_update([update_doc], r=True)
 
         if r.status_code == 200:
-            print('Successfully updated Solr dataset document\n')
+            logging.debug('Successfully updated Solr dataset document')
         else:
-            print('Failed to update Solr dataset document\n')
+            logging.exception('Failed to update Solr dataset document')
     return harvest_status

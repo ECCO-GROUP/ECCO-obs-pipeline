@@ -1,5 +1,4 @@
 import logging
-import logging.config
 import os
 import pickle
 from datetime import datetime
@@ -8,24 +7,17 @@ from pathlib import Path
 import numpy as np
 import pyresample as pr
 import xarray as xr
-from netCDF4 import default_fillvals  # pylint: disable=no-name-in-module
+import netCDF4 as nc4
 from utils import file_utils, solr_utils, ecco_functions, records, date_time, mapping
+from conf.global_settings import OUTPUT_DIR
 
 np.warnings.filterwarnings('ignore')
 
-logging.config.fileConfig('logs/log.ini', disable_existing_loggers=False)
-log = logging.getLogger(__name__)
-
-def transformation(source_file_path, remaining_transformations, output_dir, config, verbose=True):
+def transformation(source_file_path, remaining_transformations, config):
     """
     Performs and saves locally all remaining transformations for a given source granule
     Updates Solr with transformation entries and updates descendants, and dataset entries
     """
-
-    # Conditional function definition:
-    # verboseprint will use the print function if verbose is true
-    # otherwise will use a lambda function that returns None (effectively not printing)
-    verboseprint = print if verbose else lambda *a, **k: None
 
     # Define precision of output files, float32 is standard
     array_precision = getattr(np, config['array_precision'])
@@ -33,11 +25,11 @@ def transformation(source_file_path, remaining_transformations, output_dir, conf
     # Define fill values for binary and netcdf
     if array_precision == np.float32:
         binary_dtype = '>f4'
-        netcdf_fill_value = default_fillvals['f4']
+        netcdf_fill_value = nc4.default_fillvals['f4']
 
     elif array_precision == np.float64:
         binary_dtype = '>f8'
-        netcdf_fill_value = default_fillvals['f8']
+        netcdf_fill_value = nc4.default_fillvals['f8']
 
     fill_values = {'binary': -9999, 'netcdf': netcdf_fill_value}
 
@@ -75,7 +67,7 @@ def transformation(source_file_path, remaining_transformations, output_dir, conf
     # =====================================================
     # Load file to transform
     # =====================================================
-    verboseprint(f'\n====== Loading {file_name} data =======\n')
+    logging.debug(f'\n====== Loading {file_name} data =======\n')
 
     ds = xr.open_dataset(source_file_path, decode_times=True)
     ds.attrs['original_file_name'] = file_name
@@ -94,7 +86,7 @@ def transformation(source_file_path, remaining_transformations, output_dir, conf
         # =====================================================
         # Load grid
         # =====================================================
-        verboseprint(f' - Loading {grid_name} model grid')
+        logging.debug(f' - Loading {grid_name} model grid')
         model_grid = xr.open_dataset(grid_path).reset_coords()
 
         # =====================================================
@@ -111,12 +103,12 @@ def transformation(source_file_path, remaining_transformations, output_dir, conf
 
             factors_path = dataset_metadata[grid_factors]
 
-            verboseprint(f' - Loading {grid_name} factors')
+            logging.debug(f' - Loading {grid_name} factors')
             with open(factors_path, "rb") as f:
                 factors = pickle.load(f)
 
         else:
-            verboseprint(f' - Creating {grid_name} factors')
+            logging.info(f'Creating {grid_name} factors for {dataset_name}')
 
             fq = [f'dataset_s:{dataset_name}', 'type_s:dataset']
             short_name = dataset_metadata['short_name_s']
@@ -165,7 +157,7 @@ def transformation(source_file_path, remaining_transformations, output_dir, conf
             elif 'rA' in model_grid:
                 target_grid_radius = 0.5*np.sqrt(model_grid.rA.values.ravel())
             else:
-                print(f'ERROR - {grid_name} grid not supported')
+                logging.exception(f'{grid_name} grid not supported')
                 continue
 
             # Compute the mapping between the data and model grid
@@ -182,8 +174,8 @@ def transformation(source_file_path, remaining_transformations, output_dir, conf
                        num_source_indices_within_target_radius_i,
                        nearest_source_index_to_target_index_i)
 
-            verboseprint(f' - Saving {grid_name} factors')
-            factors_path = f'{output_dir}/{dataset_name}/transformed_products/{grid_name}/'
+            logging.debug(f' - Saving {grid_name} factors')
+            factors_path = f'{OUTPUT_DIR}/{dataset_name}/transformed_products/{grid_name}/'
 
             # Create directory if needed and save factors
             if not os.path.exists(factors_path):
@@ -194,7 +186,7 @@ def transformation(source_file_path, remaining_transformations, output_dir, conf
             with open(factors_path, 'wb') as f:
                 pickle.dump(factors, f)
 
-            verboseprint(' - Updating Solr with factors')
+            logging.debug(' - Updating Solr with factors')
             # Query Solr for dataset entry
             query_fq = [f'dataset_s:{dataset_name}', 'type_s:dataset']
             dataset_metadata_id = solr_utils.solr_query(query_fq)[0]['id']
@@ -212,11 +204,9 @@ def transformation(source_file_path, remaining_transformations, output_dir, conf
             r = solr_utils.solr_update(update_body, r=True)
 
             if r.status_code == 200:
-                verboseprint(
-                    '    - Successfully updated Solr with factors information')
+                logging.debug('Successfully updated Solr with factors information')
             else:
-                verboseprint(
-                    '    - Failed to update Solr with factors information')
+                logging.exception('Failed to update Solr with factors information')
 
         update_body = []
 
@@ -260,18 +250,17 @@ def transformation(source_file_path, remaining_transformations, output_dir, conf
                 r = solr_utils.solr_update(update_body, r=True)
 
             if r.status_code != 200:
-                verboseprint(
-                    f'Failed to update Solr transformation status for {dataset_name} on {date}')
+                logging.exception(f'Failed to update Solr transformation status for {dataset_name} on {date}')
 
         # =====================================================
         # Run transformation
         # =====================================================
-        verboseprint(f' - Running transformations for {file_name}')
+        logging.debug(f' - Running transformations for {file_name}')
 
         # Returns list of transformed DSs, one for each field in fields
         field_DSs = run_in_any_env(model_grid, grid_name, grid_type, fields,
                                    factors, ds, date, dataset_metadata, config,
-                                   fill_values, verbose=verbose)
+                                   fill_values)
 
         # =====================================================
         # Save the output in netCDF format
@@ -320,7 +309,7 @@ def transformation(source_file_path, remaining_transformations, output_dir, conf
                 file_name = file_name.replace('.nc4', '.nc')
 
             output_filename = f'{grid_name}_{field_name}_{file_name}'
-            output_path = f'{output_dir}/{dataset_name}/transformed_products/{grid_name}/transformed/{field_name}/'
+            output_path = f'{OUTPUT_DIR}/{dataset_name}/transformed_products/{grid_name}/transformed/{field_name}/'
             transformed_location = f'{output_path}{output_filename}'
 
             Path(output_path).mkdir(parents=True, exist_ok=True)
@@ -357,15 +346,12 @@ def transformation(source_file_path, remaining_transformations, output_dir, conf
             r = solr_utils.solr_update(update_body, r=True)
 
             if r.status_code != 200:
-                verboseprint(
-                    f'Failed to update Solr transformation entry for {field["name_s"]} in {dataset_name} on {date}')
+                logging.exception(f'Failed to update Solr transformation entry for {field["name_s"]} in {dataset_name} on {date}')
 
             if success and grid_name not in grids_updated:
                 grids_updated.append(grid_name)
 
-        # Always print regardless of verbosity
-        print(
-            f' - CPU id {os.getpid()} saving {file_name} output file for grid {grid_name}')
+        logging.debug(f'CPU id {os.getpid()} saving {file_name} output file for grid {grid_name}')
 
     # Query Solr for descendants entry by date
     query_fq = [f'dataset_s:{dataset_name}',
@@ -391,19 +377,17 @@ def transformation(source_file_path, remaining_transformations, output_dir, conf
     r = solr_utils.solr_update(update_body, r=True)
 
     if r.status_code != 200:
-        verboseprint(
-            f'Failed to update Solr with descendants information for {dataset_name} on {date}')
+        logging.exception(f'Failed to update Solr with descendants information for {dataset_name} on {date}')
 
     return grids_updated, date[:4]
 
 
-def run_in_any_env(model_grid, grid_name, grid_type, fields, factors, ds, record_date, dataset_metadata, config, fill_values, verbose=True):
+def run_in_any_env(model_grid, grid_name, grid_type, fields, factors, ds, record_date, dataset_metadata, config, fill_values):
     """
     Function that actually performs the transformations. Returns a list of transformed
     xarray datasets, one dataset for each field being transformed for the given grid.
     """
-    verboseprint = print if verbose else lambda *a, **k: None
-
+    logging.info(f'Transforming {record_date} to {grid_name}')
     # Check if ends in z and drop it if it does
     if record_date[-1] == 'Z':
         record_date = record_date[:-1]
@@ -431,7 +415,7 @@ def run_in_any_env(model_grid, grid_name, grid_type, fields, factors, ds, record
             try:
                 ds = callable_func(ds)
             except Exception as e:
-                log.exception(f'Pre-transformation {func_to_run} failed: {e}')
+                logging.exception(f'Pre-transformation {func_to_run} failed: {e}')
                 return []
 
     # =====================================================
@@ -443,8 +427,7 @@ def run_in_any_env(model_grid, grid_name, grid_type, fields, factors, ds, record
         long_name = data_field_info['long_name_s']
         units = data_field_info['units_s']
 
-        verboseprint(
-            f'    - Transforming {record_file_name} for field {field_name}')
+        logging.debug(f'Transforming {record_file_name} for field {field_name}')
 
         try:
             field_DA = ecco_functions.generalized_transform_to_model_grid_solr(data_field_info, record_date, model_grid, grid_type,
@@ -462,7 +445,7 @@ def run_in_any_env(model_grid, grid_name, grid_type, fields, factors, ds, record
                     try:
                         field_DA = callable_func(field_DA, field_name)
                     except Exception as e:
-                        log.exception(
+                        logging.exception(
                             f'Post-transformation {func_to_run} failed: {e}')
                         field_DA = records.make_empty_record(standard_name, long_name, units,
                                                         record_date, model_grid,
@@ -474,15 +457,13 @@ def run_in_any_env(model_grid, grid_name, grid_type, fields, factors, ds, record
             field_DA.attrs['valid_max'] = np.nanmax(field_DA.values)
 
         except Exception as e:
-            log.exception(f'Transformation failed: {e}')
+            logging.exception(f'Transformation failed: {e}')
             field_DA = records.make_empty_record(standard_name, long_name, units,
                                             record_date, model_grid,
                                             grid_type, array_precision)
             success = False
 
-        field_DA.values = \
-            np.where(np.isnan(field_DA.values),
-                     fill_values['netcdf'], field_DA.values)
+        field_DA.values = np.where(np.isnan(field_DA.values), fill_values['netcdf'], field_DA.values)
 
         # Make dataarray into dataset
         field_DS = field_DA.to_dataset()

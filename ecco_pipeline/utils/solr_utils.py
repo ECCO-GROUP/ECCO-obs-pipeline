@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 from datetime import datetime
@@ -103,8 +104,7 @@ def clean_solr(config, grids_to_use):
     else:
         dataset_metadata = dataset_metadata[0]
 
-    print(
-        f'Removing Solr documents related to dates outside of configuration start and end dates: \n\t{config_start} to {config_end}.\n')
+    logging.info(f'Removing Solr documents related to dates outside of configuration {config_start} to {config_end}')
 
     # Remove entries earlier than config start date
     fq = f'dataset_s:{dataset_name} AND date_s:[* TO {config_start}}}'
