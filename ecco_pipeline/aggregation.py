@@ -9,7 +9,8 @@ import xarray as xr
 from conf.global_settings import OUTPUT_DIR
 import netCDF4 as nc4
 
-from utils import date_time, ecco_functions, records, solr_utils
+from utils.ecco_utils import date_time, ecco_functions, records
+from utils import solr_utils
 
 np.warnings.filterwarnings('ignore')
 

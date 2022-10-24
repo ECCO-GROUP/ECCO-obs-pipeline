@@ -4,11 +4,10 @@ import os
 from collections import defaultdict
 from multiprocessing import Pool
 
-import requests
-from conf.global_settings import SOLR_COLLECTION, SOLR_HOST
 from utils import solr_utils
 
 from grid_transformation.grid_transformation import transformation
+
 
 def get_remaining_transformations(config, granule_file_path, grids):
     """
@@ -38,7 +37,7 @@ def get_remaining_transformations(config, granule_file_path, grids):
     # these checks are made for each grid/field pair associated with the
     # harvested granule)
 
-    if len(docs) > 0:
+    if docs:
 
         # Dictionary where key is grid, field tuple and value is harvested granule checksum
         # For existing transformations pulled from Solr
@@ -48,7 +47,7 @@ def get_remaining_transformations(config, granule_file_path, grids):
         drop_list = []
 
         for (grid, field) in grid_field_combinations:
-            field_name = field['name_s']
+            field_name = field['name']
 
             # If transformation exists, must compare checksums and versions for updates
             if (grid, field_name) in existing_transformations:
@@ -70,10 +69,11 @@ def get_remaining_transformations(config, granule_file_path, grids):
                 # 2. compare transformation version number and current transformation version number
                 # 3. compare checksum of harvested file (currently in solr) and checksum
                 #    of the harvested file that was previously transformed (recorded in transformation entry)
-                if 'transformation_version_f' in transformation.keys() and \
-                        transformation['transformation_version_f'] == config['t_version'] and \
-                        origin_checksum == harvested_checksum:
-
+                if ('success_b' in transformation.keys() and transformation['success_b'] == True) and \
+                    ('transformation_version_f' in transformation.keys() and \
+                        transformation['transformation_version_f'] == config['t_version']) and \
+                    origin_checksum == harvested_checksum:
+                    logging.debug(f'No need to transform {granule_file_path}')
                     # all tests passed, we do not need to redo the transformation
                     # for this grid/field pair
 
@@ -92,31 +92,6 @@ def get_remaining_transformations(config, granule_file_path, grids):
         grid_field_dict[grid].append(field)
 
     return dict(grid_field_dict)
-
-
-def delete_mismatch_transformations(config):
-    """
-    Function called when using the wipe_transformations pipeline argument. Queries
-    Solr for all transformation entries for the current dataset and compares the
-    transformation version in Solr and in the config YAML. If they differ, the
-    function deletes the transformed file from disk and the entry from Solr.
-    """
-    dataset_name = config['ds_name']
-    config_version = config['t_version']
-
-    # Query for existing transformations
-    fq = [f'dataset_s:{dataset_name}', 'type_s:transformation']
-    transformations = solr_utils.solr_query(fq)
-
-    for transformation in transformations:
-        if transformation['transformation_version_f'] != config_version:
-            # Remove file from disk
-            if os.path.exists(transformation['transformation_file_path_s']):
-                os.remove(transformation['transformation_file_path_s'])
-
-            # Remove transformation entry from Solr
-            url = f'{SOLR_HOST}{SOLR_COLLECTION}/update?commit=true'
-            requests.post(url, json={'delete': [transformation['id']]})
 
 
 def multiprocess_transformation(granule, config, grids):
@@ -145,7 +120,7 @@ def multiprocess_transformation(granule, config, grids):
         return ('', '')
 
 
-def main(config, multiprocessing=False, user_cpus=1, wipe=False, grids_to_use=[]):
+def main(config, user_cpus=1, grids_to_use=[]):
     """
     This function performs all remaining grid/field transformations for all harvested
     granules for a dataset. It also makes use of multiprocessing to perform multiple
@@ -155,10 +130,6 @@ def main(config, multiprocessing=False, user_cpus=1, wipe=False, grids_to_use=[]
 
     dataset_name = config['ds_name']
     transformation_version = config['t_version']
-
-    if wipe:
-        logging.info('Removing transformations with out of sync version numbers from Solr and disk')
-        delete_mismatch_transformations(config)
 
     # Get all harvested granules for this dataset
     fq = [f'dataset_s:{dataset_name}',
@@ -175,118 +146,88 @@ def main(config, multiprocessing=False, user_cpus=1, wipe=False, grids_to_use=[]
     else:
         grids = grids_to_use
 
-    if multiprocessing:
-        # PRE GENERATE FACTORS TO ACCOMODATE MULTIPROCESSING
-        # Query for dataset metadata
-        fq = [f'dataset_s:{dataset_name}', 'type_s:dataset']
-        try:
-            dataset_metadata = solr_utils.solr_query(fq)[0]
-        except:
-            logging.exception(f'No dataset found in solr for {dataset_name}')
-            exit()
-            
-        # Precompute grid factors using one dataset data file
-        # (or one from each hemisphere, if data is hemispherical) before running main loop
+    # PRE GENERATE FACTORS TO ACCOMODATE MULTIPROCESSING
+    # Query for dataset metadata
+    fq = [f'dataset_s:{dataset_name}', 'type_s:dataset']
+    try:
+        dataset_metadata = solr_utils.solr_query(fq)[0]
+    except:
+        logging.exception(f'No dataset found in solr for {dataset_name}')
+        exit()
+        
+    # Precompute grid factors using one dataset data file
+    # (or one from each hemisphere, if data is hemispherical) before running main loop
+    data_for_factors = []
+    for grid in grids:
         data_for_factors = []
-        for grid in grids:
-            data_for_factors = []
-            nh_added = False
-            sh_added = False
+        nh_added = False
+        sh_added = False
 
-            # Find appropriate granule(s) to use for factor calculation
-            for granule in harvested_granules:
-                if 'hemisphere_s' in granule.keys():
-                    hemi = f'_{granule["hemisphere_s"]}'
-                else:
-                    hemi = ''
-
-                grid_factors = f'{grid}{hemi}_factors_path_s'
-                grid_factors_version = f'{grid}{hemi}_factors_version_f'
-
-                if grid_factors in dataset_metadata.keys() and transformation_version == dataset_metadata[grid_factors_version]:
-                    continue
-
-                file_path = granule.get('pre_transformation_file_path_s', '')
-                if file_path:
-                    if hemi:
-                        # Get one of each
-                        if hemi == '_nh' and not nh_added:
-                            data_for_factors.append(granule)
-                            nh_added = True
-                        elif hemi == '_sh' and not sh_added:
-                            data_for_factors.append(granule)
-                            sh_added = True
-                        if nh_added and sh_added:
-                            break
-                    else:
-                        data_for_factors.append(granule)
-                        break
-
-        # Actually perform transformation on chosen granule(s)
-        # This will generate factors and avoid redundant calculations when using multiprocessing
-        for granule in data_for_factors:
-            file_path = granule['pre_transformation_file_path_s']
-
-            # Get transformations to be completed for this file
-            remaining_transformations = get_remaining_transformations(
-                config, file_path, grids)
-
-            grids_updated, year = transformation(file_path, remaining_transformations, config)
-
-            for grid in grids_updated:
-                if year not in years_updated[grid]:
-                    years_updated[grid].append(year)
-        # END PRE GENERATE FACTORS TO ACCOMODATE MULTIPROCESSING
-
-        # BEGIN MULTIPROCESSING
-        # Create list of tuples of function arguments (necessary for using pool.starmap)
-        multiprocess_tuples = [(granule, config, grids) for granule in harvested_granules]
-
-        grid_years_list = []
-
-        logging.debug('Using multiprocessing for transformations.')
-
-        # for grid in grids:
-        logging.info(f'Running transformations for {grids} grids')
-
-        with Pool(processes=user_cpus) as pool:
-            grid_years_list = pool.starmap(
-                multiprocess_transformation, multiprocess_tuples)
-            pool.close()
-            pool.join()
-
-        for (grids, year) in grid_years_list:
-            if grids and year:
-                for grid in grids:
-                    if year not in years_updated[grid]:
-                        years_updated[grid].append(year)
-
-    else:
+        # Find appropriate granule(s) to use for factor calculation
         for granule in harvested_granules:
-            # f is file path to granule from solr
-            f = granule.get('pre_transformation_file_path_s', '')
+            if 'hemisphere_s' in granule.keys():
+                hemi = f'_{granule["hemisphere_s"]}'
+            else:
+                hemi = ''
 
-            # Skips granules that weren't harvested properly
-            if f == '':
-                logging.exception("pre transformation path doesn't exist")
+            grid_factors = f'{grid}{hemi}_factors_path_s'
+            grid_factors_version = f'{grid}{hemi}_factors_version_f'
+
+            if grid_factors in dataset_metadata.keys() and transformation_version == dataset_metadata[grid_factors_version]:
                 continue
 
-            # Get transformations to be completed for this file
-            remaining_transformations = get_remaining_transformations(
-                config, f, grids)
+            file_path = granule.get('pre_transformation_file_path_s', '')
+            if file_path:
+                if hemi:
+                    # Get one of each
+                    if hemi == '_nh' and not nh_added:
+                        data_for_factors.append(granule)
+                        nh_added = True
+                    elif hemi == '_sh' and not sh_added:
+                        data_for_factors.append(granule)
+                        sh_added = True
+                    if nh_added and sh_added:
+                        break
+                else:
+                    data_for_factors.append(granule)
+                    break
 
-            # Perform remaining transformations
-            if remaining_transformations:
-                grids_updated, year = transformation(f, remaining_transformations, config)
+    # Actually perform transformation on chosen granule(s)
+    # This will generate factors and avoid redundant calculations when using multiprocessing
+    for granule in data_for_factors:
+        file_path = granule['pre_transformation_file_path_s']
 
-                for grid in grids_updated:
-                    if grid in years_updated.keys():
-                        if year not in years_updated[grid]:
-                            years_updated[grid].append(year)
-                    else:
-                        years_updated[grid] = [year]
-            else:
-                logging.debug(f'CPU id {os.getpid()} no new transformations for {granule["filename_s"]}')
+        # Get transformations to be completed for this file
+        remaining_transformations = get_remaining_transformations(
+            config, file_path, grids)
+
+        grids_updated, year = transformation(file_path, remaining_transformations, config)
+
+        for grid in grids_updated:
+            if year not in years_updated[grid]:
+                years_updated[grid].append(year)
+    # END PRE GENERATE FACTORS TO ACCOMODATE MULTIPROCESSING
+
+    # BEGIN MULTIPROCESSING
+    # Create list of tuples of function arguments (necessary for using pool.starmap)
+    multiprocess_tuples = [(granule, config, grids) for granule in harvested_granules]
+
+    grid_years_list = []
+
+    # for grid in grids:
+    logging.info(f'Running transformations for {grids} grids')
+
+    with Pool(processes=user_cpus) as pool:
+        grid_years_list = pool.starmap(
+            multiprocess_transformation, multiprocess_tuples)
+        pool.close()
+        pool.join()
+
+    for (grids, year) in grid_years_list:
+        if grids and year:
+            for grid in grids:
+                if year not in years_updated[grid]:
+                    years_updated[grid].append(year)
 
     # Query Solr for dataset metadata
     fq = [f'dataset_s:{dataset_name}', 'type_s:dataset']

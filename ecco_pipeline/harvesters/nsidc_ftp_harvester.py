@@ -40,7 +40,7 @@ def harvester(config, grids_to_use=[]):
     now = datetime.utcnow()
     updating = False
 
-    solr_utils.clean_solr(config, grids_to_use)
+    solr_utils.clean_solr(config)
     logging.info(f'Downloading {dataset_name} files to {target_dir}')
 
     # =====================================================

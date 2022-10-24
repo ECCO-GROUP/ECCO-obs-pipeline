@@ -8,7 +8,8 @@ import numpy as np
 import pyresample as pr
 import xarray as xr
 import netCDF4 as nc4
-from utils import file_utils, solr_utils, ecco_functions, records, date_time, mapping
+from utils.ecco_utils import ecco_functions, records, date_time, mapping
+from utils import file_utils, solr_utils
 from conf.global_settings import OUTPUT_DIR
 
 np.warnings.filterwarnings('ignore')
@@ -67,7 +68,7 @@ def transformation(source_file_path, remaining_transformations, config):
     # =====================================================
     # Load file to transform
     # =====================================================
-    logging.debug(f'\n====== Loading {file_name} data =======\n')
+    logging.debug(f'Loading {file_name} data')
 
     ds = xr.open_dataset(source_file_path, decode_times=True)
     ds.attrs['original_file_name'] = file_name
@@ -212,7 +213,7 @@ def transformation(source_file_path, remaining_transformations, config):
 
         # Iterate through remaining transformation fields
         for field in fields:
-            field_name = field["name_s"]
+            field_name = field["name"]
 
             # Query if grid/field combination transformation entry exists
             query_fq = [f'dataset_s:{dataset_name}', 'type_s:transformation', f'grid_name_s:{grid_name}',
@@ -255,7 +256,7 @@ def transformation(source_file_path, remaining_transformations, config):
         # =====================================================
         # Run transformation
         # =====================================================
-        logging.debug(f' - Running transformations for {file_name}')
+        logging.debug(f'Running transformations for {file_name}')
 
         # Returns list of transformed DSs, one for each field in fields
         field_DSs = run_in_any_env(model_grid, grid_name, grid_type, fields,
@@ -268,7 +269,7 @@ def transformation(source_file_path, remaining_transformations, config):
 
         # Save each transformed granule for the current field
         for field, (field_DS, success) in zip(fields, field_DSs):
-            field_name = field["name_s"]
+            field_name = field["name"]
 
             # time stuff
             data_time_scale = dataset_metadata['data_time_scale_s']
@@ -346,7 +347,7 @@ def transformation(source_file_path, remaining_transformations, config):
             r = solr_utils.solr_update(update_body, r=True)
 
             if r.status_code != 200:
-                logging.exception(f'Failed to update Solr transformation entry for {field["name_s"]} in {dataset_name} on {date}')
+                logging.exception(f'Failed to update Solr transformation entry for {field["name"]} in {dataset_name} on {date}')
 
             if success and grid_name not in grids_updated:
                 grids_updated.append(grid_name)
@@ -422,10 +423,10 @@ def run_in_any_env(model_grid, grid_name, grid_type, fields, factors, ds, record
     # Loop through fields to transform
     # =====================================================
     for data_field_info in fields:
-        field_name = data_field_info['name_s']
-        standard_name = data_field_info['standard_name_s']
-        long_name = data_field_info['long_name_s']
-        units = data_field_info['units_s']
+        field_name = data_field_info['name']
+        standard_name = data_field_info['standard_name']
+        long_name = data_field_info['long_name']
+        units = data_field_info['units']
 
         logging.debug(f'Transforming {record_file_name} for field {field_name}')
 
