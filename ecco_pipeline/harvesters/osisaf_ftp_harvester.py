@@ -36,8 +36,7 @@ def granule_update_check(docs, filename, mod_date_time, time_format):
 def harvester(config, grids_to_use=[]):
     """
     Pulls data files for OSISAF FTP id and date range given in harvester_config.yaml.
-    Creates (or updates) Solr entries for dataset, harvested granule, fields,
-    and descendants.
+    Creates (or updates) Solr entries for dataset, harvested granule, and descendants.
     """
 
     # =====================================================
@@ -302,40 +301,6 @@ def harvester(config, grids_to_use=[]):
             logging.debug('Successfully created Solr dataset document')
         else:
             logging.exception('Failed to create Solr dataset document')
-
-        # If the dataset entry needs to be created, so do the field entries
-
-        # -----------------------------------------------------
-        # Create Solr dataset field entries
-        # -----------------------------------------------------
-
-        # Query for Solr field documents
-        fq = ['type_s:field', f'dataset_s:{dataset_name}']
-        field_query = solr_utils.solr_query(fq)
-
-        body = []
-        for field in config['fields']:
-            field_obj = {}
-            field_obj['type_s'] = {'set': 'field'}
-            field_obj['dataset_s'] = {'set': dataset_name}
-            field_obj['name_s'] = {'set': field['name']}
-            field_obj['long_name_s'] = {'set': field['long_name']}
-            field_obj['standard_name_s'] = {'set': field['standard_name']}
-            field_obj['units_s'] = {'set': field['units']}
-
-            for solr_field in field_query:
-                if field['name'] == solr_field['name_s']:
-                    field_obj['id'] = {'set': solr_field['id']}
-
-            body.append(field_obj)
-
-        # Update Solr with dataset fields metadata
-        r = solr_utils.solr_update(body, r=True)
-
-        if r.status_code == 200:
-            logging.debug('Successfully created Solr field documents')
-        else:
-            logging.exception('Failed to create Solr field documents')
 
     # if dataset entry exists, update download time, converage start date, coverage end date
     else:

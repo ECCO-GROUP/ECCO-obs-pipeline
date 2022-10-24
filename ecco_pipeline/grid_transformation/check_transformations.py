@@ -16,12 +16,9 @@ def get_remaining_transformations(config, granule_file_path, grids):
     grids and fields that have yet to be transformed. It returns a dictionary
     where the keys are grids and the values are lists of fields.
     """
-    dataset_name = config['ds_name']
 
-    # Query for fields
-    fq = ['type_s:field', f'dataset_s:{dataset_name}']
-    docs = solr_utils.solr_query(fq)
-    fields = [field_entry for field_entry in docs]
+    dataset_name = config['ds_name']
+    fields = config['fields']
 
     # Cartesian product of grid/field combinations
     grid_field_combinations = list(itertools.product(grids, fields))
