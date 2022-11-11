@@ -8,7 +8,7 @@ harvester_type: nsidc_ftp
 host: sidads.colorado.edu # does not change
 user: anonymous # does not change
 regex: '\d{8}'
-ddir: "pub/DATASETS/NOAA/G02202_V3/"
+ddir: "pub/DATASETS/NOAA/G02202_V4/"
 
 # Metadata
 aggregated: false # if data is available aggregated
