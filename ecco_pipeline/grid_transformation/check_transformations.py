@@ -136,6 +136,10 @@ def main(config, user_cpus=1, grids_to_use=[]):
           'type_s:granule', 'harvest_success_b:true']
     harvested_granules = solr_utils.solr_query(fq)
 
+    if not harvested_granules:
+        logging.exception(f'No harvested granules found in solr for {dataset_name}')
+        return f'No successful transformations'
+
     years_updated = defaultdict(list)
 
     # Query for grids
