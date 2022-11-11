@@ -9,7 +9,8 @@ import xarray as xr
 from conf.global_settings import OUTPUT_DIR
 import netCDF4 as nc4
 
-from utils import date_time, ecco_functions, records, solr_utils
+from utils.ecco_utils import date_time, ecco_functions, records
+from utils import solr_utils
 
 np.warnings.filterwarnings('ignore')
 
@@ -70,9 +71,7 @@ def aggregation(config, grids_to_use=[]):
     if grids_to_use:
         grids = [grid for grid in grids if grid['grid_name_s'] in grids_to_use]
 
-    # Query Solr for fields
-    fq = ['type_s:field', f'dataset_s:{dataset_name}']
-    fields = solr_utils.solr_query(fq)
+    fields = config['fields']
 
     # Query Solr for dataset metadata
     fq = ['type_s:dataset', f'dataset_s:{dataset_name}']

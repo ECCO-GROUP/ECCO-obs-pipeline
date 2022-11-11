@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 import requests
-
+import yaml
 from conf.global_settings import SOLR_COLLECTION, SOLR_HOST
 
 
@@ -68,10 +68,12 @@ def validate_granules():
     if docs_to_remove:
         solr_update({'delete': docs_to_remove})
 
-        print(f'Succesfully removed {len(docs_to_remove)} granules from Solr')
+        logging.info(f'Succesfully removed {len(docs_to_remove)} granules from Solr')
+    else:
+        logging.info('All harvested docs are valid')
 
 
-def clean_solr(config, grids_to_use):
+def clean_solr(config):
     """
     Remove harvested, transformed, and descendant entries in Solr for dates
     outside of config date range. Also remove related aggregations, and force
@@ -83,14 +85,6 @@ def clean_solr(config, grids_to_use):
 
     if config_end == 'NOW':
         config_end = datetime.utcnow().strftime("%Y%m%dT%H:%M:%SZ")
-
-    # Query for grids
-    if not grids_to_use:
-        fq = ['type_s:grid']
-        docs = solr_query(fq)
-        grids = [doc['grid_name_s'] for doc in docs]
-    else:
-        grids = grids_to_use
 
     # Convert config dates to Solr format
     config_start = f'{config_start[:4]}-{config_start[4:6]}-{config_start[6:]}'
@@ -115,3 +109,34 @@ def clean_solr(config, grids_to_use):
     fq = f'dataset_s:{dataset_name} AND date_s:{{{config_end} TO *]'
     url = f'{SOLR_HOST}{SOLR_COLLECTION}/update?commit=true'
     requests.post(url, json={'delete': {'query': fq}})
+
+def delete_mismatch_transformations():
+    """
+    Function called when using the wipe_transformations pipeline argument. Queries
+    Solr for all transformation entries for the given dataset and compares the
+    transformation version in Solr and in the config YAML. If they differ, the
+    function deletes the transformed file from disk and the entry from Solr.
+    """
+    datasets = [os.path.splitext(ds)[0] for ds in os.listdir(
+        'conf/ds_configs') if ds != '.DS_Store' and 'tpl' not in ds]
+    datasets.sort()
+
+    for ds in datasets:
+        with open(Path(f'conf/ds_configs/{ds}.yaml'), 'r') as stream:
+            config = yaml.load(stream, yaml.Loader)
+        dataset_name = config['ds_name']
+        config_version = config['t_version']
+
+        # Query for existing transformations
+        fq = [f'dataset_s:{dataset_name}', 'type_s:transformation']
+        transformations = solr_query(fq)
+
+        for transformation in transformations:
+            if transformation['transformation_version_f'] != config_version:
+                # Remove file from disk
+                if os.path.exists(transformation['transformation_file_path_s']):
+                    os.remove(transformation['transformation_file_path_s'])
+
+                # Remove transformation entry from Solr
+                url = f'{SOLR_HOST}{SOLR_COLLECTION}/update?commit=true'
+                requests.post(url, json={'delete': [transformation['id']]})

@@ -4,7 +4,7 @@ import pyresample as pr
 import xarray as xr
 from datetime import datetime
 import os
-from utils import records, mapping, date_time
+from utils.ecco_utils import records, mapping, date_time
 
 # Generalized functions
 # -----------------------------------------------------------------------------------------------------------------------------------------------
@@ -68,10 +68,10 @@ def generalized_transform_to_model_grid_solr(data_field_info, record_date, model
         nearest_source_index_to_target_index_i = factors
 
     # set data info values
-    data_field = data_field_info['name_s']
-    standard_name = data_field_info['standard_name_s']
-    long_name = data_field_info['long_name_s']
-    units = data_field_info['units_s']
+    data_field = data_field_info['name']
+    standard_name = data_field_info['standard_name']
+    long_name = data_field_info['long_name']
+    units = data_field_info['units']
 
     # create empty data array
     data_DA = records.make_empty_record(standard_name, long_name, units,

@@ -126,8 +126,7 @@ def cmr_search(short_name, provider, time_start, time_end,
 def harvester(config, grids_to_use=[]):
     """
     Uses CMR search to find granules within date range given in harvester_config.yaml.
-    Creates (or updates) Solr entries for dataset, harvested granule, fields,
-    and descendants.
+    Creates (or updates) Solr entries for dataset, harvested granule, and descendants.
     """
 
     # =====================================================
@@ -156,8 +155,7 @@ def harvester(config, grids_to_use=[]):
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
 
-
-    solr_utils.clean_solr(config, grids_to_use)
+    solr_utils.clean_solr(config)
     logging.info(f'Downloading {dataset_name} files to {target_dir}')
 
     # =====================================================
@@ -404,41 +402,6 @@ def harvester(config, grids_to_use=[]):
             logging.debug('Successfully created Solr dataset document')
         else:
             logging.exception('Failed to create Solr dataset document')
-
-        # If the dataset entry needs to be created, so do the field entries
-
-        # -----------------------------------------------------
-        # Create Solr dataset field entries
-        # -----------------------------------------------------
-
-        # Query for Solr field documents
-        fq = ['type_s:field', f'dataset_s:{dataset_name}']
-        field_query = solr_utils.solr_query(fq)
-
-        body = []
-        for field in config['fields']:
-            field_obj = {}
-            field_obj['type_s'] = {'set': 'field'}
-            field_obj['dataset_s'] = {'set': dataset_name}
-            field_obj['name_s'] = {'set': field['name']}
-            field_obj['long_name_s'] = {'set': field['long_name']}
-            field_obj['standard_name_s'] = {'set': field['standard_name']}
-            field_obj['units_s'] = {'set': field['units']}
-
-            for solr_field in field_query:
-                if field['name'] == solr_field['name_s']:
-                    field_obj['id'] = {'set': solr_field['id']}
-
-            body.append(field_obj)
-
-        if body:
-            # Update Solr with dataset fields metadata
-            r = solr_utils.solr_update(body, r=True)
-
-            if r.status_code == 200:
-                logging.debug('Successfully created Solr field documents')
-            else:
-                logging.exception('Failed to create Solr field documents')
 
     # if dataset entry exists, update download time, converage start date, coverage end date
     else:

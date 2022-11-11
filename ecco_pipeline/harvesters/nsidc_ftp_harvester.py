@@ -2,17 +2,16 @@ import logging
 import os
 from datetime import datetime
 from ftplib import FTP
-
-import numpy as np
-from dateutil import parser
 from conf.global_settings import OUTPUT_DIR
 from utils import file_utils, solr_utils
+import numpy as np
+from dateutil import parser
+
 
 def harvester(config, grids_to_use=[]):
     """
     Pulls data files for NSIDC FTP id and date range given in harvester_config.yaml.
-    Creates (or updates) Solr entries for dataset, harvested granule, fields,
-    and descendants.
+    Creates (or updates) Solr entries for dataset, harvested granule, descendants.
     """
 
     # =====================================================
@@ -41,7 +40,7 @@ def harvester(config, grids_to_use=[]):
     now = datetime.utcnow()
     updating = False
 
-    solr_utils.clean_solr(config, grids_to_use)
+    solr_utils.clean_solr(config)
     logging.info(f'Downloading {dataset_name} files to {target_dir}')
 
     # =====================================================
@@ -80,7 +79,7 @@ def harvester(config, grids_to_use=[]):
         ftp = FTP(host)
         ftp.login(config['user'])
     except Exception as e:
-        log.exception(f'Harvesting failed. Unable to connect to FTP. {e}')
+        logging.exception(f'Harvesting failed. Unable to connect to FTP. {e}')
         return 'Harvesting failed. Unable to connect to FTP.'
 
     start_time_dt = datetime.strptime(start_time, "%Y%m%dT%H:%M:%SZ")
@@ -123,7 +122,7 @@ def harvester(config, grids_to_use=[]):
                     url = f'{ftp_dir}{newfile}'
 
                     # Extract the date from the filename
-                    date = file_utils.getdate(config['regex'], newfile)
+                    date = file_utils.get_date(config['regex'], newfile)
                     date_time = datetime.strptime(date, "%Y%m%d")
                     new_date_format = f'{date[:4]}-{date[4:6]}-{date[6:]}T00:00:00Z'
 
@@ -322,40 +321,6 @@ def harvester(config, grids_to_use=[]):
             logging.debug('Successfully created Solr dataset document')
         else:
             logging.exception('Failed to create Solr dataset document')
-
-        # If the dataset entry needs to be created, so do the field entries
-
-        # -----------------------------------------------------
-        # Create Solr dataset field entries
-        # -----------------------------------------------------
-
-        # Query for Solr field documents
-        fq = ['type_s:field', f'dataset_s:{dataset_name}']
-        field_query = solr_utils.solr_query(fq)
-
-        body = []
-        for field in config['fields']:
-            field_obj = {}
-            field_obj['type_s'] = {'set': 'field'}
-            field_obj['dataset_s'] = {'set': dataset_name}
-            field_obj['name_s'] = {'set': field['name']}
-            field_obj['long_name_s'] = {'set': field['long_name']}
-            field_obj['standard_name_s'] = {'set': field['standard_name']}
-            field_obj['units_s'] = {'set': field['units']}
-
-            for solr_field in field_query:
-                if field['name'] == solr_field['name_s']:
-                    field_obj['id'] = {'set': solr_field['id']}
-
-            body.append(field_obj)
-
-        # Update Solr with dataset fields metadata
-        r = solr_utils.solr_update(body, r=True)
-
-        if r.status_code == 200:
-            logging.debug('Successfully created Solr field documents')
-        else:
-            logging.exception('Failed to create Solr field documents')
 
     # if dataset entry exists, update download time, converage start date, coverage end date
     else:

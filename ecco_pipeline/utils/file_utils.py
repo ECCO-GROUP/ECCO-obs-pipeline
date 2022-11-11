@@ -2,7 +2,7 @@ import hashlib
 import re
 from datetime import datetime
 
-def md5(fname):
+def md5(fname:str) -> str:
     """
     Creates md5 checksum from file
     """
@@ -14,7 +14,7 @@ def md5(fname):
     return hash_md5.hexdigest()
 
 
-def get_date(regex, fname):
+def get_date(regex:str, fname:str) -> str:
     """
     Extracts date from file name using regex
     """
@@ -24,7 +24,7 @@ def get_date(regex, fname):
     return date
 
 
-def get_hemi(fname):
+def get_hemi(fname:str) -> str:
     """
     Extracts hemisphere from file name
     """
@@ -35,7 +35,10 @@ def get_hemi(fname):
     return ''
 
 
-def valid_date(filename, config):
+def valid_date(filename:str, config:dict) -> bool:
+    """
+    Determines if date in filename falls within start/end time bounds
+    """
     file_date = get_date(config['regex'], filename)
 
     start = config['start'][:8]

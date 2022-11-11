@@ -1,7 +1,7 @@
 import xarray as xr
 import numpy as np
 from pathlib import Path
-from utils.llc_array_conversion import llc_tiles_to_compact
+from utils.ecco_utils.llc_array_conversion import llc_tiles_to_compact
 
 
 def make_empty_record(standard_name, long_name, units,

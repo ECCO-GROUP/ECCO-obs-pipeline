@@ -1,9 +1,10 @@
+from typing import Tuple
 import dateutil as dateutil
 import numpy as np
 from datetime import datetime
 
 
-def make_time_bounds_from_ds64(rec_avg_end, output_freq_code):
+def make_time_bounds_from_ds64(rec_avg_end: np.datetime64, output_freq_code: str) -> Tuple[np.array, np.datetime64]:
     """
     Given a datetime64 object (rec_avg_end) representing the 'end' of an 
     averaging time period (usually derived from the mitgcm file's timestep)
@@ -71,7 +72,7 @@ def make_time_bounds_from_ds64(rec_avg_end, output_freq_code):
 
 
 
-def extract_yyyy_mm_dd_hh_mm_ss_from_datetime64(dt64):
+def extract_yyyy_mm_dd_hh_mm_ss_from_datetime64(dt64: np.datetime64) -> Tuple[int,int,int,int,int,int]:
     """
     Extract separate fields for year, monday, day, hour, min, sec from
     a datetime64 object
