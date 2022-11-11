@@ -147,8 +147,8 @@ def run_harvester(datasets: List[str], grids_to_use: List[str]):
 
             try:
                 harvester = importlib.import_module(f'harvesters.{harvester_type}_harvester')
-            except:
-                logging.fatal(f'{harvester_type} is not a supported harvester type.')
+            except Exception as e:
+                logging.error(e)
                 exit()
 
             status = harvester.harvester(config, grids_to_use)
