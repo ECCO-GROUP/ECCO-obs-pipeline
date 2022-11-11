@@ -2,6 +2,7 @@ import logging
 import os
 from datetime import datetime
 from ftplib import FTP
+import numpy as np
 
 from dateutil import parser
 from conf.global_settings import OUTPUT_DIR
@@ -93,6 +94,13 @@ def harvester(config, grids_to_use=[]):
                 key = doc['date_s']
             descendants_docs[key] = doc
 
+    start_time_dt = datetime.strptime(start_time, "%Y%m%dT%H:%M:%SZ")
+    end_time_dt = datetime.strptime(end_time, "%Y%m%dT%H:%M:%SZ")
+
+    start_year = start_time[:4]
+    end_year = end_time[:4]
+    years = np.arange(int(start_year), int(end_year) + 1)
+    months = [f'{x:02}' for x in list(range(1,13))]
     # =====================================================
     # OSISAF loop
     # =====================================================
@@ -102,24 +110,32 @@ def harvester(config, grids_to_use=[]):
     except Exception as e:
         logging.exception(f'Harvesting failed. Unable to connect to FTP. {e}')
         return 'Harvesting failed. Unable to connect to FTP.'
-    for year_dir in ftp.nlst(ddir):
-        year = year_dir.split('/')[-1]
-        if year < start_time[:4] or year > end_time[:4]:
+    
+    years_on_ftp = [int(y.split('/')[-1]) for y in ftp.nlst(ddir)]
+    for year in years:
+        if year not in years_on_ftp:
             continue
-        for month_dir in ftp.nlst(f'{ddir}{year}/'):
-            month = month_dir.split('/')[-1]
+        for month in months:
+            month_dir = f'{ddir}{year}/{month}'
             try:
                 files = []
                 ftp.dir(month_dir, files.append)
-                files = [e.split()[-1] for e in files
-                         if config["filename_filter"] in e and
-                         file_utils.valid_date(e.split()[-1], config) and
-                         '.nc' in e]
+                file_meta = {}
+                for f in files:
+                    tokens = f.split()
+                    fname = tokens[-1]
+                    mod_date = ' '.join(tokens[5:8])
+                    mod_dt = parser.parse(mod_date)
+                    if config["filename_filter"] in fname and \
+                        file_utils.valid_date(fname, config) and \
+                            fname.endswith('.nc'):
+                        file_meta[fname] = mod_dt
+
             except:
                 logging.exception(
                     f'Error finding files at {month_dir}. Check harvester config.')
 
-            for filename in files:
+            for filename, mod_dt in file_meta.items():
                 hemi = file_utils.get_hemi(filename)
 
                 if not hemi or not any(ext in filename for ext in ['.nc', '.bz2', '.gz']):
@@ -154,17 +170,11 @@ def harvester(config, grids_to_use=[]):
 
                 updating = False
 
-                # Attempt to get last modified time of file
-                try:
-                    mod_time = ftp.voidcmd("MDTM "+url)[4:]
-                    mod_date_time = parser.parse(mod_time)
-                except:
-                    mod_date_time = now
-                mod_time = mod_date_time.strftime(time_format)
+                mod_time = mod_dt.strftime(time_format)
                 item['modified_time_dt'] = mod_time
 
                 updating = granule_update_check(
-                    docs, filename, mod_date_time, time_format)
+                    docs, filename, mod_dt, time_format)
 
                 if updating:
                     year = date[:4]
@@ -181,7 +191,7 @@ def harvester(config, grids_to_use=[]):
                                     'RETR '+url, f.write, blocksize=262144)
 
                         # If file exists, but is out of date, download it
-                        elif datetime.fromtimestamp(os.path.getmtime(local_fp)) <= mod_date_time:
+                        elif datetime.fromtimestamp(os.path.getmtime(local_fp)) <= mod_dt:
                             logging.info(f'Updating {filename} and downloading to {local_fp}')
                             with open(local_fp, 'wb') as f:
                                 ftp.retrbinary(
