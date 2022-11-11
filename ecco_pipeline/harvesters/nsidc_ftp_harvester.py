@@ -2,11 +2,11 @@ import logging
 import os
 from datetime import datetime
 from ftplib import FTP
-
-import numpy as np
-from dateutil import parser
 from conf.global_settings import OUTPUT_DIR
 from utils import file_utils, solr_utils
+import numpy as np
+from dateutil import parser
+
 
 def harvester(config, grids_to_use=[]):
     """
@@ -79,7 +79,7 @@ def harvester(config, grids_to_use=[]):
         ftp = FTP(host)
         ftp.login(config['user'])
     except Exception as e:
-        log.exception(f'Harvesting failed. Unable to connect to FTP. {e}')
+        logging.exception(f'Harvesting failed. Unable to connect to FTP. {e}')
         return 'Harvesting failed. Unable to connect to FTP.'
 
     start_time_dt = datetime.strptime(start_time, "%Y%m%dT%H:%M:%SZ")
@@ -122,7 +122,7 @@ def harvester(config, grids_to_use=[]):
                     url = f'{ftp_dir}{newfile}'
 
                     # Extract the date from the filename
-                    date = file_utils.getdate(config['regex'], newfile)
+                    date = file_utils.get_date(config['regex'], newfile)
                     date_time = datetime.strptime(date, "%Y%m%d")
                     new_date_format = f'{date[:4]}-{date[4:6]}-{date[6:]}T00:00:00Z'
 
