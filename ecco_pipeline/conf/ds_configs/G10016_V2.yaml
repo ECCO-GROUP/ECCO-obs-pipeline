@@ -16,11 +16,11 @@ data_time_scale: "daily" # daily or monthly
 date_format: "yyyymmdd" # format of date in file name ex: yyyymmdd
 regions: ["north", "south"]
 fields:
-  - name: seaice_conc_cdr
+  - name: cdr_seaice_conc
     long_name: NOAA/NSIDC Climate Data Record of Passive Microwave Sea Ice Concentration
     standard_name: sea_ice_area_fraction
     units: 1
-  - name: stdev_of_seaice_conc_cdr
+  - name: stdev_of_cdr_seaice_conc
     long_name: Passive Microwave Sea Ice Concentration Source Estimated Standard Deviation
     standard_name: " "
     units: " "
