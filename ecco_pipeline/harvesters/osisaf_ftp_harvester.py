@@ -34,7 +34,7 @@ def granule_update_check(docs, filename, mod_date_time, time_format):
     return False
 
 
-def harvester(config, grids_to_use=[]):
+def harvester(config):
     """
     Pulls data files for OSISAF FTP id and date range given in harvester_config.yaml.
     Creates (or updates) Solr entries for dataset, harvested granule, and descendants.

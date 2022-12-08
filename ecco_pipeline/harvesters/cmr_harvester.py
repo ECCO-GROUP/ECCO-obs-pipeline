@@ -9,11 +9,10 @@ from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
 import requests
 from conf.global_settings import OUTPUT_DIR
-from utils import file_utils, solr_utils
+from utils import file_utils, solr_utils, harvesting_utils
 
 
 CMR_URL = 'https://cmr.earthdata.nasa.gov'
-URS_URL = 'https://urs.earthdata.nasa.gov'
 CMR_PAGE_SIZE = 2000
 CMR_FILE_URL = ('{0}/search/granules.json?'
                 '&sort_key[]=start_date&sort_key[]=producer_granule_id'
@@ -77,14 +76,20 @@ def cmr_filter_urls(search_results, provider):
                 continue
 
             unique_filenames.add(filename)
-            
+
             urls.append((link['href'], id))
     return urls
 
 
-def cmr_search(short_name, provider, time_start, time_end,
-               bounding_box='', polygon='', filename_filter=''):
+def cmr_search(config, bounding_box='', polygon='', filename_filter=''):
     """Perform a scrolling CMR query for files matching input criteria."""
+    short_name = config['cmr_short_name']
+    provider = config.get('provider')
+    time_start = '-'.join([config['start'][:4],
+                          config['start'][4:6], config['start'][6:]])
+    time_end = '-'.join([config['end'][:4], config['end']
+                        [4:6], config['end'][6:]])
+
     cmr_query_url = build_cmr_query_url(short_name=short_name,
                                         time_start=time_start, time_end=time_end,
                                         bounding_box=bounding_box,
@@ -123,7 +128,27 @@ def cmr_search(short_name, provider, time_start, time_end,
     except KeyboardInterrupt:
         quit()
 
-def harvester(config, grids_to_use=[]):
+
+def get_mod_time(id, solr_format):
+    meta_url = f'https://cmr.earthdata.nasa.gov/search/concepts/{id}.json'
+    r = requests.get(meta_url)
+    meta = r.json()
+    modified_time = datetime.strptime(
+        f'{meta["updated"].split(".")[0]}Z', solr_format)
+    return modified_time
+
+
+def dl_file(src, dst):
+    credentials = get_credentials(src)
+    req = Request(src)
+    req.add_header('Authorization',
+                   'Basic {0}'.format(credentials))
+    opener = build_opener(HTTPCookieProcessor())
+    data = opener.open(req).read()
+    open(dst, 'wb').write(data)
+
+
+def harvester(config):
     """
     Uses CMR search to find granules within date range given in harvester_config.yaml.
     Creates (or updates) Solr entries for dataset, harvested granule, and descendants.
@@ -133,25 +158,19 @@ def harvester(config, grids_to_use=[]):
     # Read harvester_config.yaml and setup variables
     # =====================================================
     dataset_name = config['ds_name']
-    date_regex = config['date_regex']
-    start_time = config['start']
-    end_time = config['end']
-    regex = config['regex']
-    date_format = config['date_format']
-    data_time_scale = config['data_time_scale']
 
-    if end_time == 'NOW':
-        end_time = datetime.utcnow().strftime('%Y%m%dT%H:%M:%SZ')
+    if config['end'] == 'NOW':
+        config['end'] = datetime.utcnow().strftime('%Y%m%dT%H:%M:%SZ')
+    start_time_dt = datetime.strptime(config['start'], "%Y%m%dT%H:%M:%SZ")
+    end_time_dt = datetime.strptime(config['end'], "%Y%m%dT%H:%M:%SZ")
 
-    target_dir = f'{OUTPUT_DIR}/{dataset_name}/harvested_granules/'
-
-    time_format = "%Y-%m-%dT%H:%M:%SZ"
-    entries_for_solr = []
+    solr_format = "%Y-%m-%dT%H:%M:%SZ"
     last_success_item = {}
     start_times = []
     end_times = []
-    chk_time = datetime.utcnow().strftime(date_regex)
+    chk_time = datetime.utcnow().strftime(solr_format)
 
+    target_dir = f'{OUTPUT_DIR}/{dataset_name}/harvested_granules/'
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
 
@@ -161,57 +180,26 @@ def harvester(config, grids_to_use=[]):
     # =====================================================
     # Pull existing entries from Solr
     # =====================================================
-    docs = {}
-    descendants_docs = {}
-
-    # Query for existing harvested docs
-    fq = ['type_s:granule', f'dataset_s:{dataset_name}']
-    harvested_docs = solr_utils.solr_query(fq)
-
-    # Dictionary of existing harvested docs
-    # harvested doc filename : solr entry for that doc
-    if len(harvested_docs) > 0:
-        for doc in harvested_docs:
-            docs[doc['filename_s']] = doc
-
-    # Query for existing descendants docs
-    fq = ['type_s:descendants', f'dataset_s:{dataset_name}']
-    existing_descendants_docs = solr_utils.solr_query(fq)
-
-    # Dictionary of existing descendants docs
-    # descendant doc date : solr entry for that doc
-    if len(existing_descendants_docs) > 0:
-        for doc in existing_descendants_docs:
-            if 'hemisphere_s' in doc.keys() and doc['hemisphere_s']:
-                key = (doc['date_s'], doc['hemisphere_s'])
-            else:
-                key = doc['date_s']
-            descendants_docs[key] = doc
+    docs, descendants_docs = harvesting_utils.get_solr_docs(dataset_name)
 
     # =====================================================
     # Setup EDSC loop variables
     # =====================================================
-    short_name = config['cmr_short_name']
-    provider = config.get('provider')
-    filename_date_fmt = config['filename_date_fmt']
+    url_list = cmr_search(config)
 
-    item = {}
-
-    start_time_dt = datetime.strptime(start_time, "%Y%m%dT%H:%M:%SZ")
-    end_time_dt = datetime.strptime(end_time, "%Y%m%dT%H:%M:%SZ")
-    start_string = datetime.strftime(start_time_dt, "%Y-%m-%dT00:00:00Z")
-    end_string = datetime.strftime(end_time_dt, "%Y-%m-%dT00:00:00Z")
-
-    url_list = cmr_search(short_name, provider, start_string, end_string)
+    entries_for_solr = []
 
     for url, id in url_list:
         # Date in filename is end date of 30 day period
         filename = url.split('/')[-1]
 
-        date = file_utils.get_date(regex, filename)
-        dt = datetime.strptime(date, filename_date_fmt)
+        date = file_utils.get_date(config['regex'], filename)
+        dt = datetime.strptime(date, config['filename_date_fmt'])
+
+        if not (start_time_dt <= dt) and (end_time_dt >= dt):
+            continue
+
         new_date_format = datetime.strftime(dt, "%Y-%m-%dT00:00:00Z")
-        
         year = new_date_format[:4]
 
         local_fp = f'{target_dir}{year}/{filename}'
@@ -219,109 +207,89 @@ def harvester(config, grids_to_use=[]):
         if not os.path.exists(f'{target_dir}{year}/'):
             os.makedirs(f'{target_dir}{year}/')
 
-        # Extract metadata from xml file associated with .nc file
-        meta_url = f'https://cmr.earthdata.nasa.gov/search/concepts/{id}.json'
-        r = requests.get(meta_url)
-        meta = r.json()
-        modified_time = datetime.strptime(f'{meta["updated"].split(".")[0]}Z', time_format)   
+        modified_time = get_mod_time(id, solr_format)
 
-        # check if file in download date range
-        if (start_time_dt <= dt) and (end_time_dt >= dt):
-            item = {}
-            item['type_s'] = 'granule'
-            item['date_s'] = new_date_format
-            item['dataset_s'] = dataset_name
-            item['filename_s'] = filename
-            item['source_s'] = url
-            item['modified_time_dt'] = str(modified_time)
+        item = {}
+        item['type_s'] = 'granule'
+        item['date_s'] = new_date_format
+        item['dataset_s'] = dataset_name
+        item['filename_s'] = filename
+        item['source_s'] = url
+        item['modified_time_dt'] = str(modified_time)
 
-            descendants_item = {}
-            descendants_item['type_s'] = 'descendants'
-            descendants_item['date_s'] = item["date_s"]
-            descendants_item['dataset_s'] = item['dataset_s']
-            descendants_item['filename_s'] = filename
-            descendants_item['source_s'] = item['source_s']
+        descendants_item = {}
+        descendants_item['type_s'] = 'descendants'
+        descendants_item['date_s'] = item["date_s"]
+        descendants_item['dataset_s'] = item['dataset_s']
+        descendants_item['filename_s'] = filename
+        descendants_item['source_s'] = item['source_s']
 
-            updating = False
+        updating = False
 
-            try:
-                updating = (not filename in docs.keys()) or \
-                            (not docs[filename]['harvest_success_b']) or \
-                            (docs[filename]['download_time_dt'] < str(modified_time))
+        try:
+            updating = harvesting_utils.check_update(
+                docs, filename, modified_time)
 
-                # If updating, download file if necessary
-                if updating:
-                    # If file doesn't exist locally, download it
-                    if not os.path.exists(local_fp):
-                        logging.info(f'Downloading {filename} to {local_fp}')
-                        credentials = get_credentials(url)
-                        req = Request(url)
-                        req.add_header('Authorization',
-                                        'Basic {0}'.format(credentials))
-                        opener = build_opener(HTTPCookieProcessor())
-                        data = opener.open(req).read()
-                        open(local_fp, 'wb').write(data)
-
-                    # If file exists locally, but is out of date, download it
-                    elif datetime.fromtimestamp(os.path.getmtime(local_fp)) <= modified_time:
-                        logging.info(f'Updating {filename} and downloading to {local_fp}')
-
-                        credentials = get_credentials(url)
-                        req = Request(url)
-                        req.add_header('Authorization',
-                                        'Basic {0}'.format(credentials))
-                        opener = build_opener(HTTPCookieProcessor())
-                        data = opener.open(req).read()
-                        open(local_fp, 'wb').write(data)
-
-                    else:
-                        logging.debug(f'{filename} already downloaded and up to date')
-
-                    if filename in docs.keys():
-                        item['id'] = docs[filename]['id']
-
-                    # calculate checksum and expected file size
-                    item['checksum_s'] = file_utils.md5(local_fp)
-                    item['pre_transformation_file_path_s'] = local_fp
-                    item['harvest_success_b'] = True
-                    item['file_size_l'] = os.path.getsize(local_fp)
-
-                else:
-                    logging.debug(f'{filename} already downloaded and up to date')
-
-            except Exception as e:
-                logging.exception(e)
-                if updating:
-                    logging.debug(f'{filename} failed to download')
-
-                    item['harvest_success_b'] = False
-                    item['filename'] = ''
-                    item['pre_transformation_file_path_s'] = ''
-                    item['file_size_l'] = 0
-
+            # If updating, download file if necessary
             if updating:
-                item['download_time_dt'] = chk_time
+                # If file doesn't exist locally, download it
+                if not os.path.exists(local_fp):
+                    logging.info(f'Downloading {filename} to {local_fp}')
+                    dl_file(url, local_fp)
+                # If file exists locally, but is out of date, download it
+                elif datetime.fromtimestamp(os.path.getmtime(local_fp)) <= modified_time:
+                    logging.info(
+                        f'Updating {filename} and downloading to {local_fp}')
+                    dl_file(url, local_fp)
+                else:
+                    logging.debug(
+                        f'{filename} already downloaded and up to date')
 
-                # Update Solr entry using id if it exists
+                if filename in docs.keys():
+                    item['id'] = docs[filename]['id']
 
-                key = descendants_item['date_s']
+                # calculate checksum and expected file size
+                item['checksum_s'] = file_utils.md5(local_fp)
+                item['pre_transformation_file_path_s'] = local_fp
+                item['granule_file_path_s'] = local_fp
+                item['harvest_success_b'] = True
+                item['file_size_l'] = os.path.getsize(local_fp)
 
-                if key in descendants_docs.keys():
-                    descendants_item['id'] = descendants_docs[key]['id']
+            else:
+                logging.debug(f'{filename} already downloaded and up to date')
 
-                descendants_item['harvest_success_b'] = item['harvest_success_b']
-                descendants_item['pre_transformation_file_path_s'] = item['pre_transformation_file_path_s']
-                entries_for_solr.append(descendants_item)
+        except Exception as e:
+            logging.exception(e)
+            if updating:
+                logging.debug(f'{filename} failed to download')
 
-                start_times.append(datetime.strptime(
-                    new_date_format, date_regex))
-                end_times.append(datetime.strptime(
-                    new_date_format, date_regex))
+                item['harvest_success_b'] = False
+                item['filename'] = ''
+                item['pre_transformation_file_path_s'] = ''
+                item['file_size_l'] = 0
 
-                # add item to metadata json
-                entries_for_solr.append(item)
-                # store meta for last successful download
-                last_success_item = item
+        if updating:
+            item['download_time_dt'] = chk_time
+
+            # Update Solr entry using id if it exists
+            key = descendants_item['date_s']
+
+            if key in descendants_docs.keys():
+                descendants_item['id'] = descendants_docs[key]['id']
+
+            descendants_item['harvest_success_b'] = item['harvest_success_b']
+            descendants_item['pre_transformation_file_path_s'] = item['pre_transformation_file_path_s']
+            entries_for_solr.append(descendants_item)
+
+            start_times.append(datetime.strptime(
+                new_date_format, solr_format))
+            end_times.append(datetime.strptime(
+                new_date_format, solr_format))
+
+            # add item to metadata json
+            entries_for_solr.append(item)
+            # store meta for last successful download
+            last_success_item = item
 
     logging.info(f'Downloading {dataset_name} complete')
 
@@ -330,7 +298,8 @@ def harvester(config, grids_to_use=[]):
         # Update Solr with downloaded granule metadata entries
         r = solr_utils.solr_update(entries_for_solr, r=True)
         if r.status_code == 200:
-            logging.debug('Successfully created or updated Solr harvested documents')
+            logging.debug(
+                'Successfully created or updated Solr harvested documents')
         else:
             logging.exception('Failed to create Solr harvested documents')
     else:
@@ -370,24 +339,13 @@ def harvester(config, grids_to_use=[]):
         # -----------------------------------------------------
         # Create Solr Dataset-level Document if doesn't exist
         # -----------------------------------------------------
-        ds_meta = {}
-        ds_meta['type_s'] = 'dataset'
-        ds_meta['dataset_s'] = dataset_name
-        ds_meta['short_name_s'] = config['original_dataset_short_name']
-        ds_meta['source_s'] = url_list[0][:-30]
-        ds_meta['data_time_scale_s'] = data_time_scale
-        ds_meta['date_format_s'] = date_format
-        ds_meta['last_checked_dt'] = chk_time
-        ds_meta['original_dataset_title_s'] = config['original_dataset_title']
-        ds_meta['original_dataset_short_name_s'] = config['original_dataset_short_name']
-        ds_meta['original_dataset_url_s'] = config['original_dataset_url']
-        ds_meta['original_dataset_reference_s'] = config['original_dataset_reference']
-        ds_meta['original_dataset_doi_s'] = config['original_dataset_doi']
+        source = url_list[0][:-30]
+        ds_meta = harvesting_utils.make_ds_doc(config, source, chk_time)
 
         # Only include start_date and end_date if there was at least one successful download
-        if overall_start != None:
-            ds_meta['start_date_dt'] = overall_start.strftime(time_format)
-            ds_meta['end_date_dt'] = overall_end.strftime(time_format)
+        if not overall_start is None:
+            ds_meta['start_date_dt'] = overall_start.strftime(solr_format)
+            ds_meta['end_date_dt'] = overall_end.strftime(solr_format)
 
         # Only include last_download_dt if there was at least one successful download
         if updating:

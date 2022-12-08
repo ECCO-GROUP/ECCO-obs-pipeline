@@ -8,7 +8,7 @@ import numpy as np
 from dateutil import parser
 
 
-def harvester(config, grids_to_use=[]):
+def harvester(config):
     """
     Pulls data files for NSIDC FTP id and date range given in harvester_config.yaml.
     Creates (or updates) Solr entries for dataset, harvested granule, descendants.
