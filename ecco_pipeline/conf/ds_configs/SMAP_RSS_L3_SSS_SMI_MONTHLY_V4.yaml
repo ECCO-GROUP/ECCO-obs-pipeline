@@ -1,6 +1,6 @@
 ds_name: SMAP_RSS_L3_SSS_SMI_MONTHLY_V4 # Name for dataset
-start: "20150101T00:00:00Z" # yyyymmddThh:mm:ssZ
-end: "20150601T00:00:00Z" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
+start: "19800101T00:00:00Z" # yyyymmddThh:mm:ssZ
+end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 date_regex: "%Y-%m-%dT%H:%M:%SZ" # does not change
 
 # Provider specifications
