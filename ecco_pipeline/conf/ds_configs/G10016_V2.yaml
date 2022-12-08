@@ -1,6 +1,6 @@
 ds_name: G10016_V2 # Name for dataset
-start: "19800101T00:00:00Z" # yyyymmddThh:mm:ssZ
-end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
+start: "20220601T00:00:00Z" # yyyymmddThh:mm:ssZ
+end: "20220701T00:00:00Z" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 date_regex: "%Y-%m-%dT%H:%M:%SZ" # does not change
 
 # Provider specifications
@@ -19,7 +19,7 @@ fields:
   - name: cdr_seaice_conc
     long_name: NOAA/NSIDC Climate Data Record of Passive Microwave Sea Ice Concentration
     standard_name: sea_ice_area_fraction
-    units: 1
+    units: "1"
   - name: stdev_of_cdr_seaice_conc
     long_name: Passive Microwave Sea Ice Concentration Source Estimated Standard Deviation
     standard_name: " "
