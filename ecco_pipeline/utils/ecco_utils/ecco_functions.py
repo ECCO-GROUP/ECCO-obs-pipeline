@@ -338,12 +338,12 @@ def RDEFT4_remove_negative_values(ds):
 
 def G2202_mask_flagged_conc(ds):
 
-    print(f'G2202 masking flagged pre : {np.sum(ds['nsidc_nt_seaice_conc'] > 1)}
+    print(f'G2202 masking flagged pre : {np.sum(ds['nsidc_nt_seaice_conc'] > 1)}')
 
     ds['nsidc_nt_seaice_conc'] =ds['nsidc_nt_seaice_conc'].where(ds['nsidc_nt_seaice_conc'] <= 1)
     ds['nsidc_cdr_seaice_conc'] =ds['nsidc_cdr_seaice_conc'].where(ds['nsidc_cdr_seaice_conc'] <= 1)
     
-    print(f'G2202 masking flagged post : {np.sum(ds['nsidc_nt_seaice_conc'] > 1)}
+    print(f'G2202 masking flagged post : {np.sum(ds['nsidc_nt_seaice_conc'] > 1)}')
     return ds
 # Post-transformations (on DataArrays only)
 # -----------------------------------------------------------------------------------------------------------------------------------------------
