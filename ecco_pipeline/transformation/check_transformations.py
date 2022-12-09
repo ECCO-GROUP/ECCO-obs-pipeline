@@ -142,9 +142,8 @@ def main(config, user_cpus=1, grids_to_use=[]):
     harvested_granules = solr_utils.solr_query(fq)
 
     if not harvested_granules:
-        logging.exception(
+        logging.info(
             f'No harvested granules found in solr for {dataset_name}')
-        return f'No successful transformations'
 
     years_updated = defaultdict(list)
 
@@ -172,7 +171,6 @@ def main(config, user_cpus=1, grids_to_use=[]):
         data_for_factors = []
         nh_added = False
         sh_added = False
-
         # Find appropriate granule(s) to use for factor calculation
         for granule in harvested_granules:
             if 'hemisphere_s' in granule.keys():
@@ -202,44 +200,45 @@ def main(config, user_cpus=1, grids_to_use=[]):
                     data_for_factors.append(granule)
                     break
 
-    # Actually perform transformation on chosen granule(s)
-    # This will generate factors and avoid redundant calculations when using multiprocessing
-    for granule in data_for_factors:
-        file_path = granule['pre_transformation_file_path_s']
+    if data_for_factors:
+        # Actually perform transformation on chosen granule(s)
+        # This will generate factors and avoid redundant calculations when using multiprocessing
+        for granule in data_for_factors:
+            file_path = granule['pre_transformation_file_path_s']
 
-        # Get transformations to be completed for this file
-        remaining_transformations = get_remaining_transformations(
-            config, file_path, grids)
+            # Get transformations to be completed for this file
+            remaining_transformations = get_remaining_transformations(
+                config, file_path, grids)
 
-        grids_updated, year = grid_transformation.main(
-            file_path, remaining_transformations, config)
+            grids_updated, year = grid_transformation.main(
+                file_path, remaining_transformations, config)
 
-        for grid in grids_updated:
-            if year not in years_updated[grid]:
-                years_updated[grid].append(year)
-    # END PRE GENERATE FACTORS TO ACCOMODATE MULTIPROCESSING
-
-    # BEGIN MULTIPROCESSING
-    # Create list of tuples of function arguments (necessary for using pool.starmap)
-    multiprocess_tuples = [(granule, config, grids)
-                           for granule in harvested_granules]
-
-    grid_years_list = []
-
-    # for grid in grids:
-    logging.info(f'Running transformations for {grids} grids')
-
-    with Pool(processes=user_cpus) as pool:
-        grid_years_list = pool.starmap(
-            multiprocess_transformation, multiprocess_tuples)
-        pool.close()
-        pool.join()
-
-    for (grids, year) in grid_years_list:
-        if grids and year:
-            for grid in grids:
+            for grid in grids_updated:
                 if year not in years_updated[grid]:
                     years_updated[grid].append(year)
+        # END PRE GENERATE FACTORS TO ACCOMODATE MULTIPROCESSING
+
+        # BEGIN MULTIPROCESSING
+        # Create list of tuples of function arguments (necessary for using pool.starmap)
+        multiprocess_tuples = [(granule, config, grids)
+                               for granule in harvested_granules]
+
+        grid_years_list = []
+
+        # for grid in grids:
+        logging.info(f'Running transformations for {grids} grids')
+
+        with Pool(processes=user_cpus) as pool:
+            grid_years_list = pool.starmap(
+                multiprocess_transformation, multiprocess_tuples)
+            pool.close()
+            pool.join()
+
+        for (grids, year) in grid_years_list:
+            if grids and year:
+                for grid in grids:
+                    if year not in years_updated[grid]:
+                        years_updated[grid].append(year)
 
     # Query Solr for dataset metadata
     fq = [f'dataset_s:{dataset_name}', 'type_s:dataset']
