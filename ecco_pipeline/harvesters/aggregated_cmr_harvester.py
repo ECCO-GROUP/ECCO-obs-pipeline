@@ -4,6 +4,8 @@ import logging
 import os
 import ssl
 import sys
+import xarray as xr
+import numpy as np
 from datetime import datetime
 from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
@@ -192,104 +194,93 @@ def harvester(config):
     for url, id in url_list:
         # Date in filename is end date of 30 day period
         filename = url.split('/')[-1]
-
-        date = file_utils.get_date(config['regex'], filename)
-        dt = datetime.strptime(date, config['filename_date_fmt'])
-
-        if not (start_time_dt <= dt) and (end_time_dt >= dt):
-            continue
-
-        new_date_format = datetime.strftime(dt, "%Y-%m-%dT00:00:00Z")
-        year = new_date_format[:4]
-
-        local_fp = f'{target_dir}{year}/{filename}'
-
-        if not os.path.exists(f'{target_dir}{year}/'):
-            os.makedirs(f'{target_dir}{year}/')
-
+        agg_local_fp = f'{target_dir}{filename}'
+        updating = True
+        # updating = False
         modified_time = get_mod_time(id, solr_format)
+        # if ~os.path.exists(agg_local_fp) or modified_time > datetime.fromtimestamp(os.path.getmtime(local_fp)):
+        #     updating = True
+        # if updating:
+        #     logging.info(
+        #         f'Downloading aggregated {filename} to {agg_local_fp}')
+        #     try:
+        #         dl_file(url, agg_local_fp)
+        #         updating = True
+        #     except Exception as e:
+        #         logging.exception(e)
+    if updating:
+        ds = xr.open_dataset(agg_local_fp)
 
-        item = {}
-        item['type_s'] = 'granule'
-        item['date_s'] = new_date_format
-        item['dataset_s'] = dataset_name
-        item['filename_s'] = filename
-        item['source_s'] = url
-        item['modified_time_dt'] = str(modified_time)
+        for time in ds.time.values:
+            time_dt = datetime.strptime(
+                str(time)[:-3], "%Y-%m-%dT%H:%M:%S.%f")
+            if time_dt < start_time_dt or time_dt > end_time_dt:
+                continue
 
-        descendants_item = {}
-        descendants_item['type_s'] = 'descendants'
-        descendants_item['date_s'] = item["date_s"]
-        descendants_item['dataset_s'] = item['dataset_s']
-        descendants_item['filename_s'] = filename
-        descendants_item['source_s'] = item['source_s']
+            if config['data_time_scale'].upper() == 'MONTHLY':
+                if not time_dt.day == 1:
+                    time_dt = time_dt.replace(day=1)
+            year = str(time_dt.year)
+            filename_time = str(time_dt)[:10].replace('-', '')
 
-        updating = False
+            file_name = f'{dataset_name}_{filename_time}.nc'
+            local_fp = f'{target_dir}{year}/{file_name}'
+            time_s = datetime.strftime(time_dt, config['date_regex'])
 
-        try:
-            updating = harvesting_utils.check_update(
-                docs, filename, modified_time)
+            if not os.path.exists(f'{target_dir}{year}'):
+                os.makedirs(f'{target_dir}{year}')
 
-            # If updating, download file if necessary
-            if updating:
-                # If file doesn't exist locally, download it
-                if not os.path.exists(local_fp):
-                    logging.info(f'Downloading {filename} to {local_fp}')
-                    dl_file(url, local_fp)
-                # If file exists locally, but is out of date, download it
-                elif datetime.fromtimestamp(os.path.getmtime(local_fp)) <= modified_time:
-                    logging.info(
-                        f'Updating {filename} and downloading to {local_fp}')
-                    dl_file(url, local_fp)
-                else:
-                    logging.debug(
-                        f'{filename} already downloaded and up to date')
-
-                if filename in docs.keys():
-                    item['id'] = docs[filename]['id']
-
-                # calculate checksum and expected file size
-                item['checksum_s'] = file_utils.md5(local_fp)
-                item['pre_transformation_file_path_s'] = local_fp
-                item['granule_file_path_s'] = local_fp
-                item['harvest_success_b'] = True
-                item['file_size_l'] = os.path.getsize(local_fp)
-
-            else:
-                logging.debug(f'{filename} already downloaded and up to date')
-
-        except Exception as e:
-            logging.exception(e)
-            if updating:
-                logging.debug(f'{filename} failed to download')
-
-                item['harvest_success_b'] = False
-                item['filename'] = ''
-                item['pre_transformation_file_path_s'] = ''
-                item['file_size_l'] = 0
-
-        if updating:
+            # Granule metadata used for Solr harvested entries
+            item = {}
+            item['type_s'] = 'granule'
+            item['date_s'] = time_s
+            item['dataset_s'] = dataset_name
+            item['filename_s'] = file_name
+            item['source_s'] = url
+            item['modified_time_dt'] = modified_time.strftime(
+                config['date_regex'])
             item['download_time_dt'] = chk_time
 
-            # Update Solr entry using id if it exists
-            key = descendants_item['date_s']
+            # Granule metadata used for initializing Solr descendants entries
+            descendants_item = {}
+            descendants_item['type_s'] = 'descendants'
+            descendants_item['dataset_s'] = item['dataset_s']
+            descendants_item['date_s'] = item["date_s"]
+            descendants_item['source_s'] = item['source_s']
 
-            if key in descendants_docs.keys():
-                descendants_item['id'] = descendants_docs[key]['id']
+            try:
+                sub_ds = ds.sel(time=time)
 
-            descendants_item['harvest_success_b'] = item['harvest_success_b']
-            descendants_item['pre_transformation_file_path_s'] = item['pre_transformation_file_path_s']
+                sub_ds.to_netcdf(path=local_fp)
+                # Create checksum for file
+                item['checksum_s'] = file_utils.md5(local_fp)
+                item['pre_transformation_file_path_s'] = local_fp
+                item['harvest_success_b'] = True
+                item['file_size_l'] = os.path.getsize(local_fp)
+            except:
+                item['harvest_success_b'] = False
+                item['pre_transformation_file_path_s'] = ''
+                item['file_size_l'] = 0
+                item['checksum_s'] = ''
+
+            fq = ['type_s:granule', f'dataset_s:{dataset_name}',
+                  f'date_s:{time_s[:10]}*']
+            granule = solr_utils.solr_query(fq)
+
+            if granule:
+                item['id'] = granule[0]['id']
+
+            if time_s in descendants_docs.keys():
+                descendants_item['id'] = descendants_docs[time_s]['id']
+
+            entries_for_solr.append(item)
             entries_for_solr.append(descendants_item)
 
-            start_times.append(datetime.strptime(
-                new_date_format, solr_format))
-            end_times.append(datetime.strptime(
-                new_date_format, solr_format))
+            start_times.append(time_dt)
+            end_times.append(time_dt)
 
-            # add item to metadata json
-            entries_for_solr.append(item)
-            # store meta for last successful download
-            last_success_item = item
+            if item['harvest_success_b']:
+                last_success_item = item
 
     logging.info(f'Downloading {dataset_name} complete')
 

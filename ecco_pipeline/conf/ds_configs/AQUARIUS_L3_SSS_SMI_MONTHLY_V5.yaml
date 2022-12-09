@@ -9,7 +9,7 @@ cmr_short_name: AQUARIUS_L3_SSS_SMI_MONTHLY_V5
 cmr_version: '5'
 regex: '\d{7}'
 filename_date_fmt: '%Y%j'
-provider: 'opendap'
+provider: 'podaac-opendap'
 
 # Metadata
 aggregated: false # if data is available aggregated

@@ -14,7 +14,8 @@ from xml.etree.ElementTree import fromstring
 
 import numpy as np
 from conf.global_settings import OUTPUT_DIR
-from utils import file_utils, solr_utils, date_time
+from utils import file_utils, solr_utils
+from utils.ecco_utils import date_time
 
 
 """
@@ -192,7 +193,7 @@ def getdate(regex, fname):
     return date
 
 
-def harvester(config, grids_to_use=[]):
+def harvester(config):
     """
     Uses CMR search to find granules within date range given in harvester_config.yaml.
     Creates (or updates) Solr entries for dataset, harvested granule, and descendants.
@@ -223,7 +224,6 @@ def harvester(config, grids_to_use=[]):
 
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
-
 
     solr_utils.clean_solr(config)
     logging.info(f'Downloading {dataset_name} files to {target_dir}')
@@ -384,7 +384,8 @@ def harvester(config, grids_to_use=[]):
                     if updating:
                         # If file doesn't exist locally, download it
                         if not os.path.exists(local_fp):
-                            logging.info(f'Downloading {filename} to {local_fp}')
+                            logging.info(
+                                f'Downloading {filename} to {local_fp}')
 
                             credentials = get_credentials(url)
                             req = Request(url)
@@ -396,7 +397,8 @@ def harvester(config, grids_to_use=[]):
 
                         # If file exists locally, but is out of date, download it
                         elif str(datetime.fromtimestamp(os.path.getmtime(local_fp))) <= modified_time:
-                            logging.info(f'Updating {filename} and downloading to {local_fp}')
+                            logging.info(
+                                f'Updating {filename} and downloading to {local_fp}')
 
                             credentials = get_credentials(url)
                             req = Request(url)
@@ -407,7 +409,8 @@ def harvester(config, grids_to_use=[]):
                             open(local_fp, 'wb').write(data)
 
                         else:
-                            logging.debug(f'{filename} already downloaded and up to date')
+                            logging.debug(
+                                f'{filename} already downloaded and up to date')
 
                         if filename in docs.keys():
                             item['id'] = docs[filename]['id']
@@ -419,7 +422,8 @@ def harvester(config, grids_to_use=[]):
                         item['file_size_l'] = os.path.getsize(local_fp)
 
                     else:
-                        logging.debug(f'{filename} already downloaded and up to date')
+                        logging.debug(
+                            f'{filename} already downloaded and up to date')
 
                 except Exception as e:
                     logging.exception('error', e)
@@ -462,7 +466,8 @@ def harvester(config, grids_to_use=[]):
         # Update Solr with downloaded granule metadata entries
         r = solr_utils.solr_update(entries_for_solr, r=True)
         if r.status_code == 200:
-            logging.debug('Successfully created or updated Solr harvested documents')
+            logging.debug(
+                'Successfully created or updated Solr harvested documents')
         else:
             logging.exception('Failed to create Solr harvested documents')
 

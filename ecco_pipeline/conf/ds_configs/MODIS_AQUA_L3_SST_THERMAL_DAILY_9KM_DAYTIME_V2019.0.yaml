@@ -35,7 +35,7 @@ original_dataset_doi: 10.5067/MODSA-1D9D9
 t_version: 1.3 # Update this value if any changes are made to this file
 array_precision: float32
 time_zone_included_with_time: False # Data time values have time zone
-extra_information: [] # Unique things to do for dataset
+extra_information: ['no_time'] # Unique things to do for dataset
 data_res: 0.083333336 # Resolution of dataset
 
 # Values for non split datasets (for datasets split into nh/sh, append '_nh'/'_sh')

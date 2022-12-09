@@ -9,7 +9,7 @@ from typing import List
 import yaml
 
 from aggregation import aggregation
-from grid_transformation import check_transformations
+from transformation import check_transformations
 from utils import init_pipeline
 
 
@@ -37,7 +37,8 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument('--grids_to_use', default=False, nargs='*',
                         help='Names of grids to use during the pipeline')
 
-    parser.add_argument('--log_level', default='INFO', help='sets the log level')
+    parser.add_argument('--log_level', default='INFO',
+                        help='sets the log level')
 
     return parser
 
@@ -58,7 +59,8 @@ def show_menu(grids_to_use: List[str], user_cpus: int):
         if chosen_option in ['1', '2', '3', '4']:
             break
         else:
-            print(f'Unknown option entered, "{chosen_option}", please enter a valid option\n')
+            print(
+                f'Unknown option entered, "{chosen_option}", please enter a valid option\n')
 
     datasets = [os.path.splitext(ds)[0] for ds in os.listdir(
         'conf/ds_configs') if ds != '.DS_Store' and 'tpl' not in ds]
@@ -67,18 +69,18 @@ def show_menu(grids_to_use: List[str], user_cpus: int):
     # Run all
     if chosen_option == '1':
         for ds in datasets:
-            run_harvester([ds], grids_to_use)
+            run_harvester([ds])
             run_transformation([ds], user_cpus, grids_to_use)
             run_aggregation([ds], grids_to_use)
 
     # Run harvester
     elif chosen_option == '2':
-        run_harvester(datasets, grids_to_use)
+        run_harvester(datasets)
 
     # Run up through transformation
     elif chosen_option == '3':
         for ds in datasets:
-            run_harvester([ds], grids_to_use)
+            run_harvester([ds])
             run_transformation([ds], user_cpus, grids_to_use)
 
     # Manually enter dataset and pipeline step(s)
@@ -120,18 +122,18 @@ def show_menu(grids_to_use: List[str], user_cpus: int):
         wanted_steps = steps_dict[int(steps_index)]
 
         if 'harvest' in wanted_steps:
-            run_harvester([wanted_ds], grids_to_use)
+            run_harvester([wanted_ds])
         if 'transform' in wanted_steps:
             run_transformation([wanted_ds], user_cpus, grids_to_use)
         if 'aggregate' in wanted_steps:
             run_aggregation([wanted_ds], grids_to_use)
         if wanted_steps == 'all':
-            run_harvester([wanted_ds], grids_to_use)
+            run_harvester([wanted_ds])
             run_transformation([wanted_ds], user_cpus, grids_to_use)
             run_aggregation([wanted_ds], grids_to_use)
 
 
-def run_harvester(datasets: List[str], grids_to_use: List[str]):
+def run_harvester(datasets: List[str]):
     for ds in datasets:
         try:
             logging.info(f'Beginning harvesting {ds}')
@@ -142,16 +144,18 @@ def run_harvester(datasets: List[str], grids_to_use: List[str]):
             try:
                 harvester_type = config['harvester_type']
             except:
-                logging.fatal(f'Harvester type missing from {ds} config. Exiting.')
+                logging.fatal(
+                    f'Harvester type missing from {ds} config. Exiting.')
                 exit()
 
             try:
-                harvester = importlib.import_module(f'harvesters.{harvester_type}_harvester')
+                harvester = importlib.import_module(
+                    f'harvesters.{harvester_type}_harvester')
             except Exception as e:
                 logging.error(e)
                 exit()
 
-            status = harvester.harvester(config, grids_to_use)
+            status = harvester.harvester(config)
             logging.info(f'{ds} harvesting complete. {status}')
         except Exception as e:
             logging.exception(f'{ds} harvesting failed. {e}')
@@ -164,7 +168,8 @@ def run_transformation(datasets: List[str], user_cpus: int, grids_to_use: List[s
             with open(Path(f'conf/ds_configs/{ds}.yaml'), 'r') as stream:
                 config = yaml.load(stream, yaml.Loader)
 
-            status = check_transformations.main(config, user_cpus, grids_to_use)
+            status = check_transformations.main(
+                config, user_cpus, grids_to_use)
             logging.info(f'{ds} transformation complete. {status}')
         except:
             logging.exception(f'{ds} transformation failed.')
@@ -180,7 +185,7 @@ def run_aggregation(datasets: List[str], grids_to_use: List[str]):
             status = aggregation(config, grids_to_use)
             logging.info(f'{ds} aggregation complete. {status}')
         except Exception as e:
-            logging.info(f'{ds} aggregation failed: {e}')
+            logging.exception(f'{ds} aggregation failed: {e}')
 
 
 if __name__ == '__main__':

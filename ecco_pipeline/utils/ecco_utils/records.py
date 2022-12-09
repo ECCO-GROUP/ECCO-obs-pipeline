@@ -23,9 +23,9 @@ def make_empty_record(standard_name, long_name, units,
 
     # add start and end time records. default is same value as record date
     data_DA = data_DA.assign_coords(
-        time_start=('time', data_DA.time.copy(deep=True)))
+        time_start=('time', data_DA.time.data.copy()))
     data_DA = data_DA.assign_coords(
-        time_end=('time', data_DA.time.copy(deep=True)))
+        time_end=('time', data_DA.time.data.copy()))
 
     for dim in model_grid.XC.dims:
         data_DA = data_DA.assign_coords({dim: model_grid[dim]})
@@ -35,9 +35,9 @@ def make_empty_record(standard_name, long_name, units,
         # llc grid has 'tile dimension'
         if 'i' in model_grid and 'j' in model_grid and 'tile' in model_grid:
             data_DA = data_DA.assign_coords(
-                {'XC': (('tile', 'j', 'i'), model_grid.XC)})
+                {'XC': (('tile', 'j', 'i'), model_grid.XC.data)})
             data_DA = data_DA.assign_coords(
-                {'YC': (('tile', 'j', 'i'), model_grid.YC)})
+                {'YC': (('tile', 'j', 'i'), model_grid.YC.data)})
         else:
             print('Unsupported model grid format')
             return []
@@ -46,24 +46,24 @@ def make_empty_record(standard_name, long_name, units,
     elif model_grid_type == 'latlon':
         if 'i' in model_grid and 'j' in model_grid:
             data_DA = data_DA.assign_coords(
-                {'XC': (('j', 'i'), model_grid.XC)})
+                {'XC': (('j', 'i'), model_grid.XC.data)})
             data_DA = data_DA.assign_coords(
-                {'YC': (('j', 'i'), model_grid.YC)})
+                {'YC': (('j', 'i'), model_grid.YC.data)})
         elif 'lat' in model_grid and 'lon' in model_grid:
             data_DA = data_DA.assign_coords(
-                {'XC': (('lat', 'lon'), model_grid.XC)})
+                {'XC': (('lat', 'lon'), model_grid.XC.data)})
             data_DA = data_DA.assign_coords(
-                {'YC': (('lat', 'lon'), model_grid.YC)})
+                {'YC': (('lat', 'lon'), model_grid.YC.data)})
         elif 'latitude' in model_grid and 'longitude' in model_grid:
             data_DA = data_DA.assign_coords(
-                {'XC': (('latitude', 'longitude'), model_grid.XC)})
+                {'XC': (('latitude', 'longitude'), model_grid.XC.data)})
             data_DA = data_DA.assign_coords(
-                {'YC': (('latitude', 'longitude'), model_grid.YC)})
+                {'YC': (('latitude', 'longitude'), model_grid.YC.data)})
         elif 'XC' in model_grid and 'YC' in model_grid:
             data_DA = data_DA.assign_coords(
-                {'XC': (('NY', 'NX'), model_grid.XC)})
+                {'XC': (('NY', 'NX'), model_grid.XC.data)})
             data_DA = data_DA.assign_coords(
-                {'YC': (('NY', 'NX'), model_grid.YC)})
+                {'YC': (('NY', 'NX'), model_grid.YC.data)})
         else:
             print('Unsupported model grid format')
             return []
@@ -71,13 +71,13 @@ def make_empty_record(standard_name, long_name, units,
     elif model_grid_type == 'latitudelongitude':
         # Assumes model_grid.XC/YC is one dimensional
         data_DA = data_DA.assign_coords(
-            {'longitude': model_grid.XC})
+            {'longitude': model_grid.XC.data})
         data_DA = data_DA.assign_coords(
-            {'latitude': model_grid.YC})
+            {'latitude': model_grid.YC.data})
         data_DA = data_DA.assign_coords(
-            {'XC': (('longitude'), model_grid.XC)})
+            {'XC': (('longitude'), model_grid.XC.data)})
         data_DA = data_DA.assign_coords(
-            {'YC': (('latitude'), model_grid.YC)})
+            {'YC': (('latitude'), model_grid.YC.data)})
 
     else:
         print('invalid grid type!')
@@ -112,7 +112,7 @@ def save_to_disk(data,
             data_values = data[data_var].values
         else:
             data_values = data.values
-            
+
         # define binary file output filetype
         dt_out = np.dtype(binary_output_dtype)
 
@@ -176,15 +176,15 @@ def save_to_disk(data,
         try:
             data.values = \
                 np.where(np.isnan(data.values),
-                        netcdf_fill_value, data.values)
+                         netcdf_fill_value, data.values)
             data_DS = data.to_dataset()
         except:
             data_DS = data
 
         encoding_each = {'zlib': True,
-                        'complevel': 5,
-                        'shuffle': True,
-                        '_FillValue': netcdf_fill_value}
+                         'complevel': 5,
+                         'shuffle': True,
+                         '_FillValue': netcdf_fill_value}
 
         coord_encoding = {}
         for coord in data_DS.coords:

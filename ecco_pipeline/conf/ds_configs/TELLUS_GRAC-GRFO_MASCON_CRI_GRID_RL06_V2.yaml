@@ -4,7 +4,7 @@ end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 date_regex: "%Y-%m-%dT%H:%M:%SZ" # does not change
 
 # Provider specifications
-harvester_type: cmr
+harvester_type: aggregated_cmr
 cmr_short_name: "TELLUS_GRAC-GRFO_MASCON_CRI_GRID_RL06_V2"
 cmr_version: "02"
 regex: '\d{6}'

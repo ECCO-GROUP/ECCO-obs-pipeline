@@ -9,7 +9,7 @@ cmr_short_name: "AVHRR_OI-NCEI-L4-GLOB-v2.0"
 cmr_version: "2.0"
 regex: '\d{8}'
 filename_date_fmt: '%Y%m%d'
-provider: 'opendap'
+provider: 'podaac-opendap'
 
 # Metadata
 aggregated: false # if data is available aggregated

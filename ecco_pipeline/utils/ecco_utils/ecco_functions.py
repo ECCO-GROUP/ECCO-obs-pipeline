@@ -9,8 +9,9 @@ from utils.ecco_utils import records, mapping, date_time
 # Generalized functions
 # -----------------------------------------------------------------------------------------------------------------------------------------------
 
+
 def generalized_grid_product(product_name: str, data_res: float, data_max_lat: float,
-                             area_extent: List[float], dims: List[float], proj_info:str) -> Tuple[np.ndarray]:
+                             area_extent: List[float], dims: List[float], proj_info: str) -> Tuple[np.ndarray]:
     '''
     data_res: in degrees
     return (source_grid_min_L, source_grid_max_L, source_grid, data_grid_lons, data_grid_lats)
@@ -75,9 +76,9 @@ def generalized_transform_to_model_grid_solr(data_field_info, record_date, model
 
     # create empty data array
     data_DA = records.make_empty_record(standard_name, long_name, units,
-                                   record_date,
-                                   model_grid, model_grid_type,
-                                   array_precision)
+                                        record_date,
+                                        model_grid, model_grid_type,
+                                        array_precision)
 
     # print(data_DA)
 
@@ -102,9 +103,9 @@ def generalized_transform_to_model_grid_solr(data_field_info, record_date, model
     if np.sum(~np.isnan(orig_data)) > 0:
 
         data_model_projection = mapping.transform_to_target_grid(source_indices_within_target_radius_i,
-                                                            num_source_indices_within_target_radius_i,
-                                                            nearest_source_index_to_target_index_i,
-                                                            orig_data, model_grid.XC.shape)
+                                                                 num_source_indices_within_target_radius_i,
+                                                                 nearest_source_index_to_target_index_i,
+                                                                 orig_data, model_grid.XC.shape)
 
         # put the new data values into the data_DA array.
         # --where the mapped data are not nan, replace the original values
@@ -249,7 +250,8 @@ def generalized_aggregate_and_save(DS_year_merged, data_var, do_monthly_aggregat
                 mon_DA = cur_mon.mean(
                     axis=0, skipna=skipna_in_mean, keep_attrs=True)
 
-                tb, ct = date_time.make_time_bounds_from_ds64(cur_mon_year, 'AVG_MON')
+                tb, ct = date_time.make_time_bounds_from_ds64(
+                    cur_mon_year, 'AVG_MON')
 
                 mon_DA = mon_DA.assign_coords({'time': ct})
                 mon_DA = mon_DA.expand_dims('time', axis=0)
@@ -303,11 +305,11 @@ def generalized_aggregate_and_save(DS_year_merged, data_var, do_monthly_aggregat
                      fill_values['netcdf'], DS_year_merged[data_var].values)
 
         records.save_to_disk(DS_year_merged,
-                        filenames['shortest'],
-                        fill_values['binary'], fill_values['netcdf'],
-                        output_dirs['netcdf'], output_dirs['binary'],
-                        binary_dtype, model_grid_type, save_binary=save_binary,
-                        save_netcdf=save_netcdf, data_var=data_var)
+                             filenames['shortest'],
+                             fill_values['binary'], fill_values['netcdf'],
+                             output_dirs['netcdf'], output_dirs['binary'],
+                             binary_dtype, model_grid_type, save_binary=save_binary,
+                             save_netcdf=save_netcdf, data_var=data_var)
 
         if do_monthly_aggregation:
             mon_DS_year_merged[data_var].values = \
@@ -315,11 +317,11 @@ def generalized_aggregate_and_save(DS_year_merged, data_var, do_monthly_aggregat
                          fill_values['netcdf'], mon_DS_year_merged[data_var].values)
 
             records.save_to_disk(mon_DS_year_merged,
-                            filenames['monthly'],
-                            fill_values['binary'], fill_values['netcdf'],
-                            output_dirs['netcdf'], output_dirs['binary'],
-                            binary_dtype, model_grid_type, save_binary=save_binary,
-                            save_netcdf=save_netcdf, data_var=data_var)
+                                 filenames['monthly'],
+                                 fill_values['binary'], fill_values['netcdf'],
+                                 output_dirs['netcdf'], output_dirs['binary'],
+                                 binary_dtype, model_grid_type, save_binary=save_binary,
+                                 save_netcdf=save_netcdf, data_var=data_var)
     return False
 
 # Pre-transformation (on Datasets only)
@@ -338,23 +340,23 @@ def RDEFT4_remove_negative_values(ds):
 # -----------------------------------------------------------------------------------------------------------------------------------------------
 
 
-def avhrr_sst_kelvin_to_celsius(da, field_name):
-    if field_name == 'analysed_sst':
-        da.attrs['units'] = 'Celsius'
-        da.values -= 273.15
+def avhrr_sst_kelvin_to_celsius(da):
+    da.attrs['units'] = 'Celsius'
+    da.values -= 273.15
     return da
 
 
-def seaice_concentration_to_fraction(da, field_name):
-    if field_name == 'ice_conc':
-        da.attrs['units'] = '1'
-        da.values /= 100.
+def seaice_concentration_to_fraction(da):
+    da.attrs['units'] = '1'
+    da.values /= 100.
     return da
 
 # time_start and time_end for MEaSUREs_1812 is not acceptable
 # this function takes the provided center time, removes the hours:minutes:seconds.ns
 # and sets the new time_start and time_end based on that new time
-def MEaSUREs_fix_time(da, field_name):
+
+
+def MEaSUREs_fix_time(da):
     cur_time = da.time.values
 
     # remove time from date
