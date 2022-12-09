@@ -35,6 +35,9 @@ class Aggregation():
     def _set_ds_meta(self):
         fq = [f'dataset_s:{self.dataset_name}', 'type_s:dataset']
         ds_meta = solr_utils.solr_query(fq)[0]
+        if 'start_date_dt' not in ds_meta:
+            logging.info('No transformed granules to aggregate.')
+            raise Exception('No transformed granules to aggregate.')
         self.ds_meta = ds_meta
 
     def _set_grids(self, grids_to_use):
@@ -49,8 +52,9 @@ class Aggregation():
         if existing_agg_version != self.version:
             start_year = int(self.ds_meta.get('start_date_dt')[:4])
             end_year = int(self.ds_meta.get('end_date_dt')[:4])
-            self.years = [str(year)
-                          for year in range(start_year, end_year + 1)]
+            years = [str(year)
+                     for year in range(start_year, end_year + 1)]
+            self.years = {grid.get('grid_name_s'): years for grid in self.grids}
         else:
             self.years = self._years_to_aggregate()
 
@@ -227,7 +231,10 @@ def aggregation(config, grids_to_use=[]):
     """
     Aggregates data into annual files, saves them, and updates Solr
     """
-    A = Aggregation(config, grids_to_use)
+    try:
+        A = Aggregation(config, grids_to_use)
+    except:
+        return 'No aggregations performed'
 
     data_time_scale = A.ds_meta.get('data_time_scale_s')
 
