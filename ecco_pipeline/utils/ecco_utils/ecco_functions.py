@@ -342,15 +342,15 @@ def G2202_mask_flagged_conc(ds):
     tmp2 = ds['cdr_seaice_conc'].values
     
     cnt1a = np.sum(tmp1.ravel() > 1)
-    cnt1a = np.sum(tmp2.ravel() > 1)
+    cnt2a = np.sum(tmp2.ravel() > 1)
 
     tmp1 = np.where(tmp1 <= 1, tmp1, np.nan)
     tmp2 = np.where(tmp2 <= 1, tmp2, np.nan)
 
     cnt1b = np.sum(tmp1.ravel() > 1)
-    cnt1b = np.sum(tmp2.ravel() > 1)
+    cnt2b = np.sum(tmp2.ravel() > 1)
     
-    print(f'G2202 masking flagged data :{tmp1.time.values[0]} {cnt1a, cnt1b} post {cnt2a, cnt2b}')
+    print(f'G2202 masking flagged data : {cnt1a, cnt1b} post {cnt2a, cnt2b}')
 
     return ds
 # Post-transformations (on DataArrays only)
