@@ -27,7 +27,7 @@ fields:
     units: " "
 original_dataset_title: "Global Sea Ice Concentration (SSMIS)"
 original_dataset_short_name: "Global Sea Ice Concentration (SSMIS)"
-original_dataset_url: "http://www.osi-saf.org/?q=content/global-sea-ice-concentration-ssmis"
+original_dataset_url: "https://osi-saf.eumetsat.int/products/osi-401-b"
 original_dataset_reference: "https://osisaf-hl.met.no/sites/osisaf-hl.met.no/files/user_manuals/osisaf_cdop3_ss2_pum_ice-conc_v1p6.pdf"
 original_dataset_doi: "OSI-401-b"
 
