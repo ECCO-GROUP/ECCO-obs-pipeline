@@ -37,7 +37,7 @@ original_dataset_reference: https://nsidc.org/sites/nsidc.org/files/technical-re
 original_dataset_doi: 10.7265/efmz-2t65
 
 # Transformation
-t_version: 1.5 # Update this value if any changes are made to this file
+t_version: 1.6 # Update this value if any changes are made to this file
 array_precision: float32
 time_zone_included_with_time: False # Data time values have time zone
 extra_information: [] # Unique things to do for dataset
@@ -61,7 +61,7 @@ proj_info_sh:
   proj_id: "3412"
   proj4_args: "+init=EPSG:3412"
 
-pre_transformation_steps: [] # List of functions to call on the DataSet before transformation
+pre_transformation_steps: [G2202_mask_flagged_conc] # List of functions to call on the DataSet before transformation
 post_transformation_steps: [] # List of functions to call on the DataArrays after transformation
 notes: "" # String to include in global attributes of output files
 
