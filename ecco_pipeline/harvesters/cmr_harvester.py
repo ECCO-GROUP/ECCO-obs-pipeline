@@ -68,7 +68,7 @@ def cmr_filter_urls(search_results, provider):
 
             filename = link['href'].split('/')[-1]
 
-            if 'md5' in filename or 'tif' in filename or 'txt' in filename:
+            if 'md5' in filename or 'tif' in filename or 'txt' in filename or 'png' in filename or 'xml' in filename:
                 continue
             if 's3credentials' in filename:
                 continue
@@ -139,7 +139,7 @@ def get_mod_time(id, solr_format):
 
 
 def dl_file(src, dst):
-    credentials = get_credentials(src)
+    credentials = get_credentials()
     req = Request(src)
     req.add_header('Authorization',
                    'Basic {0}'.format(credentials))
