@@ -185,7 +185,7 @@ def run_aggregation(datasets: List[str], grids_to_use: List[str]):
             status = aggregation(config, grids_to_use)
             logging.info(f'{ds} aggregation complete. {status}')
         except Exception as e:
-            logging.info(f'{ds} aggregation failed: {e}')
+            logging.exception(f'{ds} aggregation failed: {e}')
 
 
 if __name__ == '__main__':
