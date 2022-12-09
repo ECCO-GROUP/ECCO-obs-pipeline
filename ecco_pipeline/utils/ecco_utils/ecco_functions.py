@@ -336,6 +336,23 @@ def RDEFT4_remove_negative_values(ds):
             ds[field].values < 0, np.nan, ds[field].values)
     return ds
 
+def G2202_mask_flagged_conc(ds):
+
+    tmp1 = ds['nsidc_nt_seaice_conc'].values
+    tmp2 = ds['cdr_seaice_conc'].values
+    
+    cnt1a = np.sum(tmp1.ravel() > 1)
+    cnt1a = np.sum(tmp2.ravel() > 1)
+
+    tmp1 = np.where(tmp1 <= 1, tmp1, np.nan)
+    tmp2 = np.where(tmp2 <= 1, tmp2, np.nan)
+
+    cnt1b = np.sum(tmp1.ravel() > 1)
+    cnt1b = np.sum(tmp2.ravel() > 1)
+    
+    print(f'G2202 masking flagged data :{tmp1.time.values[0]} {cnt1a, cnt1b} post {cnt2a, cnt2b}')
+
+    return ds
 # Post-transformations (on DataArrays only)
 # -----------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -347,7 +364,7 @@ def avhrr_sst_kelvin_to_celsius(da):
 
 
 def seaice_concentration_to_fraction(da):
-    da.attrs['units'] = '1'
+    da.attrs['units'] = "1"
     da.values /= 100.
     return da
 
