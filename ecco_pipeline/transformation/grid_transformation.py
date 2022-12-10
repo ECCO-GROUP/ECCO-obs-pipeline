@@ -228,7 +228,8 @@ def main(source_file_path, remaining_transformations, config):
         # check to see if there is 'grid_factors_version' key in the
         # dataset and whether the transformation version matches with the
         # current version
-        if T.ds_meta.get(grid_factors_version) and T.transformation_version == T.ds_meta.get(grid_factors_version):
+        if T.ds_meta.get(grid_factors_version) and \
+           T.transformation_version == T.ds_meta.get(grid_factors_version):
             factors_path = T.get_factors_path(grid_factors)
 
             logging.debug(f' - Loading {grid_name} factors')

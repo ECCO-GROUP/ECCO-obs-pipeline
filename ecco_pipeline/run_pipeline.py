@@ -62,9 +62,10 @@ def show_menu(grids_to_use: List[str], user_cpus: int):
             print(
                 f'Unknown option entered, "{chosen_option}", please enter a valid option\n')
 
-    datasets = [os.path.splitext(ds)[0] for ds in os.listdir(
-        'conf/ds_configs') if ds != '.DS_Store' and 'tpl' not in ds]
-    datasets.sort()
+    # Load all dataset configuration YAML names 
+    p = Path('./conf/ds_configs')
+    print(list(p.glob('*')))
+    datasets = [f.name[:-5] for f in p.glob('*yaml')]
 
     # Run all
     if chosen_option == '1':
@@ -191,7 +192,7 @@ def run_aggregation(datasets: List[str], grids_to_use: List[str]):
 if __name__ == '__main__':
     parser = create_parser()
     args = parser.parse_args()
-
+    print(args)
     grids_to_use, user_cpus = init_pipeline.init_pipeline(args)
-
+    print(grids_to_use)
     show_menu(grids_to_use, user_cpus)
