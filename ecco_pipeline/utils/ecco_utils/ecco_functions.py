@@ -336,15 +336,23 @@ def RDEFT4_remove_negative_values(ds):
             ds[field].values < 0, np.nan, ds[field].values)
     return ds
 
+
 def G2202_mask_flagged_conc(ds):
+    # This special function removes nonphysical concentrations (>1) and all
+    # concentrations that are derived from spatial interpolation
 
     print(f'G2202 masking flagged nt pre   : {np.sum(ds["nsidc_nt_seaice_conc"].values.ravel() > 1)}')
     tmpNT = np.where(ds["nsidc_nt_seaice_conc"].values.ravel() > 1, 1, 0)
     tmpCDR = np.where(ds["cdr_seaice_conc"].values.ravel() > 1, 1, 0)
     print(f'G2202 masking flagged NDR, CDR pre: {np.sum(tmpNT), np.sum(tmpCDR)}')
-    
+
+    # nan nonphysical concentrations > 1    
     ds['nsidc_nt_seaice_conc'] = ds['nsidc_nt_seaice_conc'].where(ds['nsidc_nt_seaice_conc'] <= 1)
     ds['cdr_seaice_conc'] = ds['cdr_seaice_conc'].where(ds['cdr_seaice_conc'] <= 1)
+
+    # nan all spatial interpolation (removes  pole hole)
+    ds['nsidc_nt_seaice_conc'] = ds['nsidc_nt_seaice_conc'].where(np.isnan(ds['spatial_interpolation_flag'].values))
+    ds['cdr_seaice_conc'] = ds['cdr_seaice_conc'].where(np.isnan(ds['spatial_interpolation_flag'].values))
     
     tmpNT = np.where(ds["nsidc_nt_seaice_conc"].values.ravel() > 1, 1, 0)
     tmpCDR = np.where(ds["cdr_seaice_conc"].values.ravel() > 1, 1, 0)

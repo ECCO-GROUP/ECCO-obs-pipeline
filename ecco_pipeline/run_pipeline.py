@@ -192,7 +192,5 @@ def run_aggregation(datasets: List[str], grids_to_use: List[str]):
 if __name__ == '__main__':
     parser = create_parser()
     args = parser.parse_args()
-    print(args)
     grids_to_use, user_cpus = init_pipeline.init_pipeline(args)
-    print(grids_to_use)
     show_menu(grids_to_use, user_cpus)
