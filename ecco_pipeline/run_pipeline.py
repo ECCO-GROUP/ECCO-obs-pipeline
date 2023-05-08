@@ -1,8 +1,9 @@
 import argparse
 import importlib
 import logging
-import os
+from glob import glob
 from multiprocessing import cpu_count
+import os
 from pathlib import Path
 from typing import List
 
@@ -40,6 +41,8 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument('--log_level', default='INFO',
                         help='sets the log level')
 
+    parser.add_argument('--wipe_factors', default=False, action='store_true', help='removes all stored factors')
+
     return parser
 
 
@@ -62,10 +65,9 @@ def show_menu(grids_to_use: List[str], user_cpus: int):
             print(
                 f'Unknown option entered, "{chosen_option}", please enter a valid option\n')
 
-    # Load all dataset configuration YAML names 
-    p = Path('./conf/ds_configs')
-    print(list(p.glob('*')))
-    datasets = [f.name[:-5] for f in p.glob('*yaml')]
+    # Load all dataset configuration YAML names
+    datasets = [os.path.splitext(os.path.basename(f))[0] for f in glob(f'conf/ds_configs/*.yaml')]
+    datasets.sort()
 
     # Run all
     if chosen_option == '1':
@@ -115,8 +117,7 @@ def show_menu(grids_to_use: List[str], user_cpus: int):
             steps_index = input('\nEnter pipeline step(s) number: ')
 
             if not steps_index.isdigit() or int(steps_index) not in range(1, len(steps)+1):
-                print(
-                    f'Invalid step(s), "{steps_index}", please enter a valid selection')
+                print(f'Invalid step(s), "{steps_index}", please enter a valid selection')
             else:
                 break
 
@@ -169,8 +170,7 @@ def run_transformation(datasets: List[str], user_cpus: int, grids_to_use: List[s
             with open(Path(f'conf/ds_configs/{ds}.yaml'), 'r') as stream:
                 config = yaml.load(stream, yaml.Loader)
 
-            status = check_transformations.main(
-                config, user_cpus, grids_to_use)
+            status = check_transformations.main(config, user_cpus, grids_to_use)
             logging.info(f'{ds} transformation complete. {status}')
         except:
             logging.exception(f'{ds} transformation failed.')

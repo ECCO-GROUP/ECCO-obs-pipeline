@@ -1,10 +1,15 @@
 import os
 from pathlib import Path
 
+'''
+Example global_settings.py file.
+
+You should create a new global_settings.py file set for your configuration. 
+'''
+
 ROOT_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), '..'))
-#OUTPUT_DIR = Path('/Users/marlis/Developer/ECCO/ecco_output')
-OUTPUT_DIR = Path('/ecco_nfs_1/shared/ECCO-pipeline/observations')
-GRIDS = ['ECCO_llc90','ECCO_llc270']
+OUTPUT_DIR = Path('/path/to/output/directory')
+GRIDS = ['ECCO_llc90']
 
 SOLR_HOST = 'http://localhost:8983/solr/'
 SOLR_COLLECTION = 'ecco_datasets'

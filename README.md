@@ -36,3 +36,8 @@ pip install -e .
 ```
 python ecco_pipeline/run_pipeline.py
 ```
+
+The default logging level is set to `info` but is adjustable via the `--log_level` flag when running the pipeline. ex:
+```
+python ecco_pipeline/run_pipeline.py --log_level DEBUG
+```

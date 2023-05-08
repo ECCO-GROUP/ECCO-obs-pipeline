@@ -38,8 +38,7 @@ def build_cmr_query_url(short_name, time_start, time_end,
         params += '&bounding_box={0}'.format(bounding_box)
     if filename_filter:
         option = '&options[producer_granule_id][pattern]=true'
-        params += '&producer_granule_id[]={0}{1}'.format(
-            filename_filter, option)
+        params += '&producer_granule_id[]={0}{1}'.format(filename_filter, option)
     return CMR_FILE_URL + params
 
 
@@ -85,15 +84,11 @@ def cmr_search(config, bounding_box='', polygon='', filename_filter=''):
     """Perform a scrolling CMR query for files matching input criteria."""
     short_name = config['cmr_short_name']
     provider = config.get('provider')
-    time_start = '-'.join([config['start'][:4],
-                          config['start'][4:6], config['start'][6:]])
-    time_end = '-'.join([config['end'][:4], config['end']
-                        [4:6], config['end'][6:]])
+    time_start = '-'.join([config['start'][:4], config['start'][4:6], config['start'][6:]])
+    time_end = '-'.join([config['end'][:4], config['end'][4:6], config['end'][6:]])
 
-    cmr_query_url = build_cmr_query_url(short_name=short_name,
-                                        time_start=time_start, time_end=time_end,
-                                        bounding_box=bounding_box,
-                                        polygon=polygon, filename_filter=filename_filter)
+    cmr_query_url = build_cmr_query_url(short_name, time_start, time_end,
+                                        bounding_box, polygon, filename_filter)
     cmr_scroll_id = None
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
@@ -107,8 +102,7 @@ def cmr_search(config, bounding_box='', polygon='', filename_filter=''):
             response = urlopen(req, context=ctx)
             if not cmr_scroll_id:
                 # Python 2 and 3 have different case for the http headers
-                headers = {k.lower(): v for k, v in dict(
-                    response.info()).items()}
+                headers = {k.lower(): v for k, v in dict(response.info()).items()}
                 cmr_scroll_id = headers['cmr-scroll-id']
                 hits = int(headers['cmr-hits'])
 
@@ -139,13 +133,12 @@ def get_mod_time(id, solr_format):
 
 
 def dl_file(src, dst):
-    credentials = get_credentials()
-    req = Request(src)
-    req.add_header('Authorization',
-                   'Basic {0}'.format(credentials))
-    opener = build_opener(HTTPCookieProcessor())
-    data = opener.open(req).read()
-    open(dst, 'wb').write(data)
+    creds = get_credentials()
+    headers = {
+        'Authorization': f'Basic {creds}'
+    }
+    r = requests.get(src, headers=headers)
+    open(dst, 'wb').write(r.content)
 
 
 def harvester(config):
@@ -193,7 +186,8 @@ def harvester(config):
         # Date in filename is end date of 30 day period
         filename = url.split('/')[-1]
 
-        date = file_utils.get_date(config['regex'], filename)
+        # Get date from filename and convert to dt object
+        date = file_utils.get_date(config['filename_date_regex'], filename)
         dt = datetime.strptime(date, config['filename_date_fmt'])
 
         if not (start_time_dt <= dt) and (end_time_dt >= dt):
@@ -227,8 +221,7 @@ def harvester(config):
         updating = False
 
         try:
-            updating = harvesting_utils.check_update(
-                docs, filename, modified_time)
+            updating = harvesting_utils.check_update(docs, filename, modified_time)
 
             # If updating, download file if necessary
             if updating:
@@ -238,12 +231,10 @@ def harvester(config):
                     dl_file(url, local_fp)
                 # If file exists locally, but is out of date, download it
                 elif datetime.fromtimestamp(os.path.getmtime(local_fp)) <= modified_time:
-                    logging.info(
-                        f'Updating {filename} and downloading to {local_fp}')
+                    logging.info(f'Updating {filename} and downloading to {local_fp}')
                     dl_file(url, local_fp)
                 else:
-                    logging.debug(
-                        f'{filename} already downloaded and up to date')
+                    logging.debug(f'{filename} already downloaded and up to date')
 
                 if filename in docs.keys():
                     item['id'] = docs[filename]['id']
@@ -281,10 +272,8 @@ def harvester(config):
             descendants_item['pre_transformation_file_path_s'] = item['pre_transformation_file_path_s']
             entries_for_solr.append(descendants_item)
 
-            start_times.append(datetime.strptime(
-                new_date_format, solr_format))
-            end_times.append(datetime.strptime(
-                new_date_format, solr_format))
+            start_times.append(datetime.strptime(new_date_format, solr_format))
+            end_times.append(datetime.strptime(new_date_format, solr_format))
 
             # add item to metadata json
             entries_for_solr.append(item)
@@ -339,7 +328,7 @@ def harvester(config):
         # -----------------------------------------------------
         # Create Solr Dataset-level Document if doesn't exist
         # -----------------------------------------------------
-        source = url_list[0][:-30]
+        source = f'https://archive.podaac.earthdata.nasa.gov/podaac-ops-cumulus-protected/{dataset_name}/'
         ds_meta = harvesting_utils.make_ds_doc(config, source, chk_time)
 
         # Only include start_date and end_date if there was at least one successful download
@@ -352,14 +341,6 @@ def harvester(config):
             ds_meta['last_download_dt'] = last_success_item['download_time_dt']
 
         ds_meta['harvest_status_s'] = harvest_status
-
-        # Update Solr with dataset metadata
-        r = solr_utils.solr_update([ds_meta], r=True)
-
-        if r.status_code == 200:
-            logging.debug('Successfully created Solr dataset document')
-        else:
-            logging.exception('Failed to create Solr dataset document')
 
     # if dataset entry exists, update download time, converage start date, coverage end date
     else:
@@ -375,25 +356,25 @@ def harvester(config):
         dates = [x['date_s'] for x in dates_query]
 
         # Build update document body
-        update_doc = {}
-        update_doc['id'] = dataset_metadata['id']
-        update_doc['last_checked_dt'] = {"set": chk_time}
+        ds_meta = {}
+        ds_meta['id'] = dataset_metadata['id']
+        ds_meta['last_checked_dt'] = {"set": chk_time}
         if dates:
-            update_doc['start_date_dt'] = {"set": min(dates)}
-            update_doc['end_date_dt'] = {"set": max(dates)}
+            ds_meta['start_date_dt'] = {"set": min(dates)}
+            ds_meta['end_date_dt'] = {"set": max(dates)}
 
         if entries_for_solr:
-            update_doc['harvest_status_s'] = {"set": harvest_status}
+            ds_meta['harvest_status_s'] = {"set": harvest_status}
 
             if 'download_time_dt' in last_success_item.keys():
-                update_doc['last_download_dt'] = {
+                ds_meta['last_download_dt'] = {
                     "set": last_success_item['download_time_dt']}
 
-        # Update Solr with modified dataset entry
-        r = solr_utils.solr_update([update_doc], r=True)
+    # Update Solr with modified dataset entry
+    r = solr_utils.solr_update([ds_meta], r=True)
 
-        if r.status_code == 200:
-            logging.debug('Successfully updated Solr dataset document')
-        else:
-            logging.exception('Failed to update Solr dataset document')
+    if r.status_code == 200:
+        logging.debug('Successfully updated Solr dataset document')
+    else:
+        logging.exception('Failed to update Solr dataset document')
     return harvest_status

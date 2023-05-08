@@ -225,7 +225,7 @@ def harvester(config):
 
             file_name = f'{dataset_name}_{filename_time}.nc'
             local_fp = f'{target_dir}{year}/{file_name}'
-            time_s = datetime.strftime(time_dt, config['date_regex'])
+            time_s = datetime.strftime(time_dt, solr_format)
 
             if not os.path.exists(f'{target_dir}{year}'):
                 os.makedirs(f'{target_dir}{year}')
@@ -237,8 +237,7 @@ def harvester(config):
             item['dataset_s'] = dataset_name
             item['filename_s'] = file_name
             item['source_s'] = url
-            item['modified_time_dt'] = modified_time.strftime(
-                config['date_regex'])
+            item['modified_time_dt'] = modified_time.strftime(solr_format)
             item['download_time_dt'] = chk_time
 
             # Granule metadata used for initializing Solr descendants entries

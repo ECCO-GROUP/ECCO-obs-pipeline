@@ -2,16 +2,13 @@
 *.pyc
 
 .DS_Store
-=======
-# data files
-*.nc
-*.bz2
 
 # factors pickled files
 *_factors
 
 # pipeline config
-*pipeline_config.yaml
+*global_settings.py
+
 # Editors
 .vscode/
 
@@ -25,3 +22,5 @@ __pycache__/
 *.log
 
 *.egg*
+
+*.ipynb_checkpoints/

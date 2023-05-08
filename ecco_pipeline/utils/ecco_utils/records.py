@@ -4,83 +4,33 @@ from pathlib import Path
 from utils.ecco_utils.llc_array_conversion import llc_tiles_to_compact
 
 
-def make_empty_record(standard_name, long_name, units,
-                      record_date,
-                      model_grid, model_grid_type,
-                      array_precision):
-
+def make_empty_record(record_date: str, model_grid: xr.Dataset, array_precision: type) -> xr.DataArray:
+    '''
+    Creates xarray DataArray filled with nans.
+    '''
     # model_grid must contain the corrdinates XC and YC
 
     # make an empty data array to hold the interpolated 2D field
     # all values are nans.
     # dimensions are the same as model_grid.XC
-    data_DA = xr.DataArray(np.ones(np.shape(model_grid.XC.values),
-                                   dtype=array_precision),
-                           dims=model_grid.XC.dims)*np.nan
+    nan_array = np.full(model_grid.XC.values.shape, np.nan, array_precision)
+    data_DA = xr.DataArray(nan_array, dims=model_grid.XC.dims)
 
     data_DA = data_DA.assign_coords(time=np.datetime64(record_date, 'ns'))
     data_DA = data_DA.expand_dims(dim='time', axis=0)
 
     # add start and end time records. default is same value as record date
-    data_DA = data_DA.assign_coords(
-        time_start=('time', data_DA.time.data.copy()))
-    data_DA = data_DA.assign_coords(
-        time_end=('time', data_DA.time.data.copy()))
+    data_DA = data_DA.assign_coords({'time_start': ('time', data_DA.time.data.copy()),
+                                     'time_end': ('time', data_DA.time.data.copy())})
 
     for dim in model_grid.XC.dims:
         data_DA = data_DA.assign_coords({dim: model_grid[dim]})
 
-    # create XC and YC coordinates of empty record from XC YC of model_grid
-    if model_grid_type == 'llc':
-        # llc grid has 'tile dimension'
-        if 'i' in model_grid and 'j' in model_grid and 'tile' in model_grid:
-            data_DA = data_DA.assign_coords(
-                {'XC': (('tile', 'j', 'i'), model_grid.XC.data)})
-            data_DA = data_DA.assign_coords(
-                {'YC': (('tile', 'j', 'i'), model_grid.YC.data)})
-        else:
-            print('Unsupported model grid format')
-            return []
-
-    # some grids have j i dims, and some have lon lat dims
-    elif model_grid_type == 'latlon':
-        if 'i' in model_grid and 'j' in model_grid:
-            data_DA = data_DA.assign_coords(
-                {'XC': (('j', 'i'), model_grid.XC.data)})
-            data_DA = data_DA.assign_coords(
-                {'YC': (('j', 'i'), model_grid.YC.data)})
-        elif 'lat' in model_grid and 'lon' in model_grid:
-            data_DA = data_DA.assign_coords(
-                {'XC': (('lat', 'lon'), model_grid.XC.data)})
-            data_DA = data_DA.assign_coords(
-                {'YC': (('lat', 'lon'), model_grid.YC.data)})
-        elif 'latitude' in model_grid and 'longitude' in model_grid:
-            data_DA = data_DA.assign_coords(
-                {'XC': (('latitude', 'longitude'), model_grid.XC.data)})
-            data_DA = data_DA.assign_coords(
-                {'YC': (('latitude', 'longitude'), model_grid.YC.data)})
-        elif 'XC' in model_grid and 'YC' in model_grid:
-            data_DA = data_DA.assign_coords(
-                {'XC': (('NY', 'NX'), model_grid.XC.data)})
-            data_DA = data_DA.assign_coords(
-                {'YC': (('NY', 'NX'), model_grid.YC.data)})
-        else:
-            print('Unsupported model grid format')
-            return []
-
-    elif model_grid_type == 'latitudelongitude':
-        # Assumes model_grid.XC/YC is one dimensional
-        data_DA = data_DA.assign_coords(
-            {'longitude': model_grid.XC.data})
-        data_DA = data_DA.assign_coords(
-            {'latitude': model_grid.YC.data})
-        data_DA = data_DA.assign_coords(
-            {'XC': (('longitude'), model_grid.XC.data)})
-        data_DA = data_DA.assign_coords(
-            {'YC': (('latitude'), model_grid.YC.data)})
-
-    else:
-        print('invalid grid type!')
+    try:
+        data_DA = data_DA.assign_coords({'XC': (model_grid.XC.dims, model_grid.XC.data),
+                                        'YC': (model_grid.YC.dims, model_grid.YC.data)})
+    except:
+        print('Unsupported model grid format')
         return []
 
     data_DA.XC.attrs['coverage_content_type'] = 'coordinate'
@@ -90,20 +40,108 @@ def make_empty_record(standard_name, long_name, units,
     data_DA.XC.attrs = model_grid.XC.attrs
     data_DA.YC.attrs = model_grid.YC.attrs
 
-    # add some metadata
-    data_DA.attrs = []
-    data_DA.attrs['long_name'] = long_name
-    data_DA.attrs['standard_name'] = standard_name
-    data_DA.attrs['units'] = units
-
     data_DA.name = 'Default empty model grid record'
 
     return data_DA
 
 
-def save_to_disk(data,
-                 output_filename,
-                 binary_fill_value, netcdf_fill_value,
+def save_binary(data, output_filename, binary_fill_value, binary_output_dir, binary_output_dtype,
+                model_grid_type, data_var=''):
+    if data_var:
+        data_values = data[data_var].values
+    else:
+        data_values = data.values
+
+    # define binary file output filetype
+    dt_out = np.dtype(binary_output_dtype)
+
+    # create directory
+    binary_output_dir.mkdir(exist_ok=True)
+
+    # define binary output filename
+    binary_output_filename = binary_output_dir / output_filename
+
+    # replace nans with the binary fill value (something like -9999)
+    tmp_fields = np.where(np.isnan(data_values),
+                          binary_fill_value, data_values)
+
+    # SAVE FLAT BINARY
+    # loop through each record of the year, save binary fields one at a time
+    # appending each record as we go
+    fd1 = open(str(binary_output_filename), 'wb')
+    fd1 = open(str(binary_output_filename), 'ab')
+
+    for i in range(len(data.time)):
+        # print('saving binary record: ', str(i))
+
+        # if we have an llc grid, then we have to reform to compact
+        if model_grid_type == 'llc':
+            tmp_field = llc_tiles_to_compact(tmp_fields[i, :], less_output=True)
+
+        # otherwise assume grid is x,y (2 dimensions)
+        elif model_grid_type == 'latlon':
+            tmp_field = tmp_fields[i, :]
+
+        else:
+            print('unknown model grid type!')
+            tmp_field = []
+            return []
+
+        # make sure we have something to save...
+        if len(tmp_field) > 0:
+            # if this is the first record, create new binary file
+            tmp_field.astype(dt_out).tofile(fd1)
+
+    # close the file at the end of the operation
+    fd1.close()
+
+
+def save_netcdf(data, output_filename, netcdf_fill_value, netcdf_output_dir):
+    # create directory
+    netcdf_output_dir.mkdir(exist_ok=True)
+
+    # define netcdf output filename
+    netcdf_output_filename = netcdf_output_dir / Path(output_filename + '.nc')
+
+    try:
+        data = data.fillna(netcdf_fill_value)
+        data_DS = data.to_dataset()
+    except:
+        data_DS = data
+
+    encoding_each = {'zlib': True,
+                     'complevel': 5,
+                     'shuffle': True,
+                     '_FillValue': netcdf_fill_value}
+
+    coord_encoding = {}
+    for coord in data_DS.coords:
+        coord_encoding[coord] = {'_FillValue': None}
+
+        if 'time' in coord:
+            coord_encoding[coord] = {'_FillValue': None,
+                                     'dtype': 'int32'}
+            if coord != 'time_step':
+                coord_encoding[coord]['units'] = "hours since 1992-01-01 12:00:00"
+        if 'lat' in coord:
+            coord_encoding[coord] = {'_FillValue': None,
+                                     'dtype': 'float32'}
+        if 'lon' in coord:
+            coord_encoding[coord] = {'_FillValue': None,
+                                     'dtype': 'float32'}
+        if 'Z' in coord:
+            coord_encoding[coord] = {'_FillValue': None,
+                                     'dtype': 'float32'}
+
+    var_encoding = {var: encoding_each for var in data_DS.data_vars}
+
+    encoding = {**coord_encoding, **var_encoding}
+    # the actual saving (so easy with xarray!)
+    data_DS.to_netcdf(netcdf_output_filename,  encoding=encoding)
+    data_DS.close()
+
+
+def save_to_disk(data, output_filename, binary_fill_value, netcdf_fill_value,
                  netcdf_output_dir, binary_output_dir, binary_output_dtype,
                  model_grid_type, save_binary=True, save_netcdf=True, data_var=''):
 
@@ -164,8 +202,7 @@ def save_to_disk(data,
         netcdf_output_dir.mkdir(exist_ok=True)
 
         # define netcdf output filename
-        netcdf_output_filename = netcdf_output_dir / \
-            Path(output_filename + '.nc')
+        netcdf_output_filename = netcdf_output_dir / Path(output_filename + '.nc')
 
         # SAVE NETCDF
         # replace the binary fill value (-9999) with the netcdf fill value
@@ -174,9 +211,7 @@ def save_to_disk(data,
         # replace nans with the binary fill value (something like -9999) if
         # the xarray object sent in a datarray that hasnt been checked
         try:
-            data.values = \
-                np.where(np.isnan(data.values),
-                         netcdf_fill_value, data.values)
+            data = data.fillna(netcdf_fill_value)
             data_DS = data.to_dataset()
         except:
             data_DS = data

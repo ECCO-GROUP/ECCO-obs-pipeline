@@ -203,24 +203,21 @@ def harvester(config):
     # Read harvester_config.yaml and setup variables
     # =====================================================
     dataset_name = config['ds_name']
-    date_regex = config['date_regex']
     start_time = config['start']
     end_time = config['end']
-    regex = config['regex']
-    date_format = config['date_format']
+    filename_date_regex = config['filename_date_regex']
     data_time_scale = config['data_time_scale']
-
-    if end_time == 'NOW':
-        end_time = datetime.utcnow().strftime(date_regex)
 
     target_dir = f'{OUTPUT_DIR}/{dataset_name}/harvested_granules/'
 
-    time_format = "%Y-%m-%dT%H:%M:%SZ"
+    solr_format = "%Y-%m-%dT%H:%M:%SZ"
+    if end_time == 'NOW':
+        end_time = datetime.utcnow().strftime(solr_format)
     entries_for_solr = []
     last_success_item = {}
     start_times = []
     end_times = []
-    chk_time = datetime.utcnow().strftime(date_regex)
+    chk_time = datetime.utcnow().strftime(solr_format)
 
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
@@ -269,8 +266,8 @@ def harvester(config):
     start_year = start_time[:4]
     end_year = end_time[:4]
     years = np.arange(int(start_year), int(end_year) + 1)
-    start_time_dt = datetime.strptime(start_time, date_regex)
-    end_time_dt = datetime.strptime(end_time, date_regex)
+    start_time_dt = datetime.strptime(start_time, solr_format)
+    end_time_dt = datetime.strptime(end_time, solr_format)
 
     url_list = cmr_search(short_name, version, start_time, end_time)
 
@@ -312,7 +309,7 @@ def harvester(config):
             # Date in filename is end date of 30 day period
             filename = url.split('/')[-1]
 
-            date = getdate(regex, filename)
+            date = getdate(filename_date_regex, filename)
             dt = datetime.strptime(date, "%Y%m%d")
             new_date_format = f'{date[:4]}-{date[4:6]}-{date[6:]}T00:00:00Z'
 
@@ -450,9 +447,9 @@ def harvester(config):
                     entries_for_solr.append(descendants_item)
 
                     start_times.append(datetime.strptime(
-                        new_date_format, date_regex))
+                        new_date_format, solr_format))
                     end_times.append(datetime.strptime(
-                        new_date_format, date_regex))
+                        new_date_format, solr_format))
 
                     # add item to metadata json
                     entries_for_solr.append(item)
@@ -511,7 +508,6 @@ def harvester(config):
         ds_meta['short_name_s'] = config['original_dataset_short_name']
         ds_meta['source_s'] = url_list[0][:-30]
         ds_meta['data_time_scale_s'] = data_time_scale
-        ds_meta['date_format_s'] = date_format
         ds_meta['last_checked_dt'] = chk_time
         ds_meta['original_dataset_title_s'] = config['original_dataset_title']
         ds_meta['original_dataset_short_name_s'] = config['original_dataset_short_name']
@@ -521,8 +517,8 @@ def harvester(config):
 
         # Only include start_date and end_date if there was at least one successful download
         if overall_start != None:
-            ds_meta['start_date_dt'] = overall_start.strftime(time_format)
-            ds_meta['end_date_dt'] = overall_end.strftime(time_format)
+            ds_meta['start_date_dt'] = overall_start.strftime(solr_format)
+            ds_meta['end_date_dt'] = overall_end.strftime(solr_format)
 
         # Only include last_download_dt if there was at least one successful download
         if updating:

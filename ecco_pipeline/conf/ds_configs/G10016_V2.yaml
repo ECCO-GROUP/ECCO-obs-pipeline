@@ -1,29 +1,32 @@
 ds_name: G10016_V2 # Name for dataset
 start: "19800101T00:00:00Z" # yyyymmddThh:mm:ssZ
 end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
-date_regex: "%Y-%m-%dT%H:%M:%SZ" # does not change
 
 # Provider specifications
 harvester_type: nsidc_ftp
 host: sidads.colorado.edu # does not change
 user: anonymous # does not change
-regex: '\d{8}'
+filename_date_fmt: "%Y%m%d"
+filename_date_regex: '\d{8}'
 ddir: "pub/DATASETS/NOAA/G10016_V2/"
 
 # Metadata
 aggregated: false # if data is available aggregated
 data_time_scale: "daily" # daily or monthly
-date_format: "yyyymmdd" # format of date in file name ex: yyyymmdd
 regions: ["north", "south"]
 fields:
   - name: cdr_seaice_conc
     long_name: NOAA/NSIDC Climate Data Record of Passive Microwave Sea Ice Concentration
     standard_name: sea_ice_area_fraction
     units: "1"
+    pre_transformations: [] # List of functions to call on the DataSet before transformation
+    post_transformations: [] # List of functions to call on the DataArrays after transformation
   - name: stdev_of_cdr_seaice_conc
     long_name: Passive Microwave Sea Ice Concentration Source Estimated Standard Deviation
     standard_name: " "
     units: " "
+    pre_transformations: [] # List of functions to call on the DataSet before transformation
+    post_transformations: [] # List of functions to call on the DataArrays after transformation
 original_dataset_title: Near-Real-Time NOAA/NSIDC Climate Data Record of Passive Microwave Sea Ice Concentration, Version 1
 original_dataset_short_name: G10016_V2
 original_dataset_url: https://nsidc.org/data/G10016
@@ -33,8 +36,6 @@ original_dataset_doi: 10.7265/tgam-yv28
 # Transformation
 t_version: 1.8 # Update this value if any changes are made to this file
 array_precision: float32
-time_zone_included_with_time: False # Data time values have time zone
-extra_information: [] # Unique things to do for dataset
 data_res: 25/111 # Resolution of dataset
 
 # Values for non split datasets (for datasets split into nh/sh, append '_nh'/'_sh')
@@ -55,8 +56,6 @@ proj_info_sh:
   proj_id: "3412"
   proj4_args: "+init=EPSG:3412"
 
-pre_transformation_steps: [] # List of functions to call on the DataSet before transformation
-post_transformation_steps: [] # List of functions to call on the DataArrays after transformation
 notes: "" # String to include in global attributes of output files
 
 # Aggregation

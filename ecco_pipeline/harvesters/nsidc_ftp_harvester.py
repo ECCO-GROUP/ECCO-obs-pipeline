@@ -32,11 +32,11 @@ def harvester(config):
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
 
-    time_format = "%Y-%m-%dT%H:%M:%SZ"
+    solr_format = "%Y-%m-%dT%H:%M:%SZ"
     entries_for_solr = []
     last_success_item = {}
     granule_dates = []
-    chk_time = datetime.utcnow().strftime(time_format)
+    chk_time = datetime.utcnow().strftime(solr_format)
     now = datetime.utcnow()
     updating = False
 
@@ -122,7 +122,7 @@ def harvester(config):
                     url = f'{ftp_dir}{newfile}'
 
                     # Extract the date from the filename
-                    date = file_utils.get_date(config['regex'], newfile)
+                    date = file_utils.get_date(config['filename_date_regex'], newfile)
                     date_time = datetime.strptime(date, "%Y%m%d")
                     new_date_format = f'{date[:4]}-{date[4:6]}-{date[6:]}T00:00:00Z'
 
@@ -131,8 +131,7 @@ def harvester(config):
                     if (start_time_dt > date_time) or (end_time_dt < date_time):
                         continue
 
-                    granule_dates.append(datetime.strptime(
-                        new_date_format, config['date_regex']))
+                    granule_dates.append(datetime.strptime(new_date_format, solr_format))
 
                     # Granule metadata used for Solr harvested entries
                     item = {}
@@ -158,7 +157,7 @@ def harvester(config):
                     try:
                         mod_time = ftp.voidcmd("MDTM "+url)[4:]
                         mod_date_time = parser.parse(mod_time)
-                        mod_time = mod_date_time.strftime(time_format)
+                        mod_time = mod_date_time.strftime(solr_format)
                         item['modified_time_dt'] = mod_time
                     except:
                         mod_date_time = now
@@ -167,7 +166,7 @@ def harvester(config):
                     updating = (not newfile in docs.keys()) or \
                         (not docs[newfile]['harvest_success_b']) or \
                         (datetime.strptime(
-                            docs[newfile]['download_time_dt'], time_format) <= mod_date_time)
+                            docs[newfile]['download_time_dt'], solr_format) <= mod_date_time)
 
                     # If updating, download file if necessary
                     if updating:
@@ -294,7 +293,6 @@ def harvester(config):
         ds_meta['short_name_s'] = config['original_dataset_short_name']
         ds_meta['source_s'] = f'ftp://{host}/{ddir}'
         ds_meta['data_time_scale_s'] = data_time_scale
-        ds_meta['date_format_s'] = config['date_format']
         ds_meta['last_checked_dt'] = chk_time
         ds_meta['original_dataset_title_s'] = config['original_dataset_title']
         ds_meta['original_dataset_short_name_s'] = config['original_dataset_short_name']
@@ -304,9 +302,8 @@ def harvester(config):
 
         # Only include start_date and end_date if there was at least one successful download
         if overall_start != None:
-            ds_meta['start_date_dt'] = overall_start.strftime(
-                time_format)
-            ds_meta['end_date_dt'] = overall_end.strftime(time_format)
+            ds_meta['start_date_dt'] = overall_start.strftime(solr_format)
+            ds_meta['end_date_dt'] = overall_end.strftime(solr_format)
 
         # Only include last_download_dt if there was at least one successful download
         if last_success_item:
