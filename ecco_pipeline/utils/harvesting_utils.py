@@ -1,5 +1,9 @@
 from utils import solr_utils
 
+'''
+Common functions used across all harvesters. WIP
+'''
+
 
 def get_solr_docs(dataset_name: str):
     docs = {}
@@ -45,7 +49,6 @@ def make_ds_doc(config, source, chk_time):
     ds_meta['short_name_s'] = config['original_dataset_short_name']
     ds_meta['source_s'] = source
     ds_meta['data_time_scale_s'] = config['data_time_scale']
-    ds_meta['date_format_s'] = config['date_format']
     ds_meta['last_checked_dt'] = chk_time
     ds_meta['original_dataset_title_s'] = config['original_dataset_title']
     ds_meta['original_dataset_short_name_s'] = config['original_dataset_short_name']

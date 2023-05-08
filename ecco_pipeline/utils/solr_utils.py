@@ -17,12 +17,10 @@ def solr_query(fq, fl=''):
 
     url = f'{SOLR_HOST}{SOLR_COLLECTION}/select?'
     try:
-        response = requests.get(url, params=getVars, headers={
-                                'Connection': 'close'})
+        response = requests.get(url, params=getVars, headers={'Connection': 'close'})
     except:
         time.sleep(5)
-        response = requests.get(url, params=getVars, headers={
-                                'Connection': 'close'})
+        response = requests.get(url, params=getVars, headers={'Connection': 'close'})
 
     return response.json()['response']['docs']
 
@@ -109,6 +107,7 @@ def clean_solr(config):
     fq = f'dataset_s:{dataset_name} AND date_s:{{{config_end} TO *]'
     url = f'{SOLR_HOST}{SOLR_COLLECTION}/update?commit=true'
     requests.post(url, json={'delete': {'query': fq}})
+
 
 def delete_mismatch_transformations():
     """

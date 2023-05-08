@@ -1,9 +1,12 @@
+import os
 from pathlib import Path
+from glob import glob
 import logging
 import requests
 from conf.global_settings import OUTPUT_DIR, SOLR_COLLECTION, GRIDS
 
 from utils import log_config, solr_utils, grids_to_solr
+
 
 def setup_logger(args):
     log_config.configure_logging(False, args.log_level)
@@ -12,12 +15,14 @@ def setup_logger(args):
     logging.getLogger("requests").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
 
+
 def validate_output_dir():
     # Verify output directory is valid
     if not Path.is_dir(OUTPUT_DIR):
         logging.fatal('Missing output directory. Please fill in. Exiting.')
         exit()
     logging.debug(f'Using output directory: {OUTPUT_DIR}')
+
 
 def validate_solr():
     logging.debug(f'Using Solr collection: {SOLR_COLLECTION}')
@@ -30,8 +35,21 @@ def validate_solr():
         exit()
 
     if not solr_utils.core_check():
-        logging.fatal(f'Solr core {SOLR_COLLECTION} does not exist. Add a core using "bin/solr create -c {{collection_name}}".')
+        logging.fatal(
+            f'Solr core {SOLR_COLLECTION} does not exist. Add a core using "bin/solr create -c {{collection_name}}".')
         exit()
+
+
+def wipe_factors():
+    logging.info('Removing all factors')
+    all_factors = glob(f'{OUTPUT_DIR}/**/transformed_products/**/*_factors')
+    for factors_file in all_factors:
+        try:
+            os.remove(factors_file)
+        except:
+            logging.error(f'Error removing {factors_file}')
+        logging.info('Successfully removed all factors')
+
 
 def init_pipeline(args):
     setup_logger(args)
@@ -59,14 +77,17 @@ def init_pipeline(args):
 
             if grids_not_in_solr:
                 for name in grids_not_in_solr:
-                    logging.exception(f'Grid "{name}" not in Solr. Ensure it\'s file name is present in grids_config.yaml and run pipeline with the --grids_to_solr argument')
+                    logging.exception(
+                        f'Grid "{name}" not in Solr. Ensure it\'s file name is present in grids_config.yaml and run pipeline with the --grids_to_solr argument')
                 exit()
             logging.info('Successfully updated grids on Solr.')
         except Exception as e:
             logging.exception(e)
 
+    if args.wipe_factors:
+        wipe_factors()
+
     user_cpus = args.multiprocesses
     logging.debug(f'Using {user_cpus} processes for multiprocess transformations')
-    
 
     return grids_to_use, user_cpus
