@@ -1,30 +1,33 @@
 ds_name: SSMIS_OSI-401-b # Name for dataset
 start: "19800101T00:00:00Z" # yyyymmddThh:mm:ssZ
 end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
-date_regex: "%Y-%m-%dT%H:%M:%SZ" # does not change
 
 # Provider specifications
 harvester_type: osisaf_ftp
 host: osisaf.met.no # does not change
 user: anonymous # does not change
-regex: '\d{8}'
+filename_date_fmt: "%Y%m%d"
+filename_date_regex: '\d{8}'
 ddir: "archive/ice/conc/"
 filename_filter: "polstere-100_multi"
 
 # Metadata
 aggregated: false # if data is available aggregated
 data_time_scale: "daily" # daily or monthly
-date_format: "yyyymmdd" # format of date in file name ex: yyyymmdd
-regions: ['north', 'south']
+regions: ["north", "south"]
 fields:
   - name: ice_conc
     long_name: concentration of sea ice
     standard_name: sea_ice_area_fraction
     units: "%"
+    pre_transformations: [] # List of functions to call on the DataSet before transformation
+    post_transformations: [] # List of functions to call on the DataArrays after transformation
   - name: confidence_level
     long_name: confidence level
     standard_name: " "
     units: " "
+    pre_transformations: [] # List of functions to call on the DataSet before transformation
+    post_transformations: [] # List of functions to call on the DataArrays after transformation
 original_dataset_title: "Global Sea Ice Concentration (SSMIS)"
 original_dataset_short_name: "Global Sea Ice Concentration (SSMIS)"
 original_dataset_url: "https://osi-saf.eumetsat.int/products/osi-401-b"
@@ -34,8 +37,7 @@ original_dataset_doi: "OSI-401-b"
 # Transformation
 t_version: 1.7 # Update this value if any changes are made to this file
 array_precision: float32
-time_zone_included_with_time: False # Data time values have time zone
-extra_information: ["time_bounds_var", "time_var"] # Unique things to do for dataset
+time_bounds_var: time_bnds
 data_res: 10/111 # Resolution of dataset
 
 # Values for non split datasets (for datasets split into nh/sh, append '_nh'/'_sh')
