@@ -33,7 +33,6 @@ def granule_update_check(docs, filename, mod_date_time, time_format):
     return False
 
 
-
 def harvester(config):
     """
     Pulls data files for ifremer FTP id and date range given in harvester_config.yaml.
@@ -56,11 +55,11 @@ def harvester(config):
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
 
-    time_format = "%Y-%m-%dT%H:%M:%SZ"
+    solr_format = "%Y-%m-%dT%H:%M:%SZ"
     entries_for_solr = []
     last_success_item = {}
     granule_dates = []
-    chk_time = datetime.utcnow().strftime(time_format)
+    chk_time = datetime.utcnow().strftime(solr_format)
     now = datetime.utcnow()
     updating = False
 
@@ -116,12 +115,11 @@ def harvester(config):
         if not any(ext in filename for ext in ['.nc', '.bz2', '.gz']):
             continue
 
-        date = file_utils.get_date(config['regex'], filename)
+        date = file_utils.get_date(config['filename_date_regex'], filename)
         date_time = datetime.strptime(date, "%Y%m%d")
         new_date_format = f'{date[:4]}-{date[4:6]}-{date[6:]}T00:00:00Z'
 
-        granule_dates.append(datetime.strptime(
-            new_date_format, config['date_regex']))
+        granule_dates.append(datetime.strptime(new_date_format, solr_format))
 
         url = f'{ddir}{filename}'
 
@@ -150,11 +148,11 @@ def harvester(config):
         except:
             mod_date_time = now
 
-        mod_time = mod_date_time.strftime(time_format)
+        mod_time = mod_date_time.strftime(solr_format)
         item['modified_time_dt'] = mod_time
 
         updating = granule_update_check(
-            docs, filename, mod_date_time, time_format)
+            docs, filename, mod_date_time, solr_format)
 
         if updating:
             year = date[:4]
@@ -262,7 +260,6 @@ def harvester(config):
         ds_meta['short_name_s'] = config['original_dataset_short_name']
         ds_meta['source_s'] = f'ftp://{host}/{ddir}'
         ds_meta['data_time_scale_s'] = config['data_time_scale']
-        ds_meta['date_format_s'] = config['date_format']
         ds_meta['last_checked_dt'] = chk_time
         ds_meta['original_dataset_title_s'] = config['original_dataset_title']
         ds_meta['original_dataset_short_name_s'] = config['original_dataset_short_name']
@@ -272,8 +269,8 @@ def harvester(config):
 
         # Only include start_date and end_date if there was at least one successful download
         if overall_start != None:
-            ds_meta['start_date_dt'] = overall_start.strftime(time_format)
-            ds_meta['end_date_dt'] = overall_end.strftime(time_format)
+            ds_meta['start_date_dt'] = overall_start.strftime(solr_format)
+            ds_meta['end_date_dt'] = overall_end.strftime(solr_format)
 
         # Only include last_download_dt if there was at least one successful download
         if last_success_item:
