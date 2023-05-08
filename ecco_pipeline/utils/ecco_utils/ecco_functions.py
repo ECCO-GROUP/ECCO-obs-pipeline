@@ -573,6 +573,10 @@ def G2202_mask_flagged_conc(ds):
     ds['nsidc_nt_seaice_conc'] = ds['nsidc_nt_seaice_conc'].where(ds['nsidc_nt_seaice_conc'] <= 1)
     ds['cdr_seaice_conc'] = ds['cdr_seaice_conc'].where(ds['cdr_seaice_conc'] <= 1)
 
+    # nan all spatial interpolation (removes  pole hole)
+    ds['nsidc_nt_seaice_conc'] = ds['nsidc_nt_seaice_conc'].where(np.isnan(ds['spatial_interpolation_flag'].values))
+    ds['cdr_seaice_conc'] = ds['cdr_seaice_conc'].where(np.isnan(ds['spatial_interpolation_flag'].values))
+
     tmpNT = np.where(ds["nsidc_nt_seaice_conc"].values.ravel() > 1, 1, 0)
     tmpCDR = np.where(ds["cdr_seaice_conc"].values.ravel() > 1, 1, 0)
     logging.debug(f'G2202 masking flagged NDR, CDR post: {np.sum(tmpNT), np.sum(tmpCDR)}')

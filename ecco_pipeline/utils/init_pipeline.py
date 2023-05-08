@@ -52,29 +52,36 @@ def wipe_factors():
 
 
 def init_pipeline(args):
+    print(' === init pipeline === ')
+    print(' --- setup logger --- ')
     setup_logger(args)
+    print(' --- validate output dir --- ')
     validate_output_dir()
+    print(' --- validate solr --- ')
     validate_solr()
 
     if args.harvested_entry_validation:
+        print(' --- validate granules --- ')
         solr_utils.validate_granules()
 
     if args.wipe_transformations:
+        print(' --- wipe transformations --- ')
         # Wipe transformations
         logging.info('Removing transformations with out of sync version numbers from Solr and disk')
         solr_utils.delete_mismatch_transformations()
         pass
 
     if isinstance(args.grids_to_use, list):
+        print(' ... grids_to_use is a list: ', args.grids_to_use)
         grids_to_use = args.grids_to_use
     else:
+        print(' ... grids_to_use is not a list:', GRIDS)
         grids_to_use = GRIDS
 
     if args.grids_to_solr or solr_utils.check_grids():
         try:
             grids_not_in_solr = []
             grids_not_in_solr = grids_to_solr.main(grids_to_use)
-
             if grids_not_in_solr:
                 for name in grids_not_in_solr:
                     logging.exception(
