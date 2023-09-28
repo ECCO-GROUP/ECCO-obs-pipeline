@@ -14,7 +14,6 @@ filename_filter: "tud" # string to match for filenames to download ex: polstere-
 # Metadata
 aggregated: false # if data is available aggregated
 data_time_scale: "daily" # daily or monthly
-regions: ["north", "south"]
 fields:
   - name: ice_conc
     long_name: Sea ice concentration
@@ -40,8 +39,6 @@ array_precision: float32
 data_res: 10/111 # Resolution of dataset
 
 # Values for non split datasets (for datasets split into nh/sh, append '_nh'/'_sh')
-data_max_lat_nh: 90.0
-data_max_lat_sh: -90.0
 area_extent_nh: [-3845000, -5345000, 3745000, 5845000]
 area_extent_sh: [-3950000, -3950000, 3945000, 4340000]
 dims_nh: [760, 1120]

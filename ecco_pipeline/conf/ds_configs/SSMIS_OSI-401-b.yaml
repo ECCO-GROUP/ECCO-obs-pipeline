@@ -14,7 +14,9 @@ filename_filter: "polstere-100_multi"
 # Metadata
 aggregated: false # if data is available aggregated
 data_time_scale: "daily" # daily or monthly
-regions: ["north", "south"]
+hemi_pattern:
+  - north: "_nh_"
+  - south: "_sh_"
 fields:
   - name: ice_conc
     long_name: concentration of sea ice
@@ -41,8 +43,6 @@ time_bounds_var: time_bnds
 data_res: 10/111 # Resolution of dataset
 
 # Values for non split datasets (for datasets split into nh/sh, append '_nh'/'_sh')
-data_max_lat_nh: 90.0
-data_max_lat_sh: -90.0
 area_extent_nh: [-3945000, -5345000, 3945000, 5845000]
 area_extent_sh: [-3945000, -3945000, 3945000, 4345000]
 dims_nh: [760, 1120]

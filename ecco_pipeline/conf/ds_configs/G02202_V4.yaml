@@ -13,7 +13,9 @@ ddir: "pub/DATASETS/NOAA/G02202_V4/"
 # Metadata
 aggregated: false # if data is available aggregated
 data_time_scale: "daily" # daily or monthly
-regions: ["north", "south"]
+hemi_pattern:
+  - north: "_nh_"
+  - south: "_sh_"
 fields:
   - name: cdr_seaice_conc
     long_name: NOAA/NSIDC Climate Data Record of Passive Microwave Sea Ice Concentration
@@ -45,8 +47,6 @@ array_precision: float32
 data_res: 25/111 # Resolution of dataset
 
 # Values for non split datasets (for datasets split into nh/sh, append '_nh'/'_sh')
-data_max_lat_nh: 90.0
-data_max_lat_sh: -90.0
 area_extent_nh: [-3850000.0, -5350000.0, 3750000.0, 5850000.0]
 area_extent_sh: [-3950000.0, -3950000.0, 3950000.0, 4350000.0]
 dims_nh: [304, 448]
