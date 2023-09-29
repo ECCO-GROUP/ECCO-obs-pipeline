@@ -1,13 +1,19 @@
 import logging
-from logging.handlers import RotatingFileHandler
+from logging import FileHandler
 import os
+from glob import glob
 from datetime import datetime
 
 
-def configure_logging(file_timestamp: bool = True, level: str = 'INFO') -> None:
+def configure_logging(file_timestamp: bool = True, level: str = 'INFO', wipe_logs: bool = False) -> None:
     logs_directory = 'logs/'
     os.makedirs(logs_directory, exist_ok=True)
-    log_filename = f'{datetime.now().isoformat() if file_timestamp else "log"}.log'
+    
+    if wipe_logs:
+        for log_file in glob(f'{logs_directory}*.log'):
+            os.remove(log_file)
+    
+    log_filename = f'{datetime.now().isoformat(timespec="seconds") if file_timestamp else "log"}.log'
     logfile_path = os.path.join(logs_directory, log_filename)
     print(f'Logging to {logfile_path} with level {logging.getLevelName(get_log_level(level))}')
 
@@ -17,7 +23,7 @@ def configure_logging(file_timestamp: bool = True, level: str = 'INFO') -> None:
         level=get_log_level(level),
         format='[%(levelname)s] %(asctime)s - %(message)s',
         handlers=[
-            RotatingFileHandler(logfile_path, maxBytes=10*1024*1024, backupCount=5),
+            FileHandler(logfile_path),
             logging.StreamHandler()
         ]
     )
