@@ -239,7 +239,7 @@ def find_mappings_from_source_to_target(source_grid, target_grid, target_grid_ra
         nearest_source_index_to_target_index_i
 
 
-def generalized_grid_product(data_res: float, data_max_lat: float, area_extent: List[float], dims: List[float], proj_info: dict) -> Tuple[np.ndarray]:
+def generalized_grid_product(data_res: float, area_extent: List[float], dims: List[float], proj_info: dict) -> Tuple[np.ndarray]:
     '''
     Generates tuple containing (source_grid_min_L, source_grid_max_L, source_grid)
 
@@ -249,13 +249,6 @@ def generalized_grid_product(data_res: float, data_max_lat: float, area_extent: 
     proj_info: projection information
     return (source_grid_min_L, source_grid_max_L, source_grid)
     '''
-
-    # minimum Length of data product grid cells (km)
-    source_grid_min_L = np.cos(np.deg2rad(data_max_lat))*data_res*112e3
-
-    # maximum length of data roduct grid cells (km)
-    # data product at equator has grid spacing of data_res*112e3 m
-    source_grid_max_L = data_res*112e3
 
     #area_extent: (lower_left_x, lower_left_y, upper_right_x, upper_right_y)
     areaExtent = (area_extent[0], area_extent[1],
@@ -274,6 +267,13 @@ def generalized_grid_product(data_res: float, data_max_lat: float, area_extent: 
                                                 cols, rows, areaExtent)
 
     data_grid_lons, data_grid_lats = tmp_data_grid.get_lonlats()
+
+    # minimum Length of data product grid cells (km)
+    source_grid_min_L = np.cos(np.deg2rad(np.nanmax(abs(data_grid_lats))))*data_res*112e3
+
+    # maximum length of data roduct grid cells (km)
+    # data product at equator has grid spacing of data_res*112e3 m
+    source_grid_max_L = data_res*112e3
 
     # Changes longitude bounds from 0-360 to -180-180, doesnt change if its already -180-180
     data_grid_lons, data_grid_lats = pr.utils.check_and_wrap(data_grid_lons,
