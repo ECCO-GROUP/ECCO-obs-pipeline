@@ -6,7 +6,7 @@ from typing import List, Mapping, Tuple
 import numpy as np
 import pyresample as pr
 import xarray as xr
-from transformation.Transformation import Transformation
+from transformations.transformation import Transformation
 from utils.ecco_utils import date_time, records
 
 
@@ -337,19 +337,20 @@ def perform_mapping(T: Transformation, ds: xr.Dataset, factors: Tuple, data_fiel
         record_notes = ' -- empty record -- '
 
     if T.time_bounds_var:
-        time_start = str(ds[T.time_bounds_var].values.ravel()[0])
-        time_end = str(ds[T.time_bounds_var].values.ravel()[0])
+        if T.time_bounds_var in ds:
+            time_start = str(ds[T.time_bounds_var].values.ravel()[0])
+            time_end = str(ds[T.time_bounds_var].values.ravel()[0])
+        else:
+            logging.info(f'time_bounds_var {T.time_bounds_var} does not exist in file but is defined in config. \
+                Using other method for obtaining start/end times.')
+
     else:
-        try:
-            time_start = ds.time_coverage_start
-            time_end = ds.time_coverage_end
-        except:
-            time_start = T.date
-            if T.data_time_scale.upper() == 'MONTHLY':
-                month = str(np.datetime64(T.date, 'M') + 1)
-                time_end = str(np.datetime64(month, 'ns'))
-            elif T.data_time_scale.upper() == 'DAILY':
-                time_end = str(np.datetime64(T.date, 'D') + np.timedelta64(1, 'D'))
+        time_start = T.date
+        if T.data_time_scale.upper() == 'MONTHLY':
+            month = str(np.datetime64(T.date, 'M') + 1)
+            time_end = str(np.datetime64(month, 'ns'))
+        elif T.data_time_scale.upper() == 'DAILY':
+            time_end = str(np.datetime64(T.date, 'D') + np.timedelta64(1, 'D'))
 
     if '-' not in time_start:
         time_start = f'{time_start[0:4]}-{time_start[4:6]}-{time_start[6:8]}'
@@ -545,6 +546,20 @@ def generalized_aggregate_and_save(DS_year_merged, data_var, do_monthly_aggregat
                                 output_dirs['netcdf'])
 
     return False
+
+# Preprocessing functions
+# -----------------------------------------------------------------------------------------------------------------------------------------------
+
+def ATL20_V004_monthly(file_path, config):
+    vars = [field['name'] for field in config['fields']]
+
+    ds = xr.open_dataset(file_path, decode_times=True)
+    ds = ds[['grid_x', 'grid_y', 'crs']]
+    
+    var_ds = xr.open_dataset(file_path, group='monthly')[vars]
+    merged_ds = xr.merge([ds, var_ds])
+    return merged_ds
+
 
 # Pre-transformation (on Datasets only)
 # -----------------------------------------------------------------------------------------------------------------------------------------------
