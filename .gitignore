@@ -1,18 +1,7 @@
+.vscode/
 .vs*
 *.pyc
 
-.DS_Store
-
-# factors pickled files
-*_factors
-
-# pipeline config
-*global_settings.py
-
-# Editors
-.vscode/
-
-# Mac/OSX
 .DS_Store
 
 __pycache__/
@@ -21,6 +10,10 @@ __pycache__/
 
 *.log
 
-*.egg*
-
 *.ipynb_checkpoints/
+
+# factors pickled files
+*_factors
+
+# pipeline config
+*global_settings.py
