@@ -1,12 +1,9 @@
 import logging
-import os
-from datetime import datetime
-from typing import List, Mapping, Tuple
+from typing import List, Tuple
 
 import numpy as np
 import pyresample as pr
 import xarray as xr
-from transformations.transformation import Transformation
 from utils.ecco_utils import date_time, records
 
 
@@ -286,92 +283,6 @@ def generalized_grid_product(data_res: float, area_extent: List[float], dims: Li
                                               lats=data_grid_lats.ravel())
 
     return (source_grid_min_L, source_grid_max_L, source_grid)
-
-
-def perform_mapping(T: Transformation, ds: xr.Dataset, factors: Tuple, data_field_info: Mapping, model_grid: xr.Dataset) -> xr.DataArray:
-    '''
-    Maps source data to target grid and applies metadata
-    '''
-
-    # initialize notes for this record
-    record_notes = ''
-
-    # set data info values
-    data_field = data_field_info['name']
-
-    # create empty data array
-    data_DA = records.make_empty_record(T.date, model_grid, T.array_precision)
-
-    # print(data_DA)
-
-    # add some metadata to the newly formed data array object
-    data_DA.attrs['long_name'] = data_field_info['long_name']
-    data_DA.attrs['standard_name'] = data_field_info['standard_name']
-    data_DA.attrs['units'] = data_field_info['units']
-    data_DA.attrs['original_filename'] = T.file_name
-    data_DA.attrs['original_field_name'] = data_field
-    data_DA.attrs['interpolation_parameters'] = 'bin averaging'
-    data_DA.attrs['interpolation_code'] = 'pyresample'
-    data_DA.attrs['interpolation_date'] = str(np.datetime64(datetime.now(), 'D'))
-
-    data_DA.time.attrs['long_name'] = 'center time of averaging period'
-
-    data_DA.name = f'{data_field}_interpolated_to_{model_grid.name}'
-
-    if T.transpose:
-        orig_data = ds[data_field].values[0, :].T
-    else:
-        orig_data = ds[data_field].values
-
-    # see if we have any valid data
-    if np.sum(~np.isnan(orig_data)) > 0:
-        data_model_projection = transform_to_target_grid(*factors, orig_data, model_grid.XC.shape,
-                                                         operation=T.mapping_operation)
-
-        # put the new data values into the data_DA array.
-        # --where the mapped data are not nan, replace the original values
-        # --where they are nan, just leave the original values alone
-        data_DA.values = np.where(~np.isnan(data_model_projection), data_model_projection, data_DA.values)
-    else:
-        print(f' - CPU id {os.getpid()} empty granule for {T.file_name} (no data to transform to grid {model_grid.name})')
-        record_notes = ' -- empty record -- '
-
-    if T.time_bounds_var:
-        if T.time_bounds_var in ds:
-            time_start = str(ds[T.time_bounds_var].values.ravel()[0])
-            time_end = str(ds[T.time_bounds_var].values.ravel()[0])
-        else:
-            logging.info(f'time_bounds_var {T.time_bounds_var} does not exist in file but is defined in config. \
-                Using other method for obtaining start/end times.')
-
-    else:
-        time_start = T.date
-        if T.data_time_scale.upper() == 'MONTHLY':
-            month = str(np.datetime64(T.date, 'M') + 1)
-            time_end = str(np.datetime64(month, 'ns'))
-        elif T.data_time_scale.upper() == 'DAILY':
-            time_end = str(np.datetime64(T.date, 'D') + np.timedelta64(1, 'D'))
-
-    if '-' not in time_start:
-        time_start = f'{time_start[0:4]}-{time_start[4:6]}-{time_start[6:8]}'
-        time_end = f'{time_end[0:4]}-{time_end[4:6]}-{time_end[6:8]}'
-
-    data_DA.time_start.values[0] = time_start.replace('Z', '')
-    data_DA.time_end.values[0] = time_end.replace('Z', '')
-
-    if 'time' in ds:
-        data_DA.time.values[0] = ds['time'].values.ravel()[0]
-    elif 'Time' in ds:
-        data_DA.time.values[0] = ds['Time'].values.ravel()[0]
-    else:
-        data_DA.time.values[0] = T.date
-
-    data_DA.attrs['notes'] = record_notes
-    data_DA.attrs['original_time'] = str(data_DA.time.values[0])
-    data_DA.attrs['original_time_start'] = str(data_DA.time_start.values[0])
-    data_DA.attrs['original_time_end'] = str(data_DA.time_end.values[0])
-
-    return data_DA
 
 
 def monthly_aggregation(ds, var, year: str, A, uuid):

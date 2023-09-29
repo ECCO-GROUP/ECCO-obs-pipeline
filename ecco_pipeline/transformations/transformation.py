@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import List, Tuple
+from typing import List, Tuple, Mapping
 import numpy as np
 import netCDF4 as nc4
 from datetime import datetime
@@ -17,39 +17,42 @@ from utils import file_utils
 class Transformation():
 
     def __init__(self, config: dict, source_file_path: str, granule_date: str):
-        self.file_name = os.path.splitext(source_file_path.split('/')[-1])[0]
-        self.dataset_name = config.get('ds_name')
-        self.transformation_version = config.get('t_version')
-        self.date = granule_date
-        self.hemi = self._get_hemi(config)
+        self.file_name: str = os.path.splitext(source_file_path.split('/')[-1])[0]
+        self.dataset_name: str = config.get('ds_name')
+        self.transformation_version: float = config.get('t_version')
+        self.date: str = granule_date
+        self.hemi: str = self._get_hemi(config)
 
-        self.array_precision = getattr(np, config.get('array_precision'))
-        self.binary_dtype = '>f4' if self.array_precision == np.float32 else '>f8'
-        self.fill_values = {'binary': -9999, 'netcdf': nc4.default_fillvals[self.binary_dtype.replace('>', '')]}
+        self.array_precision: type = getattr(np, config.get('array_precision'))
+        self.binary_dtype: str = '>f4' if self.array_precision == np.float32 else '>f8'
+        self.fill_values: dict = {'binary': -9999, 'netcdf': nc4.default_fillvals[self.binary_dtype.replace('>', '')]}
 
-        self.og_ds_metadata = {k: v for k, v in config.items() if 'original' in k}
-        self.data_time_scale = config.get('data_time_scale')
+        self.og_ds_metadata: dict = {k: v for k, v in config.items() if 'original' in k}
+        self.data_time_scale: str = config.get('data_time_scale')
 
         # Projection information
-        self.data_res = self._compute_data_res(config)
-        self.area_extent = config.get(f'area_extent{self.hemi}')
-        self.dims = config.get(f'dims{self.hemi}')
-        self.proj_info = config.get(f'proj_info{self.hemi}')
+        self.data_res: float = self._compute_data_res(config)
+        self.area_extent: List = config.get(f'area_extent{self.hemi}')
+        self.dims: List = config.get(f'dims{self.hemi}')
+        self.proj_info: dict = config.get(f'proj_info{self.hemi}')
 
         # Processing information
-        self.time_bounds_var = config.get('time_bounds_var', None)
-        self.transpose = config.get('transpose', False)
+        self.time_bounds_var: str = config.get('time_bounds_var', None)
+        self.transpose: bool = config.get('transpose', False)
 
-        self.mapping_operation = config.get('mapping_operation', 'mean')
+        self.mapping_operation: str = config.get('mapping_operation', 'mean')
 
     def _compute_data_res(self, config):
         '''
 
         '''
         res = config.get('data_res')
-        if type(res) is str and '/' in res:
-            num, den = res.replace(' ', '').split('/')
-            res = float(num) / float(den)
+        if type(res) is str:
+            if '/' in res:
+                num, den = res.replace(' ', '').split('/')
+                res = float(num) / float(den)
+            else:
+                res = float(res)
         return res
 
     def _get_hemi(self, config):
@@ -126,6 +129,92 @@ class Transformation():
             pickle.dump(factors, f)
         return factors
 
+    
+    def perform_mapping(self, ds: xr.Dataset, factors: Tuple, data_field_info: Mapping, model_grid: xr.Dataset) -> xr.DataArray:
+        '''
+        Maps source data to target grid and applies metadata
+        '''
+
+        # initialize notes for this record
+        record_notes = ''
+
+        # set data info values
+        data_field = data_field_info['name']
+
+        # create empty data array
+        data_DA = records.make_empty_record(self.date, model_grid, self.array_precision)
+
+        # print(data_DA)
+
+        # add some metadata to the newly formed data array object
+        data_DA.attrs['long_name'] = data_field_info['long_name']
+        data_DA.attrs['standard_name'] = data_field_info['standard_name']
+        data_DA.attrs['units'] = data_field_info['units']
+        data_DA.attrs['original_filename'] = self.file_name
+        data_DA.attrs['original_field_name'] = data_field
+        data_DA.attrs['interpolation_parameters'] = 'bin averaging'
+        data_DA.attrs['interpolation_code'] = 'pyresample'
+        data_DA.attrs['interpolation_date'] = str(np.datetime64(datetime.now(), 'D'))
+
+        data_DA.time.attrs['long_name'] = 'center time of averaging period'
+
+        data_DA.name = f'{data_field}_interpolated_to_{model_grid.name}'
+
+        if self.transpose:
+            orig_data = ds[data_field].values[0, :].T
+        else:
+            orig_data = ds[data_field].values
+
+        # see if we have any valid data
+        if np.sum(~np.isnan(orig_data)) > 0:
+            data_model_projection = ecco_functions.transform_to_target_grid(*factors, orig_data, model_grid.XC.shape,
+                                                            operation=self.mapping_operation)
+
+            # put the new data values into the data_DA array.
+            # --where the mapped data are not nan, replace the original values
+            # --where they are nan, just leave the original values alone
+            data_DA.values = np.where(~np.isnan(data_model_projection), data_model_projection, data_DA.values)
+        else:
+            print(f' - CPU id {os.getpid()} empty granule for {self.file_name} (no data to transform to grid {model_grid.name})')
+            record_notes = ' -- empty record -- '
+
+        if self.time_bounds_var:
+            if self.time_bounds_var in ds:
+                time_start = str(ds[self.time_bounds_var].values.ravel()[0])
+                time_end = str(ds[self.time_bounds_var].values.ravel()[0])
+            else:
+                logging.info(f'time_bounds_var {self.time_bounds_var} does not exist in file but is defined in config. \
+                    Using other method for obtaining start/end times.')
+
+        else:
+            time_start = self.date
+            if self.data_time_scale.upper() == 'MONTHLY':
+                month = str(np.datetime64(self.date, 'M') + 1)
+                time_end = str(np.datetime64(month, 'ns'))
+            elif self.data_time_scale.upper() == 'DAILY':
+                time_end = str(np.datetime64(self.date, 'D') + np.timedelta64(1, 'D'))
+
+        if '-' not in time_start:
+            time_start = f'{time_start[0:4]}-{time_start[4:6]}-{time_start[6:8]}'
+            time_end = f'{time_end[0:4]}-{time_end[4:6]}-{time_end[6:8]}'
+
+        data_DA.time_start.values[0] = time_start.replace('Z', '')
+        data_DA.time_end.values[0] = time_end.replace('Z', '')
+
+        if 'time' in ds:
+            data_DA.time.values[0] = ds['time'].values.ravel()[0]
+        elif 'Time' in ds:
+            data_DA.time.values[0] = ds['Time'].values.ravel()[0]
+        else:
+            data_DA.time.values[0] = self.date
+
+        data_DA.attrs['notes'] = record_notes
+        data_DA.attrs['original_time'] = str(data_DA.time.values[0])
+        data_DA.attrs['original_time_start'] = str(data_DA.time_start.values[0])
+        data_DA.attrs['original_time_end'] = str(data_DA.time_end.values[0])
+
+        return data_DA
+    
     def transform(self, model_grid: xr.Dataset, factors: Tuple, ds: xr.Dataset, config: dict) -> List[Tuple[xr.Dataset, bool]]:
         """
         Function that actually performs the transformations. Returns a list of transformed
@@ -158,7 +247,7 @@ class Transformation():
             logging.debug(f'Transforming {self.file_name} for field {field_name}')
 
             try:
-                field_DA = ecco_functions.perform_mapping(self, ds, factors, data_field_info, model_grid)
+                field_DA = self.perform_mapping(ds, factors, data_field_info, model_grid)
                 success = True
             except Exception as e:
                 logging.exception(f'Transformation failed: {e}')
