@@ -6,6 +6,9 @@ import netCDF4 as nc4
 from datetime import datetime
 import xarray as xr
 import pyresample as pr
+import pickle
+from conf.global_settings import OUTPUT_DIR
+
 
 from utils.ecco_utils import ecco_functions, records, date_time
 from utils import file_utils
@@ -13,12 +16,12 @@ from utils import file_utils
 
 class Transformation():
 
-    def __init__(self, config: dict, source_file_path: str):
-        self.file_name = source_file_path.split('/')[-1].replace('.nc4', '.nc')
+    def __init__(self, config: dict, source_file_path: str, granule_date: str):
+        self.file_name = os.path.splitext(source_file_path.split('/')[-1])[0]
         self.dataset_name = config.get('ds_name')
         self.transformation_version = config.get('t_version')
-        self.date = self._get_date(config)
-        self.hemi = self._get_hemi()
+        self.date = granule_date
+        self.hemi = self._get_hemi(config)
 
         self.array_precision = getattr(np, config.get('array_precision'))
         self.binary_dtype = '>f4' if self.array_precision == np.float32 else '>f8'
@@ -29,7 +32,6 @@ class Transformation():
 
         # Projection information
         self.data_res = self._compute_data_res(config)
-        self.data_max_lat = config.get(f'data_max_lat{self.hemi}')
         self.area_extent = config.get(f'area_extent{self.hemi}')
         self.dims = config.get(f'dims{self.hemi}')
         self.proj_info = config.get(f'proj_info{self.hemi}')
@@ -50,21 +52,16 @@ class Transformation():
             res = float(num) / float(den)
         return res
 
-    def _get_hemi(self):
+    def _get_hemi(self, config):
         '''
         Extracts hemisphere from filename. One of either 'nh' or 'sh'
         '''
-        if '_nh_' in self.file_name:
-            return '_nh'
-        elif '_sh_' in self.file_name:
-            return '_sh'
+        if 'hemi_pattern' in config:
+            if config['hemi_pattern']['north'] in self.file_name:
+                return '_nh'
+            elif config['hemi_pattern']['south'] in self.file_name:
+                return '_sh'
         return ''
-
-    def _get_date(self, config):
-        date = file_utils.get_date(config['filename_date_regex'], self.file_name)
-        dt = datetime.strptime(date, config['filename_date_fmt'])
-        new_date_format = datetime.strftime(dt, "%Y-%m-%dT00:00:00Z")
-        return new_date_format
 
     def apply_funcs(self, data_object, funcs: List):
         for func_to_run in funcs:
@@ -88,9 +85,22 @@ class Transformation():
         nearest_source_index_to_target_index_i)
 
         '''
+        grid_name = grid_ds.name
+        factors_dir = f'{OUTPUT_DIR}/{self.dataset_name}/transformed_products/{grid_name}/'
+        factors_file = f'{grid_name}{self.hemi}_v{self.transformation_version}_factors'
+        factors_path = f'{factors_dir}{factors_file}'
+
+        if os.path.exists(factors_path):
+            logging.debug(f' - Loading {grid_name} factors')
+            with open(factors_path, "rb") as f:
+                factors = pickle.load(f)
+                return factors
+        else:
+            logging.info(f'Creating {grid_name} factors for {self.dataset_name}')
+
         # Use hemisphere specific variables if data is hemisphere specific
-        source_grid_min_L, source_grid_max_L, source_grid = ecco_functions.generalized_grid_product(self.data_res, self.data_max_lat,
-                                                                                                    self.area_extent, self.dims, self.proj_info)
+        source_grid_min_L, source_grid_max_L, source_grid = ecco_functions.generalized_grid_product(self.data_res, self.area_extent,
+                                                                                                    self.dims, self.proj_info)
 
         # Define the 'swath' as the lats/lon pairs of the model grid
         target_grid = pr.geometry.SwathDefinition(lons=grid_ds.XC.values.ravel(),
@@ -110,7 +120,10 @@ class Transformation():
 
         factors = (ecco_functions.find_mappings_from_source_to_target(source_grid, target_grid, target_grid_radius,
                                                                       source_grid_min_L, source_grid_max_L))
-
+        logging.debug(f' - Saving {grid_name} factors')
+        os.makedirs(factors_dir, exist_ok=True)
+        with open(factors_path, 'wb') as f:
+            pickle.dump(factors, f)
         return factors
 
     def transform(self, model_grid: xr.Dataset, factors: Tuple, ds: xr.Dataset, config: dict) -> List[Tuple[xr.Dataset, bool]]:
@@ -235,7 +248,7 @@ class Transformation():
 
             field_DS = field_DS.drop('time_start')
             field_DS = field_DS.drop('time_end')
-
+            # print(field_DS)
             field_DSs.append((field_DS, success))
 
         return field_DSs

@@ -9,8 +9,8 @@ from typing import List
 
 import yaml
 
-from aggregation import aggregation
-from transformation import check_transformations
+from ecco_pipeline.aggregations import aggregation
+from ecco_pipeline.transformations import check_transformations
 from utils import init_pipeline
 
 
