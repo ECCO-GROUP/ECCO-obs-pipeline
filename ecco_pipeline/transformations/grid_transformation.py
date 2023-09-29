@@ -125,9 +125,10 @@ def transform(source_file_path, remaining_transformations, config, granule_date)
             os.makedirs(output_path, exist_ok=True)
 
             # save field_DS
-            records.save_to_disk(field_DS, output_filename[:-3], T.fill_values.get('binary'),
-                                 T.fill_values.get('netcdf'), Path(output_path),
-                                 Path(output_path), T.binary_dtype, grid_type, save_binary=False)
+            records.save_netcdf(field_DS, output_filename[:-3], T.fill_values.get('netcdf'), Path(output_path))
+            # records.save_to_disk(field_DS, output_filename[:-3], T.fill_values.get('binary'),
+            #                      T.fill_values.get('netcdf'), Path(output_path),
+            #                      Path(output_path), T.binary_dtype, grid_type, save_binary=False)
 
             # Query Solr for transformation entry
             query_fq = [f'dataset_s:{T.dataset_name}', 'type_s:transformation', f'grid_name_s:{grid_name}',
