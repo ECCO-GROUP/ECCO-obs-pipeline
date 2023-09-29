@@ -311,11 +311,11 @@ def harvester(config):
 
             date = getdate(filename_date_regex, filename)
             dt = datetime.strptime(date, "%Y%m%d")
-            new_date_format = f'{date[:4]}-{date[4:6]}-{date[6:]}T00:00:00Z'
+            new_date_format = f'{date[:4]}-{date[4:6]}-01T00:00:00Z'
 
-            tb, _ = date_time.make_time_bounds_from_ds64(np.datetime64(
-                new_date_format) + np.timedelta64(1, 'D'), 'AVG_MON')
-            new_date_format = f'{str(tb[0])[:10]}T00:00:00Z'
+            # tb, _ = date_time.make_time_bounds_from_ds64(np.datetime64(
+            #     new_date_format) + np.timedelta64(1, 'D'), 'AVG_MON')
+            # new_date_format = f'{str(tb[0])[:10]}T00:00:00Z'
             year = new_date_format[:4]
 
             local_fp = f'{target_dir}{year}/{filename}'

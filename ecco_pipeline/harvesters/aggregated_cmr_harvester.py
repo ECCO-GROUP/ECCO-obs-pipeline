@@ -190,28 +190,27 @@ def harvester(config):
     url_list = cmr_search(config)
 
     entries_for_solr = []
-
+    updating = False
     for url, id in url_list:
         # Date in filename is end date of 30 day period
         filename = url.split('/')[-1]
         agg_local_fp = f'{target_dir}{filename}'
-        updating = True
         # updating = False
         modified_time = get_mod_time(id, solr_format)
-        # if ~os.path.exists(agg_local_fp) or modified_time > datetime.fromtimestamp(os.path.getmtime(local_fp)):
-        #     updating = True
-        # if updating:
-        #     logging.info(
-        #         f'Downloading aggregated {filename} to {agg_local_fp}')
-        #     try:
-        #         dl_file(url, agg_local_fp)
-        #         updating = True
-        #     except Exception as e:
-        #         logging.exception(e)
+        logging.debug(agg_local_fp)
+        if ~os.path.exists(agg_local_fp) or modified_time > datetime.fromtimestamp(os.path.getmtime(local_fp)):
+            logging.info(f'Downloading aggregated {filename} to {agg_local_fp}')
+            try:
+                dl_file(url, agg_local_fp)
+                updating = True
+            except Exception as e:
+                logging.exception(e)
     if updating:
-        ds = xr.open_dataset(agg_local_fp)
+        for time in ['day01', 'day02']:
+            ds = xr.open_dataset(agg_local_fp, group=f'daily/{time}')
 
         for time in ds.time.values:
+            logging.debug(f'Slicing on {time}')
             time_dt = datetime.strptime(
                 str(time)[:-3], "%Y-%m-%dT%H:%M:%S.%f")
             if time_dt < start_time_dt or time_dt > end_time_dt:
@@ -329,7 +328,7 @@ def harvester(config):
         # -----------------------------------------------------
         # Create Solr Dataset-level Document if doesn't exist
         # -----------------------------------------------------
-        source = url_list[0][:-30]
+        source = f'https://archive.podaac.earthdata.nasa.gov/podaac-ops-cumulus-protected/{dataset_name}/'
         ds_meta = harvesting_utils.make_ds_doc(config, source, chk_time)
 
         # Only include start_date and end_date if there was at least one successful download
