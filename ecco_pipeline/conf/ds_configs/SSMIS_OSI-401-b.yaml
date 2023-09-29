@@ -15,8 +15,8 @@ filename_filter: "polstere-100_multi"
 aggregated: false # if data is available aggregated
 data_time_scale: "daily" # daily or monthly
 hemi_pattern:
-  - north: "_nh_"
-  - south: "_sh_"
+  north: "_nh_"
+  south: "_sh_"
 fields:
   - name: ice_conc
     long_name: concentration of sea ice

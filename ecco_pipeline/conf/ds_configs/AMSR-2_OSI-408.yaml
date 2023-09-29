@@ -14,6 +14,9 @@ filename_filter: "tud" # string to match for filenames to download ex: polstere-
 # Metadata
 aggregated: false # if data is available aggregated
 data_time_scale: "daily" # daily or monthly
+hemi_pattern:
+  north: "_nh_"
+  south: "_sh_"
 fields:
   - name: ice_conc
     long_name: Sea ice concentration

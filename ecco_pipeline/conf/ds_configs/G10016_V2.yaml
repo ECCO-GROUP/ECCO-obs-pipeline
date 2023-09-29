@@ -14,8 +14,8 @@ ddir: "pub/DATASETS/NOAA/G10016_V2/"
 aggregated: false # if data is available aggregated
 data_time_scale: "daily" # daily or monthly
 hemi_pattern:
-  - north: "_nh_"
-  - south: "_sh_"
+  north: "_nh_"
+  south: "_sh_"
 fields:
   - name: cdr_seaice_conc
     long_name: NOAA/NSIDC Climate Data Record of Passive Microwave Sea Ice Concentration
