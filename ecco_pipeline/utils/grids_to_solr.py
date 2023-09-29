@@ -1,7 +1,6 @@
 import logging
 import os
 from datetime import datetime
-from pprint import pprint
 import xarray as xr
 from utils import file_utils, solr_utils
 
@@ -18,7 +17,6 @@ def update_solr_grid(grid_name, grid_type, grid_file, docs):
 
     # Add grid to solr
     if grid_name not in grids_in_solr:
-        print('...  grid not in solr:', grid_name)
         grid_meta = {}
         grid_meta['type_s'] = 'grid'
         grid_meta['grid_type_s'] = grid_type
@@ -90,7 +88,6 @@ def update_solr_grid(grid_name, grid_type, grid_file, docs):
 
 
 def main(grids_to_use=[]):
-    print('\n=== grids_to_solr main === ')
     # =====================================================
     # Scan directory for grid types
     # =====================================================
