@@ -9,8 +9,8 @@ from typing import List
 
 import yaml
 
-from aggregation import aggregation
-from transformation import check_transformations
+from aggregations.aggregate import aggregation
+from transformations import check_transformations
 from utils import init_pipeline
 
 
@@ -43,6 +43,8 @@ def create_parser() -> argparse.ArgumentParser:
 
     parser.add_argument('--wipe_factors', default=False, action='store_true', help='removes all stored factors')
 
+    parser.add_argument('--wipe_logs', default=False, action='store_true', help='removes all prior log files')
+    
     return parser
 
 
@@ -62,8 +64,7 @@ def show_menu(grids_to_use: List[str], user_cpus: int):
         if chosen_option in ['1', '2', '3', '4']:
             break
         else:
-            print(
-                f'Unknown option entered, "{chosen_option}", please enter a valid option\n')
+            print(f'Unknown option entered, "{chosen_option}", please enter a valid option\n')
 
     # Load all dataset configuration YAML names
     datasets = [os.path.splitext(os.path.basename(f))[0] for f in glob(f'conf/ds_configs/*.yaml')]
@@ -99,8 +100,7 @@ def show_menu(grids_to_use: List[str], user_cpus: int):
                 exit()
 
             if not ds_index.isdigit() or int(ds_index) not in range(1, len(datasets)+1):
-                print(
-                    f'Invalid dataset, "{ds_index}", please enter a valid selection')
+                print(f'Invalid dataset, "{ds_index}", please enter a valid selection')
             else:
                 break
 
@@ -146,13 +146,11 @@ def run_harvester(datasets: List[str]):
             try:
                 harvester_type = config['harvester_type']
             except:
-                logging.fatal(
-                    f'Harvester type missing from {ds} config. Exiting.')
+                logging.fatal(f'Harvester type missing from {ds} config. Exiting.')
                 exit()
 
             try:
-                harvester = importlib.import_module(
-                    f'harvesters.{harvester_type}_harvester')
+                harvester = importlib.import_module(f'harvesters.{harvester_type}_harvester')
             except Exception as e:
                 logging.error(e)
                 exit()

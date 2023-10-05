@@ -12,7 +12,6 @@ filename_date_regex: '\d{8}'
 # Metadata
 aggregated: false # if data is available aggregated
 data_time_scale: "monthly" # daily or monthly
-regions: []
 fields:
   - name: sea_ice_thickness
     long_name: Sea ice thickness
@@ -44,7 +43,6 @@ array_precision: float32
 data_res: 25/111 # Resolution of dataset
 
 # Values for non split datasets (for datasets split into nh/sh, append '_nh'/'_sh')
-data_max_lat: 90.0
 area_extent: [-3850000, -5350000, 3750000, 5850000] # [lon_min, lat_min, lon_max, lat_max]
 dims: [304, 448] # [lon, lat]
 proj_info:

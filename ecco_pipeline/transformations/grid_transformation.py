@@ -1,6 +1,5 @@
 import logging
 import os
-import pickle
 from datetime import datetime
 from pathlib import Path
 from typing import List
@@ -10,7 +9,8 @@ import xarray as xr
 from utils.ecco_utils import ecco_functions, records, date_time
 from utils import file_utils, solr_utils
 from conf.global_settings import OUTPUT_DIR
-from transformation.Transformation import Transformation
+
+from transformations.transformation import Transformation
 
 
 def get_grids(grid_name):
@@ -19,12 +19,12 @@ def get_grids(grid_name):
     return grid_metadata['grid_path_s'], grid_metadata['grid_type_s']
 
 
-def main(source_file_path, remaining_transformations, config):
+def transform(source_file_path, remaining_transformations, config, granule_date):
     """
     Performs and saves locally all remaining transformations for a given source granule
     Updates Solr with transformation entries and updates descendants, and dataset entries
     """
-    T = Transformation(config, source_file_path)
+    T = Transformation(config, source_file_path, granule_date)
 
     transformation_successes = True
     transformation_file_paths = {}
@@ -35,7 +35,12 @@ def main(source_file_path, remaining_transformations, config):
     # =====================================================
     logging.debug(f'Loading {T.file_name} data')
 
-    ds = xr.open_dataset(source_file_path, decode_times=True)
+    if 'preprocessing' in config:
+        preprocessing_func = config['preprocessing']
+        callable_func = getattr(ecco_functions, preprocessing_func)
+        ds = callable_func(source_file_path, config)
+    else:
+        ds = xr.open_dataset(source_file_path, decode_times=True)
     ds.attrs['original_file_name'] = T.file_name
 
     # Iterate through grids in remaining_transformations
@@ -53,22 +58,7 @@ def main(source_file_path, remaining_transformations, config):
         # =====================================================
         # Make model grid factors if not present locally
         # =====================================================
-        factors_dir = f'{OUTPUT_DIR}/{T.dataset_name}/transformed_products/{grid_name}/'
-        factors_file = f'{grid_name}{T.hemi}_v{T.transformation_version}_factors'
-        factors_path = f'{factors_dir}{factors_file}'
-
-        if os.path.exists(factors_path):
-            logging.debug(f' - Loading {grid_name} factors')
-            with open(factors_path, "rb") as f:
-                factors = pickle.load(f)
-        else:
-            logging.info(f'Creating {grid_name} factors for {T.dataset_name}')
-            factors = T.make_factors(model_grid)
-
-            logging.debug(f' - Saving {grid_name} factors')
-            os.makedirs(factors_dir, exist_ok=True)
-            with open(factors_path, 'wb') as f:
-                pickle.dump(factors, f)
+        factors = T.make_factors(model_grid)
 
         # Iterate through remaining transformation fields
         for field in fields:
@@ -126,16 +116,19 @@ def main(source_file_path, remaining_transformations, config):
         # Save each transformed granule for the current field
         for field, (field_DS, success) in zip(fields, field_DSs):
             field_name = field["name"]
-            output_filename = f'{grid_name}_{field_name}_{T.file_name}'
+            output_filename = f'{grid_name}_{field_name}_{T.file_name[:-3]}.nc'
+            output_filename = f'{grid_name}_{field_name}_{T.file_name}.nc'
+            
             output_path = f'{OUTPUT_DIR}/{T.dataset_name}/transformed_products/{grid_name}/transformed/{field_name}/'
             transformed_location = f'{output_path}{output_filename}'
 
             os.makedirs(output_path, exist_ok=True)
 
             # save field_DS
-            records.save_to_disk(field_DS, output_filename[:-3], T.fill_values.get('binary'),
-                                 T.fill_values.get('netcdf'), Path(output_path),
-                                 Path(output_path), T.binary_dtype, grid_type, save_binary=False)
+            records.save_netcdf(field_DS, output_filename[:-3], T.fill_values.get('netcdf'), Path(output_path))
+            # records.save_to_disk(field_DS, output_filename[:-3], T.fill_values.get('binary'),
+            #                      T.fill_values.get('netcdf'), Path(output_path),
+            #                      Path(output_path), T.binary_dtype, grid_type, save_binary=False)
 
             # Query Solr for transformation entry
             query_fq = [f'dataset_s:{T.dataset_name}', 'type_s:transformation', f'grid_name_s:{grid_name}',

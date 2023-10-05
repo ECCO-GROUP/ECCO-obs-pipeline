@@ -19,26 +19,15 @@ CMR_FILE_URL = ('{0}/search/granules.json?'
                 '&scroll=true&page_size={1}'.format(CMR_URL, CMR_PAGE_SIZE))
 
 
-def get_credentials():
-    username = 'ecco_access'
-    password = 'ECCOAccess1'
-    credentials = f'{username}:{password}'
-    credentials = base64.b64encode(credentials.encode('utf-8')).decode()
-    return credentials
-
-
 def build_cmr_query_url(short_name, time_start, time_end,
-                        bounding_box=None, polygon=None,
-                        filename_filter=None):
+                        filename_filter=None, concept_id=None):
     params = '&short_name={0}'.format(short_name)
     params += '&temporal[]={0},{1}'.format(time_start, time_end)
-    if polygon:
-        params += '&polygon={0}'.format(polygon)
-    elif bounding_box:
-        params += '&bounding_box={0}'.format(bounding_box)
     if filename_filter:
         option = '&options[producer_granule_id][pattern]=true'
         params += '&producer_granule_id[]={0}{1}'.format(filename_filter, option)
+    if concept_id:
+        params += f'&concept_id={concept_id}'
     return CMR_FILE_URL + params
 
 
@@ -47,13 +36,16 @@ def cmr_filter_urls(search_results, provider):
     if 'feed' not in search_results or 'entry' not in search_results['feed']:
         return []
 
-    entries = [e['links'] for e in search_results['feed']['entry']
-               if 'links' in e]
-    ids = [e['id'] for e in search_results['feed']['entry']]
+    entries = []
+    for e in search_results['feed']['entry']:
+        links = e['links'] if 'links' in e else None
+        id = e['id']
+        updated = e['updated'] if 'updated' in e else None
+        entries.append((links, id, updated))
 
     urls = []
     unique_filenames = set()
-    for link_list, id in zip(entries, ids):
+    for link_list, id, update in entries:
         for link in link_list:
             if 'href' not in link:
                 continue
@@ -67,28 +59,27 @@ def cmr_filter_urls(search_results, provider):
 
             filename = link['href'].split('/')[-1]
 
-            if 'md5' in filename or 'tif' in filename or 'txt' in filename or 'png' in filename or 'xml' in filename:
-                continue
-            if 's3credentials' in filename:
+            bad_formats = ['md5', 'tif', 'txt', 'png', 'xml', 'jpg', 'dmrpp', 's3credentials']
+            if any(s in filename for s in bad_formats):
                 continue
             if filename in unique_filenames:
                 continue
 
             unique_filenames.add(filename)
 
-            urls.append((link['href'], id))
+            urls.append((link['href'], id, update))
     return urls
 
 
-def cmr_search(config, bounding_box='', polygon='', filename_filter=''):
+def cmr_search(config, filename_filter=''):
     """Perform a scrolling CMR query for files matching input criteria."""
     short_name = config['cmr_short_name']
+    concept_id = config.get('cmr_concept_id')
     provider = config.get('provider')
     time_start = '-'.join([config['start'][:4], config['start'][4:6], config['start'][6:]])
     time_end = '-'.join([config['end'][:4], config['end'][4:6], config['end'][6:]])
 
-    cmr_query_url = build_cmr_query_url(short_name, time_start, time_end,
-                                        bounding_box, polygon, filename_filter)
+    cmr_query_url = build_cmr_query_url(short_name, time_start, time_end, filename_filter, concept_id)
     cmr_scroll_id = None
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
@@ -127,17 +118,13 @@ def get_mod_time(id, solr_format):
     meta_url = f'https://cmr.earthdata.nasa.gov/search/concepts/{id}.json'
     r = requests.get(meta_url)
     meta = r.json()
-    modified_time = datetime.strptime(
-        f'{meta["updated"].split(".")[0]}Z', solr_format)
+    modified_time = datetime.strptime(f'{meta["updated"].split(".")[0]}Z', solr_format)
     return modified_time
 
 
 def dl_file(src, dst):
-    creds = get_credentials()
-    headers = {
-        'Authorization': f'Basic {creds}'
-    }
-    r = requests.get(src, headers=headers)
+    r = requests.get(src)
+    r.raise_for_status()
     open(dst, 'wb').write(r.content)
 
 
@@ -179,10 +166,10 @@ def harvester(config):
     # Setup EDSC loop variables
     # =====================================================
     url_list = cmr_search(config)
-
+    logging.debug(url_list)
     entries_for_solr = []
 
-    for url, id in url_list:
+    for url, id, updated in url_list:
         # Date in filename is end date of 30 day period
         filename = url.split('/')[-1]
 
@@ -201,7 +188,10 @@ def harvester(config):
         if not os.path.exists(f'{target_dir}{year}/'):
             os.makedirs(f'{target_dir}{year}/')
 
-        modified_time = get_mod_time(id, solr_format)
+        if not updated:
+            modified_time = get_mod_time(id, solr_format)
+        else:
+            modified_time = datetime.strptime(f'{updated.split(".")[0]}Z', solr_format)
 
         item = {}
         item['type_s'] = 'granule'

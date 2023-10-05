@@ -93,7 +93,7 @@ def harvester(config):
     # NSIDC loop
     # =====================================================
     # Iterate through hemispheres given in config
-    for region in config['regions']:
+    for region in ['north', 'south']:
         hemi = 'nh' if region == 'north' else 'sh'
 
         for year in years:

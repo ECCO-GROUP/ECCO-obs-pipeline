@@ -3,13 +3,14 @@ from pathlib import Path
 from glob import glob
 import logging
 import requests
+import netrc
 from conf.global_settings import OUTPUT_DIR, SOLR_COLLECTION, GRIDS
 
 from utils import log_config, solr_utils, grids_to_solr
 
 
 def setup_logger(args):
-    log_config.configure_logging(False, args.log_level)
+    log_config.configure_logging(True, args.log_level, args.wipe_logs)
 
     # Set package logging level to WARNING
     logging.getLogger("requests").setLevel(logging.WARNING)
@@ -51,31 +52,33 @@ def wipe_factors():
         logging.info('Successfully removed all factors')
 
 
+def validate_netrc():
+    try: 
+        nrc = netrc.netrc()
+        if 'urs.earthdata.nasa.gov' not in nrc.hosts.keys():
+            logging.fatal('Earthdata login required in netrc file.')
+            exit()
+    except FileNotFoundError:
+        logging.fatal('No netrc found. Please create one and add Earthdata login credentials.')
+        exit()
+
 def init_pipeline(args):
-    print(' === init pipeline === ')
-    print(' --- setup logger --- ')
     setup_logger(args)
-    print(' --- validate output dir --- ')
     validate_output_dir()
-    print(' --- validate solr --- ')
     validate_solr()
+    validate_netrc()
 
     if args.harvested_entry_validation:
-        print(' --- validate granules --- ')
         solr_utils.validate_granules()
 
     if args.wipe_transformations:
-        print(' --- wipe transformations --- ')
-        # Wipe transformations
         logging.info('Removing transformations with out of sync version numbers from Solr and disk')
         solr_utils.delete_mismatch_transformations()
         pass
 
     if isinstance(args.grids_to_use, list):
-        print(' ... grids_to_use is a list: ', args.grids_to_use)
         grids_to_use = args.grids_to_use
     else:
-        print(' ... grids_to_use is not a list:', GRIDS)
         grids_to_use = GRIDS
 
     if args.grids_to_solr or solr_utils.check_grids():

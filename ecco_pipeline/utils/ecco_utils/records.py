@@ -109,31 +109,20 @@ def save_netcdf(data, output_filename, netcdf_fill_value, netcdf_output_dir):
     except:
         data_DS = data
 
-    encoding_each = {'zlib': True,
-                     'complevel': 5,
-                     'shuffle': True,
-                     '_FillValue': netcdf_fill_value}
-
     coord_encoding = {}
     for coord in data_DS.coords:
-        coord_encoding[coord] = {'_FillValue': None}
+        coord_encoding[coord] = {'_FillValue': None, 'dtype': 'float32'}
 
-        if 'time' in coord:
-            coord_encoding[coord] = {'_FillValue': None,
-                                     'dtype': 'int32'}
-            if coord != 'time_step':
-                coord_encoding[coord]['units'] = "hours since 1992-01-01 12:00:00"
-        if 'lat' in coord:
-            coord_encoding[coord] = {'_FillValue': None,
-                                     'dtype': 'float32'}
-        if 'lon' in coord:
-            coord_encoding[coord] = {'_FillValue': None,
-                                     'dtype': 'float32'}
-        if 'Z' in coord:
-            coord_encoding[coord] = {'_FillValue': None,
-                                     'dtype': 'float32'}
+        if coord == 'time' or coord == 'time_bnds':
+            coord_encoding[coord] = {'dtype': 'int32'}
+        coord_encoding['time'] = {'units': 'seconds since 1980-01-01'}
 
-    var_encoding = {var: encoding_each for var in data_DS.data_vars}
+    var_encoding = {}
+    for var in data_DS.data_vars:
+        var_encoding[var] = {'zlib': True,
+                             'complevel': 5,
+                             'shuffle': True,
+                             '_FillValue': netcdf_fill_value}
 
     encoding = {**coord_encoding, **var_encoding}
     # the actual saving (so easy with xarray!)
@@ -141,108 +130,126 @@ def save_netcdf(data, output_filename, netcdf_fill_value, netcdf_output_dir):
     data_DS.close()
 
 
-def save_to_disk(data, output_filename, binary_fill_value, netcdf_fill_value,
-                 netcdf_output_dir, binary_output_dir, binary_output_dtype,
-                 model_grid_type, save_binary=True, save_netcdf=True, data_var=''):
+# def save_to_disk(data, output_filename, binary_fill_value, netcdf_fill_value,
+#                  netcdf_output_dir, binary_output_dir, binary_output_dtype,
+#                  model_grid_type, save_binary=True, save_netcdf=True, data_var=''):
 
-    if save_binary:
-        if data_var:
-            data_values = data[data_var].values
-        else:
-            data_values = data.values
+#     if save_binary:
+#         if data_var:
+#             data_values = data[data_var].values
+#         else:
+#             data_values = data.values
 
-        # define binary file output filetype
-        dt_out = np.dtype(binary_output_dtype)
+#         # define binary file output filetype
+#         dt_out = np.dtype(binary_output_dtype)
 
-        # create directory
-        binary_output_dir.mkdir(exist_ok=True)
+#         # create directory
+#         binary_output_dir.mkdir(exist_ok=True)
 
-        # define binary output filename
-        binary_output_filename = binary_output_dir / output_filename
+#         # define binary output filename
+#         binary_output_filename = binary_output_dir / output_filename
 
-        # replace nans with the binary fill value (something like -9999)
-        tmp_fields = np.where(np.isnan(data_values),
-                              binary_fill_value, data_values)
+#         # replace nans with the binary fill value (something like -9999)
+#         tmp_fields = np.where(np.isnan(data_values),
+#                               binary_fill_value, data_values)
 
-        # SAVE FLAT BINARY
-        # loop through each record of the year, save binary fields one at a time
-        # appending each record as we go
-        fd1 = open(str(binary_output_filename), 'wb')
-        fd1 = open(str(binary_output_filename), 'ab')
+#         # SAVE FLAT BINARY
+#         # loop through each record of the year, save binary fields one at a time
+#         # appending each record as we go
+#         fd1 = open(str(binary_output_filename), 'wb')
+#         fd1 = open(str(binary_output_filename), 'ab')
 
-        for i in range(len(data.time)):
-            # print('saving binary record: ', str(i))
+#         for i in range(len(data.time)):
+#             # print('saving binary record: ', str(i))
 
-            # if we have an llc grid, then we have to reform to compact
-            if model_grid_type == 'llc':
-                tmp_field = llc_tiles_to_compact(
-                    tmp_fields[i, :], less_output=True)
+#             # if we have an llc grid, then we have to reform to compact
+#             if model_grid_type == 'llc':
+#                 tmp_field = llc_tiles_to_compact(
+#                     tmp_fields[i, :], less_output=True)
 
-            # otherwise assume grid is x,y (2 dimensions)
-            elif model_grid_type == 'latlon':
-                tmp_field = tmp_fields[i, :]
+#             # otherwise assume grid is x,y (2 dimensions)
+#             elif model_grid_type == 'latlon':
+#                 tmp_field = tmp_fields[i, :]
 
-            else:
-                print('unknown model grid type!')
-                tmp_field = []
-                return []
+#             else:
+#                 print('unknown model grid type!')
+#                 tmp_field = []
+#                 return []
 
-            # make sure we have something to save...
-            if len(tmp_field) > 0:
-                # if this is the first record, create new binary file
-                tmp_field.astype(dt_out).tofile(fd1)
+#             # make sure we have something to save...
+#             if len(tmp_field) > 0:
+#                 # if this is the first record, create new binary file
+#                 tmp_field.astype(dt_out).tofile(fd1)
 
-        # close the file at the end of the operation
-        fd1.close()
+#         # close the file at the end of the operation
+#         fd1.close()
 
-    if save_netcdf:
-        # print('saving netcdf record')
+#     if save_netcdf:
+#         # print('saving netcdf record')
 
-        # create directory
-        netcdf_output_dir.mkdir(exist_ok=True)
+#         # create directory
+#         netcdf_output_dir.mkdir(exist_ok=True)
 
-        # define netcdf output filename
-        netcdf_output_filename = netcdf_output_dir / Path(output_filename + '.nc')
+#         # define netcdf output filename
+#         netcdf_output_filename = netcdf_output_dir / Path(output_filename + '.nc')
 
-        # SAVE NETCDF
-        # replace the binary fill value (-9999) with the netcdf fill value
-        # which is much more interesting
+#         # SAVE NETCDF
+#         # replace the binary fill value (-9999) with the netcdf fill value
+#         # which is much more interesting
 
-        # replace nans with the binary fill value (something like -9999) if
-        # the xarray object sent in a datarray that hasnt been checked
-        try:
-            data = data.fillna(netcdf_fill_value)
-            data_DS = data.to_dataset()
-        except:
-            data_DS = data
+#         # replace nans with the binary fill value (something like -9999) if
+#         # the xarray object sent in a datarray that hasnt been checked
+#         try:
+#             data = data.fillna(netcdf_fill_value)
+#             data_DS = data.to_dataset()
+#         except:
+#             data_DS = data
 
-        encoding_each = {'zlib': True,
-                         'complevel': 5,
-                         'shuffle': True,
-                         '_FillValue': netcdf_fill_value}
+#         coord_encoding = {}
+#         for coord in data_DS.coords:
+#             coord_encoding[coord] = {'_FillValue': None, 'dtype': 'float32'}
 
-        coord_encoding = {}
-        for coord in data_DS.coords:
-            coord_encoding[coord] = {'_FillValue': None}
+#             if coord == 'time' or coord == 'time_bnds':
+#                 coord_encoding[coord] = {'dtype': 'int32',
+#                                          'units': 'seconds since 1980-01-01T00:00:00'}
 
-            if 'time' in coord:
-                coord_encoding[coord] = {'_FillValue': None,
-                                         'dtype': 'int32'}
-                if coord != 'time_step':
-                    coord_encoding[coord]['units'] = "hours since 1992-01-01 12:00:00"
-            if 'lat' in coord:
-                coord_encoding[coord] = {'_FillValue': None,
-                                         'dtype': 'float32'}
-            if 'lon' in coord:
-                coord_encoding[coord] = {'_FillValue': None,
-                                         'dtype': 'float32'}
-            if 'Z' in coord:
-                coord_encoding[coord] = {'_FillValue': None,
-                                         'dtype': 'float32'}
+#         var_encoding = {}
+#         for var in data_DS.data_vars:
+#             var_encoding[var] = {'zlib': True,
+#                                  'complevel': 5,
+#                                  'shuffle': True,
+#                                  '_FillValue': netcdf_fill_value}
 
-        var_encoding = {var: encoding_each for var in data_DS.data_vars}
+#         encoding = {**coord_encoding, **var_encoding}
+        
+        
+#         encoding_each = {'zlib': True,
+#                          'complevel': 5,
+#                          'shuffle': True,
+#                          '_FillValue': netcdf_fill_value}
 
-        encoding = {**coord_encoding, **var_encoding}
-        # the actual saving (so easy with xarray!)
-        data_DS.to_netcdf(netcdf_output_filename,  encoding=encoding)
-        data_DS.close()
+#         coord_encoding = {}
+#         for coord in data_DS.coords:
+#             coord_encoding[coord] = {'_FillValue': None}
+
+#             if 'time' in coord:
+#                 coord_encoding[coord] = {'_FillValue': None,
+#                                          'dtype': 'int32'}
+#                 if coord != 'time_step':
+#                     coord_encoding[coord]['units'] = "hours since 1992-01-01 12:00:00"
+#             if 'lat' in coord:
+#                 coord_encoding[coord] = {'_FillValue': None,
+#                                          'dtype': 'float32'}
+#             if 'lon' in coord:
+#                 coord_encoding[coord] = {'_FillValue': None,
+#                                          'dtype': 'float32'}
+#             if 'Z' in coord:
+#                 coord_encoding[coord] = {'_FillValue': None,
+#                                          'dtype': 'float32'}
+
+#         var_encoding = {var: encoding_each for var in data_DS.data_vars}
+
+#         encoding = {**coord_encoding, **var_encoding}
+#         # the actual saving (so easy with xarray!)
+#         data_DS.to_netcdf(netcdf_output_filename,  encoding=encoding)
+#         data_DS.close()

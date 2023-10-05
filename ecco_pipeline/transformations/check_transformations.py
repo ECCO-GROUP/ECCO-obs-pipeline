@@ -7,7 +7,8 @@ import xarray as xr
 
 from utils import solr_utils
 
-from transformation import grid_transformation, Transformation
+from transformations.grid_transformation import transform
+from transformations.transformation import Transformation
 
 
 def get_remaining_transformations(config, granule_file_path, grids):
@@ -103,6 +104,7 @@ def multiprocess_transformation(granule, config, grids):
     """
     # f is file path to granule from solr
     f = granule.get('pre_transformation_file_path_s', '')
+    granule_date = granule.get('date_s')
 
     # Skips granules that weren't harvested properly
     if f == '':
@@ -113,7 +115,7 @@ def multiprocess_transformation(granule, config, grids):
     remaining_transformations = get_remaining_transformations(config, f, grids)
     # Perform remaining transformations
     if remaining_transformations:
-        grid_transformation.main(f, remaining_transformations, config)
+        transform(f, remaining_transformations, config, granule_date)
         return
     else:
         logging.debug(f'CPU id {os.getpid()} no new transformations for {granule["filename_s"]}')
@@ -180,7 +182,8 @@ def main(config, user_cpus=1, grids_to_use=[]):
 
         for granule in data_for_factors:
             grid_ds = xr.open_dataset(f'grids/{grid}.nc')
-            Transformation.Transformation(config, granule['pre_transformation_file_path_s']).make_factors(grid_ds)
+            T = Transformation(config, granule['pre_transformation_file_path_s'], '1972-04-20')
+            T.make_factors(grid_ds)
 
     # END PRE GENERATE FACTORS TO ACCOMODATE MULTIPROCESSING
 

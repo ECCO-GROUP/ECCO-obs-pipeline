@@ -1,0 +1,65 @@
+ds_name: ATL20_V004 # Name for dataset
+start: "19800101T00:00:00Z" # yyyymmddThh:mm:ssZ
+end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
+
+# Provider specifications
+harvester_type: cmr
+cmr_short_name: ATL20
+cmr_version: "004"
+cmr_concept_id: C2753295020-NSIDC_CPRD
+filename_date_fmt: "%Y%m%d%H%M%S" #20200701010729
+filename_date_regex: '\d{14}'
+provider: "data.nsidc"
+
+# Metadata
+aggregated: false # if data is available aggregated
+data_time_scale: "monthly" # daily or monthly
+preprocessing: ATL20_V004_monthly
+mapping_operation: 'nanmean'
+hemi_pattern:
+  north: "ATL20-01"
+  south: "ATL20-02"
+fields:
+  - name: mean_fb
+    long_name: Monthly mean freeboard
+    standard_name: mean_fb
+    units: "meters"
+    pre_transformations: [] # List of functions to call on the DataSet before transformation
+    post_transformations: [] # List of functions to call on the DataArrays after transformation
+original_dataset_title: ATLAS/ICESat-2 L3B Daily and Monthly Gridded Sea Ice Freeboard, Version 4 (ATL20)
+original_dataset_short_name: ATL20_V004
+original_dataset_url: https://nsidc.org/data/atl20/versions/4
+original_dataset_reference: https://nsidc.org/sites/default/files/atl20-v004-userguide.pdf
+original_dataset_doi: 10.5067/ATLAS/ATL20.004
+
+# Transformation
+t_version: 1.3 # Update this value if any changes are made to this file
+array_precision: float32
+data_res: 25/111 # Resolution of dataset
+
+# Values for non split datasets (for datasets split into nh/sh, append '_nh'/'_sh')
+area_extent_nh: [-3850000.0, -5350000.0, 3750000.0, 5850000.0]
+area_extent_sh: [-3937500.0, -3937500.0, 3937500.0, 4337500.0]
+dims_nh: [304, 448]
+dims_sh: [316, 332]
+proj_info_nh:
+  area_id: "3411"
+  area_name: "polar_stereographic"
+  proj_id: "3411"
+  proj4_args: "+init=EPSG:3411"
+proj_info_sh:
+  area_id: "3412"
+  area_name: "polar_stereographic"
+  proj_id: "3412"
+  proj4_args: "+init=EPSG:3412"
+
+notes: "" # String to include in global attributes of output files
+
+# Aggregation
+a_version: 1.1 # Update this value if any changes are made to this file
+remove_nan_days_from_data: False # Remove empty days from data when aggregating
+do_monthly_aggregation: False
+skipna_in_mean: True # Controls skipna when calculating monthly mean
+monthly_tolerance: 8 # Defines the range of days to look for data around the start of the month (exclusive)
+save_binary: True
+save_netcdf: True

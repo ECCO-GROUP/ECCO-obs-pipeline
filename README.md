@@ -1,4 +1,4 @@
-# ECCO-ACCESS
+# ECCO-PIPELINE
 
 ## Summary
 The ECCO_PIPELINE exists as a framework to regularly harvest and transform datasets used as inputs for the ECCO model. 
@@ -13,7 +13,7 @@ Documentation is in the process of being overhauled. Legacy documentation can be
 ### Requirements
 - Solr
 - Conda
-- Earthdata login credentials
+- .netrc file containing Earthdata login credentials
 
 ### Start Solr and Setup core
 ```
@@ -32,7 +32,6 @@ git clone https://github.com/ECCO-GROUP/ECCO-pipeline.git
 cd <path/to/cloned/repo>
 conda env create -f environment.yml
 conda activate ecco_pipeline
-pip install -e .
 ```
 
 ### Running pipeline

@@ -71,7 +71,6 @@ def make_time_bounds_from_ds64(rec_avg_end: np.datetime64, output_freq_code: str
         return [], []
 
 
-
 def extract_yyyy_mm_dd_hh_mm_ss_from_datetime64(dt64: np.datetime64) -> Tuple[int,int,int,int,int,int]:
     """
     Extract separate fields for year, monday, day, hour, min, sec from
