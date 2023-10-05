@@ -1,15 +1,11 @@
-import base64
+from datetime import datetime
 import json
-import logging
-import os
 import ssl
 import sys
-from datetime import datetime
-from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
+from typing import Union
+from urllib.request import Request, urlopen
 
 import requests
-from conf.global_settings import OUTPUT_DIR
-from utils import file_utils, solr_utils, harvesting_utils
 
 
 CMR_URL = 'https://cmr.earthdata.nasa.gov'
@@ -30,6 +26,12 @@ def build_cmr_query_url(short_name, time_start, time_end,
         params += f'&concept_id={concept_id}'
     return CMR_FILE_URL + params
 
+def get_mod_time(id: str) -> datetime:
+    meta_url = f'https://cmr.earthdata.nasa.gov/search/concepts/{id}.json'
+    r = requests.get(meta_url)
+    meta = r.json()
+    modified_time = datetime.strptime(f'{meta["updated"].split(".")[0]}Z', "%Y-%m-%dT%H:%M:%SZ")
+    return modified_time
 
 def cmr_filter_urls(search_results, provider):
     """Select only the desired data files from CMR response."""
@@ -40,10 +42,13 @@ def cmr_filter_urls(search_results, provider):
     for e in search_results['feed']['entry']:
         links = e['links'] if 'links' in e else None
         id = e['id']
-        updated = e['updated'] if 'updated' in e else None
+        if 'updated' in e:
+            updated = datetime.strptime(f'{e["updated"].split(".")[0]}Z', "%Y-%m-%dT%H:%M:%SZ")
+        else:
+            updated = get_mod_time()
         entries.append((links, id, updated))
 
-    urls = []
+    granules = []
     unique_filenames = set()
     for link_list, id, update in entries:
         for link in link_list:
@@ -66,9 +71,9 @@ def cmr_filter_urls(search_results, provider):
                 continue
 
             unique_filenames.add(filename)
-
-            urls.append((link['href'], id, update))
-    return urls
+            granule = CMR_Granule(link['href'], id, update)
+            granules.append(granule)
+    return granules
 
 
 def cmr_search(config, filename_filter=''):
@@ -85,7 +90,7 @@ def cmr_search(config, filename_filter=''):
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
 
-    urls = []
+    granules = []
     while True:
         req = Request(cmr_query_url)
         if cmr_scroll_id:
@@ -105,8 +110,19 @@ def cmr_search(config, filename_filter=''):
         if hits > CMR_PAGE_SIZE:
             print('.', end='')
             sys.stdout.flush()
-        urls += url_scroll_results
+        granules += url_scroll_results
 
     if hits > CMR_PAGE_SIZE:
         print()
-    return urls
+    return granules
+
+class CMR_Granule():
+    url: str
+    id: str
+    mod_time: str
+    
+    def __init__(self, url, id, mod_time: datetime):
+        self.url = url
+        self.id = id
+        self.mod_time = mod_time
+            

@@ -42,12 +42,10 @@ class Granule():
             # calculate checksum and expected file size
             self.solr_item['checksum_s'] = md5(self.local_fp)
             self.solr_item['pre_transformation_file_path_s'] = self.local_fp
-            self.solr_item['granule_file_path_s'] = self.local_fp
             self.solr_item['harvest_success_b'] = True
             self.solr_item['file_size_l'] = os.path.getsize(self.local_fp)
         else:
             self.solr_item['harvest_success_b'] = False
-            self.solr_item['filename_s'] = ''
             self.solr_item['pre_transformation_file_path_s'] = ''
             self.solr_item['file_size_l'] = 0
         self.solr_item['download_time_dt'] = datetime.utcnow().strftime("%Y-%m-%dT00:00:00Z")
