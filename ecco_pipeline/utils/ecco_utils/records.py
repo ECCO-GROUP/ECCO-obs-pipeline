@@ -115,7 +115,7 @@ def save_netcdf(data, output_filename, netcdf_fill_value, netcdf_output_dir):
 
         if coord == 'time' or coord == 'time_bnds':
             coord_encoding[coord] = {'dtype': 'int32'}
-        coord_encoding['time'] = {'units': 'seconds since 1980-01-01'}
+        coord_encoding['time'] = {'units': 'hours since 1980-01-01'}
 
     var_encoding = {}
     for var in data_DS.data_vars:
