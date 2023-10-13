@@ -115,7 +115,10 @@ def multiprocess_transformation(granule, config, grids):
     remaining_transformations = get_remaining_transformations(config, f, grids)
     # Perform remaining transformations
     if remaining_transformations:
-        transform(f, remaining_transformations, config, granule_date)
+        try:
+            transform(f, remaining_transformations, config, granule_date)
+        except Exception as e:
+            logging.exception(f'Error transforming {f}: {e}')
         return
     else:
         logging.debug(f'CPU id {os.getpid()} no new transformations for {granule["filename_s"]}')
