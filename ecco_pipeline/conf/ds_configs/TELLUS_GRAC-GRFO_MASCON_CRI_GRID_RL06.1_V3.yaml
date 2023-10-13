@@ -1,10 +1,13 @@
 ds_name: TELLUS_GRAC-GRFO_MASCON_CRI_GRID_RL06.1_V3 # Name for dataset
+# Dataset is aggregated so start/end range MUST include 2002-04-16
+# For now this means we can't process a subset for testing
 start: "19800101T00:00:00Z" # yyyymmddThh:mm:ssZ
 end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 
 # Provider specifications
 harvester_type: cmr
 cmr_short_name: "TELLUS_GRAC-GRFO_MASCON_CRI_GRID_RL06.1_V3"
+cmr_concept_id: "C2536962485-POCLOUD"
 cmr_version: "RL06.1Mv03"
 filename_date_fmt: "%Y%m"
 filename_date_regex: '\d{6}'

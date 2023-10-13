@@ -115,7 +115,10 @@ def multiprocess_transformation(granule, config, grids):
     remaining_transformations = get_remaining_transformations(config, f, grids)
     # Perform remaining transformations
     if remaining_transformations:
-        transform(f, remaining_transformations, config, granule_date)
+        try:
+            transform(f, remaining_transformations, config, granule_date)
+        except Exception as e:
+            logging.exception(f'Error transforming {f}: {e}')
         return
     else:
         logging.debug(f'CPU id {os.getpid()} no new transformations for {granule["filename_s"]}')
@@ -166,6 +169,7 @@ def main(config, user_cpus=1, grids_to_use=[]):
 
     if not harvested_granules:
         logging.info(f'No harvested granules found in solr for {dataset_name}')
+        return f'No transformations performed'
 
     # Query for grids
     if not grids_to_use:
