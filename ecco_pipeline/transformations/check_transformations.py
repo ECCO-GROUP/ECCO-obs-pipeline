@@ -169,6 +169,7 @@ def main(config, user_cpus=1, grids_to_use=[]):
 
     if not harvested_granules:
         logging.info(f'No harvested granules found in solr for {dataset_name}')
+        return f'No transformations performed'
 
     # Query for grids
     if not grids_to_use:
