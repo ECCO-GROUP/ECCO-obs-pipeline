@@ -1,6 +1,7 @@
 import hashlib
 import re
 from datetime import datetime
+import logging
 
 
 def md5(fname: str) -> str:

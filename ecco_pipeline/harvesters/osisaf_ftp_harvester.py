@@ -9,7 +9,7 @@ from conf.global_settings import OUTPUT_DIR
 from utils import file_utils, solr_utils
 
 
-def granule_update_check(docs, filename, mod_date_time, time_format):
+def granule_update_check(docs: dict, filename: str, mod_date_time: datetime, time_format: str):
     key = filename.replace('.NRT', '')
 
     # Granule hasn't been harvested yet
@@ -34,7 +34,7 @@ def granule_update_check(docs, filename, mod_date_time, time_format):
     return False
 
 
-def harvester(config):
+def harvester(config: dict):
     """
     Pulls data files for OSISAF FTP id and date range given in harvester_config.yaml.
     Creates (or updates) Solr entries for dataset, harvested granule, and descendants.
@@ -107,19 +107,24 @@ def harvester(config):
     try:
         ftp = FTP(host)
         ftp.login(config['user'])
+        logging.debug('Connected to FTP')
     except Exception as e:
         logging.exception(f'Harvesting failed. Unable to connect to FTP. {e}')
         return 'Harvesting failed. Unable to connect to FTP.'
 
-    years_on_ftp = [int(y.split('/')[-1]) for y in ftp.nlst(ddir)]
+    years_on_ftp = [int(y.split('/')[-1]) for y in ftp.nlst(ddir) if 'monthly' not in y]
+    logging.debug(f'The following years are available on ftp: {years_on_ftp}')
     for year in years:
         if year not in years_on_ftp:
             continue
         for month in months:
-            month_dir = f'{ddir}{year}/{month}'
+            if config['data_time_scale'] == 'daily':
+                data_dir = f'{ddir}{year}/{month}'
+            else:
+                data_dir = f'{ddir}{year}'
             try:
                 files = []
-                ftp.dir(month_dir, files.append)
+                ftp.dir(data_dir, files.append)
                 file_meta = {}
                 for f in files:
                     tokens = f.split()
@@ -132,8 +137,7 @@ def harvester(config):
                         file_meta[fname] = mod_dt
 
             except:
-                logging.exception(
-                    f'Error finding files at {month_dir}. Check harvester config.')
+                logging.exception(f'Error finding files at {data_dir}. Check harvester config.')
 
             for filename, mod_dt in file_meta.items():
                 hemi = file_utils.get_hemi(filename)
@@ -142,12 +146,12 @@ def harvester(config):
                     continue
 
                 date = file_utils.get_date(config['filename_date_regex'], filename)
-                date_time = datetime.strptime(date, "%Y%m%d")
-                new_date_format = f'{date[:4]}-{date[4:6]}-{date[6:]}T00:00:00Z'
+                date_time = datetime.strptime(date, config['filename_date_fmt'])
+                new_date_format = date_time.strftime('%Y-%m-%dT00:00:00Z')
 
                 granule_dates.append(datetime.strptime(new_date_format, solr_format))
 
-                url = f'{month_dir}/{filename}'
+                url = f'{data_dir}/{filename}'
 
                 # Granule metadata used for Solr harvested entries
                 item = {}
@@ -193,8 +197,7 @@ def harvester(config):
                         elif datetime.fromtimestamp(os.path.getmtime(local_fp)) <= mod_dt:
                             logging.info(f'Updating {filename} and downloading to {local_fp}')
                             with open(local_fp, 'wb') as f:
-                                ftp.retrbinary(
-                                    'RETR '+url, f.write, blocksize=262144)
+                                ftp.retrbinary('RETR '+url, f.write, blocksize=262144)
                         else:
                             logging.debug(f'{filename} already downloaded and up to date')
                         # Create checksum for file
