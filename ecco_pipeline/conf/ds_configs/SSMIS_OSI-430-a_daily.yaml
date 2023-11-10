@@ -1,6 +1,6 @@
 ds_name: SSMIS_OSI-430-a_daily # Name for dataset
-start: "20210101T00:00:00Z" # yyyymmddThh:mm:ssZ
-end: "20210114T00:00:00Z" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
+start: "19800101T00:00:00Z" # yyyymmddThh:mm:ssZ
+end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 
 # Provider specifications
 harvester_type: osisaf_ftp
