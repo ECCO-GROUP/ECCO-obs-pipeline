@@ -42,10 +42,10 @@ def valid_date(filename: str, config: dict) -> bool:
     Determines if date in filename falls within start/end time bounds
     """
     file_date = get_date(config['filename_date_regex'], filename)
+    file_date_dt = datetime.strptime(file_date, config['filename_date_fmt'])
+    start_dt = datetime.strptime(config['start'], '%Y%m%dT%H:%M:%SZ')
+    end_dt = datetime.now if config['end'] == 'NOW' else datetime.strptime(config['end'], '%Y%m%dT%H:%M:%SZ')
 
-    start = config['start'][:8]
-    end = str(datetime.now)[:8] if config['end'] == 'NOW' else config['end'][:8]
-
-    if file_date >= start and file_date <= end:
+    if file_date_dt >= start_dt and file_date_dt <= end_dt:
         return True
     return False
