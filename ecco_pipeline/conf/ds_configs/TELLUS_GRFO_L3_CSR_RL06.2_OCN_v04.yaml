@@ -18,13 +18,13 @@ fields:
   - name: lwe_thickness
     long_name: Liquid_Water_Equivalent_Thickness
     standard_name: Liquid_Water_Equivalent_Thickness
-    units: cm
+    units: m
     pre_transformations: [] # List of functions to call on the DataSet before transformation
     post_transformations: [] # List of functions to call on the DataArrays after transformation
   - name: uncertainty
     long_name: uncertainty
     standard_name: uncertainty
-    units: cm
+    units: m
     pre_transformations: [] # List of functions to call on the DataSet before transformation
     post_transformations: [] # List of functions to call on the DataArrays after transformation
 original_dataset_title: "CSR TELLUS GRACE-FO Level-3 Monthly Ocean Bottom Pressure Anomaly Release 6.2 version 04"

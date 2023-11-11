@@ -471,6 +471,15 @@ def ATL20_V004_monthly(file_path, config):
     merged_ds = xr.merge([ds, var_ds])
     return merged_ds
 
+def GRACE_MASCON(file_path, config):
+    '''
+    Mask out land and convert cm to m.
+    '''
+    ds = xr.open_dataset(file_path, decode_times=True)
+    ds.lwe_thickness.values = np.where(ds.land_mask == 0.0, ds.lwe_thickness.values / 100, np.nan)
+    ds.uncertainty.values = np.where(ds.land_mask == 0.0, ds.uncertainty.values / 100, np.nan)
+    return ds
+
 
 # Pre-transformation (on Datasets only)
 # -----------------------------------------------------------------------------------------------------------------------------------------------
