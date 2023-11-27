@@ -44,7 +44,7 @@ def valid_date(filename: str, config: dict) -> bool:
     file_date = get_date(config['filename_date_regex'], filename)
     file_date_dt = datetime.strptime(file_date, config['filename_date_fmt'])
     start_dt = datetime.strptime(config['start'], '%Y%m%dT%H:%M:%SZ')
-    end_dt = datetime.now if config['end'] == 'NOW' else datetime.strptime(config['end'], '%Y%m%dT%H:%M:%SZ')
+    end_dt = datetime.now() if config['end'] == 'NOW' else datetime.strptime(config['end'], '%Y%m%dT%H:%M:%SZ')
 
     if file_date_dt >= start_dt and file_date_dt <= end_dt:
         return True

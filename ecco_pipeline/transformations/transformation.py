@@ -8,10 +8,7 @@ import xarray as xr
 import pyresample as pr
 import pickle
 from conf.global_settings import OUTPUT_DIR
-
-
 from utils.ecco_utils import ecco_functions, records, date_time
-from utils import file_utils
 
 
 class Transformation():

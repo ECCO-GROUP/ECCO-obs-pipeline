@@ -82,9 +82,9 @@ def update_solr_grid(grid_name, grid_type, grid_file, docs):
     r = solr_utils.solr_update(update_body, r=True)
 
     if r.status_code == 200:
-        print(f'Successfully updated {grid_name} Solr grid document')
+        logging.debug(f'Successfully updated {grid_name} Solr grid document')
     else:
-        print(f'Failed to update Solr {grid_name} grid document')
+        logging.error(f'Failed to update Solr {grid_name} grid document')
 
 
 def main(grids_to_use=[]):

@@ -224,6 +224,8 @@ def harvester(config: dict):
     logging.debug(f'The following years are available on ftp: {years_on_ftp}')
     
     for year in osisaf.years:
+        if year not in years_on_ftp:
+            continue
         if config['data_time_scale'] == 'daily':
             for month in [f'{x:02}' for x in list(range(1, 13))]:
                 data_dir = f'{osisaf.ddir}{year}/{month}'
