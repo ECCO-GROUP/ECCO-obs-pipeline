@@ -153,6 +153,9 @@ def transform(source_file_path, remaining_transformations, config, granule_date)
                     "transformation_version_f": {"set": T.transformation_version}
                 }
             ]
+            
+            if success and 'Default empty model grid record' in field_DS.variables:
+                update_body[0]['transformation_note'] = {"set": 'Field not found in source data. Defaulting to empty record.'}
 
             r = solr_utils.solr_update(update_body, r=True)
 

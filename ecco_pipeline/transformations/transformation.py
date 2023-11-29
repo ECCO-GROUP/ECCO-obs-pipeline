@@ -246,6 +246,13 @@ class Transformation():
             try:
                 field_DA = self.perform_mapping(ds, factors, data_field_info, model_grid)
                 success = True
+            except KeyError:
+                logging.error(f'Transformation failed: key {field_name} is missing from source data. Making empty record.')
+                field_DA = records.make_empty_record(record_date, model_grid, self.array_precision)
+                field_DA.attrs['long_name'] = long_name
+                field_DA.attrs['standard_name'] = standard_name
+                field_DA.attrs['units'] = units
+                success = True
             except Exception as e:
                 logging.exception(f'Transformation failed: {e}')
                 field_DA = records.make_empty_record(record_date, model_grid, self.array_precision)
