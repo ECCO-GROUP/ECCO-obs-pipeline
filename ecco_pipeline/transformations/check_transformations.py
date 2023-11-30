@@ -26,7 +26,8 @@ def get_remaining_transformations(config, granule_file_path, grids):
 
     these checks are made for each grid/field pair associated with the harvested granule
     """
-
+    print('\n\n')
+    print('ian: get remaining transformation')
     dataset_name = config['ds_name']
     fields = config['fields']
 
@@ -40,13 +41,17 @@ def get_remaining_transformations(config, granule_file_path, grids):
     # Query for existing transformations
     fq = [f'dataset_s:{dataset_name}', 'type_s:transformation',
           f'pre_transformation_file_path_s:"{granule_file_path}"']
+    print(f'ian: query for remaining transformations fq {fq}')
+
     docs = solr_utils.solr_query(fq)
+    print(f'ian: docs after fq: {docs}')
 
     # No transformations exist yet, so all must be done
     if not docs:
         for grid, field in grid_field_combinations:
             grid_field_dict[grid].append(field)
 
+        print('ian: no transformations exist yet') 
         return dict(grid_field_dict)
 
     # Dictionary where key is grid, field tuple and value is harvested granule checksum
@@ -71,7 +76,8 @@ def get_remaining_transformations(config, granule_file_path, grids):
 
             # Query for existing transformation
             fq = [f'dataset_s:{dataset_name}', 'type_s:transformation',
-                  f'pre_transformation_file_path_s:"{granule_file_path}"']
+                  f'pre_transformation_file_path_s:"{granule_file_path}"',
+                  f'field_s:{field_name}']
             transformation = solr_utils.solr_query(fq)[0]
 
             # Triple if:
@@ -82,7 +88,8 @@ def get_remaining_transformations(config, granule_file_path, grids):
             if ('success_b' in transformation.keys() and transformation['success_b'] == True) and \
                 ('transformation_version_f' in transformation.keys() and transformation['transformation_version_f'] == config['t_version']) and \
                     origin_checksum == harvested_checksum:
-                logging.debug(f'No need to transform {granule_file_path}')
+
+                logging.debug(f'No need to transform {granule_file_path} for grid {grid} and field {field_name}')
                 # all tests passed, we do not need to redo the transformation
                 # for this grid/field pair
 
@@ -91,9 +98,11 @@ def get_remaining_transformations(config, granule_file_path, grids):
 
     # Remove drop_list grid/field combinations from list of remaining transformations
     grid_field_combinations = [combo for combo in grid_field_combinations if combo not in drop_list]
+    print(f'ian: the grid/field combinations for this granule: {grid_field_combinations}')
 
     for grid, field in grid_field_combinations:
         grid_field_dict[grid].append(field)
+        print(f'ian: grid field dict: {grid}, {field}')
 
     return dict(grid_field_dict)
 
@@ -113,6 +122,8 @@ def multiprocess_transformation(granule, config, grids):
 
     # Get transformations to be completed for this file
     remaining_transformations = get_remaining_transformations(config, f, grids)
+    print(f'ian: mpt remaining_tx {remaining_transformations}')
+
     # Perform remaining transformations
     if remaining_transformations:
         try:
@@ -198,10 +209,17 @@ def main(config, user_cpus=1, grids_to_use=[]):
     # for grid in grids:
     logging.info(f'Running transformations for {grids} grids')
 
-    with Pool(processes=user_cpus) as pool:
-        pool.starmap(multiprocess_transformation, multiprocess_tuples)
-        pool.close()
-        pool.join()
+    print(f'ian: number of user_cpus: {user_cpus}')
+
+    if user_cpus == 1:
+        for mt in multiprocess_tuples:
+            print(f'ian mt {mt}')
+            multiprocess_transformation(mt[0], mt[1], mt[2])
+    else:
+        with Pool(processes=user_cpus) as pool:
+            pool.starmap(multiprocess_transformation, multiprocess_tuples)
+            pool.close()
+            pool.join()
 
     # Query Solr for dataset metadata
     fq = [f'dataset_s:{dataset_name}', 'type_s:dataset']

@@ -30,12 +30,16 @@ def update_solr_grid(grid_name, grid_type, grid_file, docs):
         update_body.append(grid_meta)
     # Verify grid in solr matches grid file
     else:
+        # get checkum for each grid on disk
         current_checksum = file_utils.md5(grid_path)
 
+        # docs contain all of the entries of type_s:grid
         for doc in docs:
             if doc['grid_name_s'] == grid_name:
+                # the checksum record by solr for this grid
                 solr_checksum = doc['grid_checksum_s']
 
+        # if they don't match then it implies that the grid file has been modified
         if current_checksum != solr_checksum:
             # Delete previous grid's transformations from Solr
             update_body = {

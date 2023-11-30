@@ -228,6 +228,10 @@ class Transformation():
 
         fields = config.get('fields')
 
+        print(f'\n\nTRANSFORM:')
+        all_data_vars = list(ds.data_vars)
+        print(f'ian: all_data_vars: {all_data_vars}')
+
         # =====================================================
         # Loop through fields to transform
         # =====================================================
@@ -236,6 +240,10 @@ class Transformation():
             standard_name = data_field_info['standard_name']
             long_name = data_field_info['long_name']
             units = data_field_info['units']
+            print(f'\nian: data_field_info["name"]: {data_field_info["name"]}')
+            print(f'ian: data_field_info["standard_name"]: {data_field_info["standard_name"]}')
+            print(f'ian: data_field_info["long_name"]: {data_field_info["long_name"]}')
+
             pre_transformations = data_field_info.get('pre_transformations', [])
             try:
                 self.apply_funcs(ds, pre_transformations)
@@ -246,33 +254,70 @@ class Transformation():
 
             logging.debug(f'Transforming {self.file_name} for field {field_name}')
 
-            try:
-                field_DA = self.perform_mapping(ds, factors, data_field_info, model_grid)
-                success = True
-            except Exception as e:
-                logging.exception(f'Transformation failed: {e}')
+            # by default, assume that we'll have to make an empty record
+            make_empty_record = True
+            # by default, assume the mapping failed
+            mapping_success = False
+
+            # a note to add to empty records to give some clue as to why they're empty
+            # by default we don't know why the record is empty
+            empty_record_note = 'for unknown reason'
+
+            # proceed only if field_name is in the dataset 
+            if field_name in all_data_vars:
+                print(f'ian: {field_name} present in dataset')
+
+                try:
+                  field_DA = self.perform_mapping(ds, factors, data_field_info, model_grid)
+
+                  # =====================================================
+                  # Post transformation functions
+                  # =====================================================
+                  try:
+                    field_DA = self.apply_funcs(field_DA, post_transformations)
+
+                    mapping_success = True
+                    make_empty_record = False
+
+                    print(f'ian: mapped and applied funcs OK')
+
+                  except Exception as e:
+                    logging.exception(f'Post-transformation failed: {e}')
+                    mapping_success = False 
+                    make_empty_record = True 
+                    empty_record_note = f'because post transformation(s) failed'
+
+                except Exception as e:
+                  logging.exception(f'Transformation failed: {e}')
+                  mapping_success = False 
+                  make_empty_record = True 
+                  empty_record_note = f'because the transformation failed'
+
+            else:
+                print(f'ian: {field_name} **NOT** present in dataset')
+                make_empty_record = True 
+                empty_record_note = f'because {field_name} was not present in the dataset'
+
+            if make_empty_record:
+                print(f'ian: making empty record')
                 field_DA = records.make_empty_record(record_date, model_grid, self.array_precision)
                 field_DA.attrs['long_name'] = long_name
                 field_DA.attrs['standard_name'] = standard_name
                 field_DA.attrs['units'] = units
-                success = False
+                field_DA.attrs['transformation_error_note'] = 'empty record ' + empty_record_note
 
-            # =====================================================
-            # Post transformation functions
-            # =====================================================
-            if success:
-                try:
-                    field_DA = self.apply_funcs(field_DA, post_transformations)
-                    field_DA.attrs['valid_min'] = np.nanmin(field_DA.values)
-                    field_DA.attrs['valid_max'] = np.nanmax(field_DA.values)
-                except Exception as e:
-                    logging.exception(f'Post-transformation failed: {e}')
-                    field_DA = records.make_empty_record(record_date, model_grid, self.array_precision)
-                    field_DA.attrs['long_name'] = long_name
-                    field_DA.attrs['standard_name'] = standard_name
-                    field_DA.attrs['units'] = units
-                    success = False
+            # populate valid min and valid max
+            # ... first check to see if the field is all nans 
+            if np.sum(~np.isnan(field_DA.values)) == 0 :
+               # field_DA is all nan
+               print(f'ian: setting valid min/max to nan')
+               field_DA.attrs['valid_min'] = np.nan
+               field_DA.attrs['valid_max'] = np.nan
+            else: 
+               field_DA.attrs['valid_min'] = np.nanmin(field_DA.values)
+               field_DA.attrs['valid_max'] = np.nanmax(field_DA.values)
 
+            # replace nan with netcdf fill
             field_DA.values = np.where(np.isnan(field_DA.values), self.fill_values['netcdf'], field_DA.values)
 
             # Make dataarray into dataset
@@ -338,6 +383,6 @@ class Transformation():
             field_DS = field_DS.drop('time_start')
             field_DS = field_DS.drop('time_end')
             # print(field_DS)
-            field_DSs.append((field_DS, success))
+            field_DSs.append((field_DS, mapping_success))
 
         return field_DSs

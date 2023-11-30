@@ -16,11 +16,13 @@ def solr_query(fq, fl=''):
                'rows': 300000}
 
     url = f'{SOLR_HOST}{SOLR_COLLECTION}/select?'
+
     try:
         response = requests.get(url, params=getVars, headers={'Connection': 'close'})
     except:
         time.sleep(5)
         response = requests.get(url, params=getVars, headers={'Connection': 'close'})
+    print(f'ian: request {response.url}')
 
     return response.json()['response']['docs']
 

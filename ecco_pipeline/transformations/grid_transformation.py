@@ -45,7 +45,10 @@ def transform(source_file_path, remaining_transformations, config, granule_date)
 
     # Iterate through grids in remaining_transformations
     for grid_name in remaining_transformations.keys():
+        print(f'ian: remaining transformations grid {grid_name}')
+
         fields = remaining_transformations[grid_name]
+        print(f'ian: remaining transformations fields {fields}')
 
         grid_path, grid_type = get_grids(grid_name)
 
