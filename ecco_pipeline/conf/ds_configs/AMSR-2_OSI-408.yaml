@@ -30,6 +30,12 @@ fields:
     units: " "
     pre_transformations: []
     post_transformations: []
+  - name: total_uncertainty
+    long_name: estimate of the total uncertainty for the sea ice concentration retrieved by the OSI SAF algorithm
+    standard_name: " "
+    units: " "
+    pre_transformations: []
+    post_transformations: []
 original_dataset_title: "Global Sea Ice Concentration (AMSR-2)"
 original_dataset_short_name: "Global Sea Ice Concentration (AMSR-2)"
 original_dataset_url: "https://osi-saf.eumetsat.int/products/osi-408"
