@@ -42,17 +42,19 @@ def transform(source_file_path, remaining_transformations, config, granule_date)
     else:
         ds = xr.open_dataset(source_file_path, decode_times=True)
     ds.attrs['original_file_name'] = T.file_name
+    
+    grid_fields = [[f'({grid_name}, {field_name})' for field_name in remaining_transformations[grid_name]] for grid_name in remaining_transformations.keys()]
+    logging.debug(f'{T.file_name} needs to transform: {grid_fields} ')
 
     # Iterate through grids in remaining_transformations
     for grid_name in remaining_transformations.keys():
         fields = remaining_transformations[grid_name]
-
         grid_path, grid_type = get_grids(grid_name)
 
         # =====================================================
         # Load grid
         # =====================================================
-        logging.debug(f' - Loading {grid_name} model grid')
+        logging.debug(f'Loading {grid_name} model grid')
         model_grid = xr.open_dataset(grid_path).reset_coords()
 
         # =====================================================
@@ -109,7 +111,8 @@ def transform(source_file_path, remaining_transformations, config, granule_date)
         logging.debug(f'Running transformations for {T.file_name}')
 
         # Returns list of transformed DSs, one for each field in fields
-        field_DSs = T.transform(model_grid, factors, ds, config)
+        field_DSs = T.transform(model_grid, factors, ds, fields, config)
+            
         # =====================================================
         # Save the output in netCDF format
         # =====================================================
@@ -167,5 +170,3 @@ def transform(source_file_path, remaining_transformations, config, granule_date)
                 grids_updated.append(grid_name)
 
         logging.debug(f'CPU id {os.getpid()} saving {T.file_name} output file for grid {grid_name}')
-
-    return grids_updated, T.date[:4]

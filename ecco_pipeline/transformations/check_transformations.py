@@ -46,7 +46,6 @@ def get_remaining_transformations(config, granule_file_path, grids):
     if not docs:
         for grid, field in grid_field_combinations:
             grid_field_dict[grid].append(field)
-
         return dict(grid_field_dict)
 
     # Dictionary where key is grid, field tuple and value is harvested granule checksum
@@ -71,7 +70,8 @@ def get_remaining_transformations(config, granule_file_path, grids):
 
             # Query for existing transformation
             fq = [f'dataset_s:{dataset_name}', 'type_s:transformation',
-                  f'pre_transformation_file_path_s:"{granule_file_path}"']
+                  f'pre_transformation_file_path_s:"{granule_file_path}"',
+                  f'field_s:{field_name}']
             transformation = solr_utils.solr_query(fq)[0]
 
             # Triple if:
@@ -82,7 +82,7 @@ def get_remaining_transformations(config, granule_file_path, grids):
             if ('success_b' in transformation.keys() and transformation['success_b'] == True) and \
                 ('transformation_version_f' in transformation.keys() and transformation['transformation_version_f'] == config['t_version']) and \
                     origin_checksum == harvested_checksum:
-                logging.debug(f'No need to transform {granule_file_path}')
+                logging.debug(f'No need to transform {granule_file_path} for grid {grid} and field {field_name}')
                 # all tests passed, we do not need to redo the transformation
                 # for this grid/field pair
 
@@ -197,11 +197,17 @@ def main(config, user_cpus=1, grids_to_use=[]):
 
     # for grid in grids:
     logging.info(f'Running transformations for {grids} grids')
-
-    with Pool(processes=user_cpus) as pool:
-        pool.starmap(multiprocess_transformation, multiprocess_tuples)
-        pool.close()
-        pool.join()
+    
+    if user_cpus == 1:
+        logging.info('Not using multiprocessing to do transformation')
+        for (granule, config, grids) in multiprocess_tuples:
+            multiprocess_transformation(granule, config, grids)
+    else:
+        logging.info(f'Using {user_cpus} CPUs to do multiprocess transformation')
+        with Pool(processes=user_cpus) as pool:
+            pool.starmap(multiprocess_transformation, multiprocess_tuples)
+            pool.close()
+            pool.join()
 
     # Query Solr for dataset metadata
     fq = [f'dataset_s:{dataset_name}', 'type_s:dataset']
