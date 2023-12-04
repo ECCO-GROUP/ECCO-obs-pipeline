@@ -20,6 +20,12 @@ fields:
     units: 1e-3
     pre_transformations: []
     post_transformations: []
+  - name : sss_empirical_uncertainty
+    long_name : estimated empirical uncertainty of multi-mission OISSS monthly average
+    standard_name: " "
+    units : 1e-3
+    pre_transformations: []
+    post_transformations: []
 original_dataset_title: Multi-Mission Optimally Interpolated Sea Surface Salinity Global Monthly Dataset V2
 original_dataset_short_name: OISSS_L4_multimission_monthly_v2
 original_dataset_url: https://podaac.jpl.nasa.gov/dataset/OISSS_L4_multimission_monthly_v2
@@ -27,12 +33,12 @@ original_dataset_reference: http://smap.jpl.nasa.gov/
 original_dataset_doi: 10.1002/2015JC011343
 
 # Transformation
-t_version: 1.0 # Update this value if any changes are made to this file
+t_version: 1.2 # Update this value if any changes are made to this file
 array_precision: float32
 data_res: 0.25 # Resolution of dataset
 
 # Values for non split datasets (for datasets split into nh/sh, append '_nh'/'_sh')
-area_extent: [-179.875, 89.875, 179.875, -89.875] # [lon_min, lat_min, lon_max, lat_max]
+area_extent: [-180.0, 90.0, 180.0, -90.0] # OISSS seems flipped in lat_min/lat_max [lon_min, lat_min, lon_max, lat_max]
 dims: [1440, 720] # [lon, lat]
 proj_info:
   area_id: "longlat"
@@ -43,7 +49,7 @@ proj_info:
 notes: "" # String to include in global attributes of output files
 
 # Aggregation
-a_version: 1.0 # Update this value if any changes are made to this file
+a_version: 1.2 # Update this value if any changes are made to this file
 remove_nan_days_from_data: False # Remove empty days from data when aggregating
 do_monthly_aggregation: False
 skipna_in_mean: False # Controls skipna when calculating monthly mean
