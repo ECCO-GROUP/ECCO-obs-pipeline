@@ -95,6 +95,7 @@ class Aggregation():
                             break
                 else:
                     grid_years.append(year)
+
             years[grid_name] = grid_years
         return years
 
