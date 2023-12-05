@@ -11,16 +11,14 @@ from aggregations.aggregation import Aggregation
 from conf.global_settings import OUTPUT_DIR
 from utils import solr_utils
 from utils.ecco_utils import ecco_functions, records, date_time
-
+from pprint import pprint
 
 
 def get_data_by_date(A, date, grid_name, field_name):
     # Query for date
     fq = [f'dataset_s:{A.dataset_name}', 'type_s:transformation',
-            f'grid_name_s:{grid_name}', f'field_s:{field_name}', f'date_s:{date}*']
-
+          f'grid_name_s:{grid_name}', f'field_s:{field_name}', f'date_s:{date}*']
     docs = solr_utils.solr_query(fq)
-
     # If first of month is not found, query with 7 day tolerance only for monthly data
     if not docs and A.ds_meta.get('data_time_scale_s') == 'monthly':
         tolerance = int(A.ds_meta.get('monthly_tolerance', 8))
@@ -40,6 +38,7 @@ def get_data_by_date(A, date, grid_name, field_name):
 
 def open_datasets(A, docs, field_name):
     opened_datasets = []
+
     for doc in docs:
         data_DS = xr.open_dataset(doc['transformation_file_path_s'], decode_times=True)
         opened_datasets.append(data_DS)
@@ -73,14 +72,38 @@ def process_data_by_date(A, docs, field, grid, model_grid_ds, date):
     field_name = field.get('name')
     data_time_scale = A.data_time_scale
 
+    make_empty_record = False
+    var_name = f'{field_name}_interpolated_to_{grid.get("grid_name_s")}'
+
+    # if docs is empty list, make empty record
     if docs:
-        data_ds = open_datasets(A, docs, field_name)
+    # docs list is not empty so first ensure all tx docs were successful before
+    # aggregating.  if not all successful, make empty record
+    # if even one doc at this date and field has success = False, then
+    # make an empty record
+        for doc in docs:
+           if doc['success_b']==False:
+              make_empty_record = True
+    # docs list is empty so make empty record
     else:
+        make_empty_record = True
+
+    # attempt to open the granules
+    if make_empty_record == False:
+        data_ds = open_datasets(A, docs, field_name)
+
+        # verify that the required var_name in this granule
+        if var_name not in data_ds:
+          # if the var_name is not present, make empty record
+          make_empty_record = True
+
+    if make_empty_record:
         data_da = records.make_empty_record(date, model_grid_ds, A.precision)
         data_da.attrs['long_name'] = field['long_name']
         data_da.attrs['standard_name'] = field['standard_name']
         data_da.attrs['units'] = field['units']
         data_da.name = f'{field_name}_interpolated_to_{grid.get("grid_name_s")}'
+        data_da.attrs['agg_notes'] = "empty record created during aggregation"
 
         empty_record_attrs = data_da.attrs
         empty_record_attrs['original_field_name'] = field_name
@@ -114,6 +137,7 @@ def process_data_by_date(A, docs, field, grid, model_grid_ds, date):
 
         data_ds = data_ds.drop('time_start')
         data_ds = data_ds.drop('time_end')
+
     return data_ds
     
 
@@ -186,6 +210,7 @@ def aggregate(A: Aggregation, grid: dict, year: int, field: dict):
     field_name = field.get('name')
 
     logging.info(f'Aggregating {str(year)}_{grid_name}_{field_name}')
+    print(f'ian: aggregate, Aggregating {str(year)} {grid_name} {field_name}')
 
     daily_DS_year = []
     for date in dates_in_year:
