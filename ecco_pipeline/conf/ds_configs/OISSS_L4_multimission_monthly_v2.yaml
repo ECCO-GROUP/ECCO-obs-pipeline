@@ -32,7 +32,7 @@ array_precision: float32
 data_res: 0.25 # Resolution of dataset
 
 # Values for non split datasets (for datasets split into nh/sh, append '_nh'/'_sh')
-area_extent: [-179.875, 89.875, 179.875, -89.875] # [lon_min, lat_min, lon_max, lat_max]
+area_extent: [-180, 90, 180, 90] # [lon_min, lat_min, lon_max, lat_max]
 dims: [1440, 720] # [lon, lat]
 proj_info:
   area_id: "longlat"

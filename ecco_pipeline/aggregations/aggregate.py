@@ -1,11 +1,7 @@
-import itertools
 import logging
 from multiprocessing import Pool
-import numpy as np
-import xarray as xr
 from aggregations.aggjob import AggJob
 from aggregations.aggregation import Aggregation
-from conf.global_settings import OUTPUT_DIR
 from utils import solr_utils
 
 logger = logging.getLogger()
@@ -25,7 +21,7 @@ def get_solr_ds_metadata(ds_name):
         raise Exception('No transformed granules to aggregate.')
     return ds_meta
 
-def years_to_aggregate(ds_name, grids) -> dict[str]:
+def make_jobs(ds_name, grids, fields, config) -> dict[str]:
     '''
     We want to see if we need to aggregate this year again
     1. check if aggregation exists - if not add it to years to aggregate
@@ -35,49 +31,54 @@ def years_to_aggregate(ds_name, grids) -> dict[str]:
     - if at least one transformation occured after agg time, year needs to
         be aggregated
     '''
-    years = {}
     for grid in grids:
-        grid_name = grid.get('grid_name_s')
-        grid_years = []
+        for field in fields:
+            grid_name = grid.get('grid_name_s')
+            grid_years = []
 
-        fq = [f'dataset_s:{ds_name}',
-                'type_s:transformation', f'grid_name_s:{grid_name}']
-        r = solr_utils.solr_query(fq)
-        transformation_years = list(set([t['date_s'][:4] for t in r]))
-        transformation_years.sort()
-        transformation_docs = r
+            fq = [f'dataset_s:{ds_name}', f'field_s:{field["name"]}',
+                    'type_s:transformation', f'grid_name_s:{grid_name}']
+            transformation_docs = solr_utils.solr_query(fq)
+            transformation_years = list(set([t['date_s'][:4] for t in transformation_docs]))
+            transformation_years.sort()
 
-        # Years with transformations that exist for this dataset and this grid
-        for year in transformation_years:
-            fq = [f'dataset_s:{ds_name}', 'type_s:aggregation',
-                    f'grid_name_s:{grid_name}', f'year_s:{year}']
-            r = solr_utils.solr_query(fq)
+            # Years with transformations that exist for this dataset and this grid
+            for year in transformation_years:
+                fq = [f'dataset_s:{ds_name}', 'type_s:aggregation', f'field_s:{field["name"]}',
+                        f'grid_name_s:{grid_name}', f'year_s:{year}']
+                aggregation_docs = solr_utils.solr_query(fq)
 
-            if r:
-                agg_time = r[0]['aggregation_time_dt']
-                for t in transformation_docs:
-                    if t['date_s'][:4] != year:
-                        continue
-                    if t['transformation_completed_dt'] > agg_time:
-                        grid_years.append(year)
-                        break
-            else:
-                grid_years.append(year)
-        years[grid_name] = grid_years
-    return years
+                if aggregation_docs:
+                    agg_time = aggregation_docs[0]['aggregation_time_dt']
+                    for t in transformation_docs:
+                        if t['date_s'][:4] != year:
+                            continue
+                        if t['transformation_completed_dt'] > agg_time:
+                            grid_years.append(year)
+                            break
+                else:
+                    grid_years.append(year)
+            jobs = [AggJob(config, grid, year, field) for year in grid_years]
+    return jobs
 
-def get_years(config, grids):
+def make_jobs_all_years(ds_metadata, grids, fields, config):
+    start_year = int(ds_metadata.get('start_date_dt')[:4])
+    end_year = int(ds_metadata.get('end_date_dt')[:4])
+    years = [str(year) for year in range(start_year, end_year + 1)]
+    agg_jobs = []
+    for grid in grids:
+        for field in fields:
+            agg_jobs.extend([AggJob(config, grid, year, field) for year in years])
+
+def get_jobs(config, grids, fields):
     ds_metadata = get_solr_ds_metadata(config['ds_name'])
     existing_agg_version = ds_metadata.get('aggregation_version_s')
     
     if existing_agg_version and existing_agg_version != str(config.get('a_version', '')):
-        start_year = int(ds_metadata.get('start_date_dt')[:4])
-        end_year = int(ds_metadata.get('end_date_dt')[:4])
-        years = [str(year) for year in range(start_year, end_year + 1)]
-        grid_years = {grid.get('grid_name_s'): years for grid in grids}
+        agg_jobs = make_jobs_all_years(ds_metadata, grids, fields, config)
     else:
-        grid_years = years_to_aggregate(config['ds_name'], grids)
-    return grid_years
+        agg_jobs = make_jobs(config['ds_name'], grids, fields, config)
+    return agg_jobs
 
 def get_agg_status(ds_name: str) -> str:
     # Query Solr for successful aggregation documents
@@ -99,11 +100,9 @@ def get_agg_status(ds_name: str) -> str:
     return aggregation_status
 
 
-def make_agg_job_and_aggregate(config, grid, year, field):
-    logging.info(f'Beggining aggregation for {grid["grid_name_s"]}, {year}, {field["name"]}')
-    
-    agg = AggJob(config, grid, year, field)
-    agg.aggregate()
+def multiprocess_aggregate(job: AggJob):
+    logging.info(f'Beginning aggregation for {job.grid["grid_name_s"]}, {job.year}, {job.field["name"]}')
+    job.aggregate()
 
 def aggregation(config, user_cpus=2, grids_to_use=[]):
     """
@@ -111,15 +110,10 @@ def aggregation(config, user_cpus=2, grids_to_use=[]):
     """
     
     grids = get_grids(grids_to_use)
-    grid_years_to_agg = get_years(config, grids)
-
-    all_combos = []
-    
-    for grid in get_grids(grids_to_use):
-        all_combos.extend(list(itertools.product([config], [grid], grid_years_to_agg[grid.get('grid_name_s')], config.get('fields'))))
-    
+    agg_jobs = get_jobs(config, grids, config.get('fields'))
+    logging.info(f'Executing jobs for {", ".join([str(job) for job in agg_jobs])}')
     with Pool(processes=user_cpus) as pool:
-        pool.starmap(make_agg_job_and_aggregate, all_combos)
+        pool.map(multiprocess_aggregate, agg_jobs)
         pool.close()
         pool.join()
         

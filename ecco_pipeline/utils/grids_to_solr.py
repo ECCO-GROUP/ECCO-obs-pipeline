@@ -114,7 +114,7 @@ def main(grids_to_use=[]):
     # Create Solr grid-type document for each missing grid type
     # =====================================================
     for grid_name, grid_type, grid_file in grids:
-        logging.debug(f'Uploading solr grid {grid_name} {grid_type} {grid_file} {docs}')
+        logging.debug(f'Uploading solr grid {grid_name} {grid_type} {grid_file}')
         update_solr_grid(grid_name, grid_type, grid_file)
 
     # =====================================================

@@ -21,10 +21,12 @@ class AggJob(Aggregation):
         self.year = year
         self.field = field
 
+    def __str__(self) -> str:
+        return f'{self.grid["grid_name_s"]}-{self.field["name"]}-{self.year}'
 
     def get_data_by_date(self, date, grid_name, field_name):
         # Query for date
-        fq = [f'dataset_s:{self.dataset_name}', 'type_s:transformation',
+        fq = [f'dataset_s:{self.dataset_name}', 'type_s:transformation', 'success_b:True',
                 f'grid_name_s:{grid_name}', f'field_s:{field_name}', f'date_s:{date}*']
 
         docs = solr_utils.solr_query(fq)
@@ -77,23 +79,30 @@ class AggJob(Aggregation):
             ds = opened_datasets[0]
         return ds
     
-    def process_data_by_date(self, docs, field, grid, model_grid_ds, date):
+    def process_data_by_date(self, transformation_docs, field, grid, model_grid_ds, date):
         field_name = field.get('name')
         data_time_scale = self.data_time_scale
 
-        if docs:
-            data_ds = self.open_datasets(docs, field_name)
+        make_empty_record = False
+        if not transformation_docs:
+            logging.info(f'No transformation docs for {str(date)}. Making empty record.')
+            make_empty_record = True
         else:
+            try:
+                data_ds = self.open_datasets(transformation_docs, field_name)
+            except Exception as e:
+                logging.error(f'Error opening transformation file(s). Making empty record: {e}')
+                make_empty_record = True
+            
+        if make_empty_record:
             data_da = records.make_empty_record(date, model_grid_ds, self.precision)
             data_da.attrs['long_name'] = field['long_name']
             data_da.attrs['standard_name'] = field['standard_name']
             data_da.attrs['units'] = field['units']
             data_da.name = f'{field_name}_interpolated_to_{grid.get("grid_name_s")}'
-
-            empty_record_attrs = data_da.attrs
-            empty_record_attrs['original_field_name'] = field_name
-            empty_record_attrs['interpolation_date'] = str(np.datetime64(datetime.now(), 'D'))
-            data_da.attrs = empty_record_attrs
+            data_da.attrs['original_field_name'] = field_name
+            data_da.attrs['interpolation_date'] = str(np.datetime64(datetime.now(), 'D'))
+            data_da.attrs['agg_notes'] = "empty record created during aggregation"
 
             data_ds = data_da.to_dataset()
 
