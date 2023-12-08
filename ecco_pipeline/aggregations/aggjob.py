@@ -2,6 +2,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Iterable
 import uuid
 
 import numpy as np
@@ -14,20 +15,25 @@ from utils.ecco_utils import ecco_functions, records, date_time
 
 
 class AggJob(Aggregation):
-
+    '''
+    AggJob class for aggregation job metadata - the specifics for this particular aggregation task.
+    '''
     def __init__(self, config: dict, grid: dict, year: str, field: dict):
         super().__init__(config)
-        self.grid = grid
-        self.year = year
-        self.field = field
+        self.grid: dict = grid
+        self.year: str = year
+        self.field: dict = field
 
     def __str__(self) -> str:
-        return f'{self.grid["grid_name_s"]}-{self.field["name"]}-{self.year}'
+        return f'"{self.grid["grid_name_s"]} {self.field["name"]} {self.year}"'
 
-    def get_data_by_date(self, date, grid_name, field_name):
-        # Query for date
+    def get_data_by_date(self, date: str, grid_name: str, field_name: str) -> Iterable[dict]:
+        '''
+        Query Solr for sucessful transformation docs for given grid, field, and date. Will attempt
+        to query with tolerance for date if no docs are initially found.
+        '''
         fq = [f'dataset_s:{self.dataset_name}', 'type_s:transformation', 'success_b:True',
-                f'grid_name_s:{grid_name}', f'field_s:{field_name}', f'date_s:{date}*']
+              f'grid_name_s:{grid_name}', f'field_s:{field_name}', f'date_s:{date}*']
 
         docs = solr_utils.solr_query(fq)
 
@@ -41,14 +47,17 @@ class AggJob(Aggregation):
                 tolerance_days.append(datetime.strftime(start_month_date + timedelta(days=i), '%Y-%m-%d'))
                 tolerance_days.append(datetime.strftime(start_month_date - timedelta(days=i), '%Y-%m-%d'))
             for tol_date in tolerance_days:
-                fq = [f'dataset_s:{self.dataset_name}', 'type_s:transformation',
-                        f'grid_name_s:{grid_name}', f'field_s:{field_name}', f'date_s:{tol_date}*']
+                fq = [f'dataset_s:{self.dataset_name}', 'type_s:transformation', 
+                      f'grid_name_s:{grid_name}', f'field_s:{field_name}', f'date_s:{tol_date}*']
                 docs = solr_utils.solr_query(fq)
                 if docs:
                     return docs
         return docs
     
-    def open_datasets(self, docs, field_name):
+    def open_datasets(self, docs: Iterable[dict], field_name: str) -> xr.Dataset:
+        '''
+        Opens transformation files and merges in the case of hemispherical data
+        '''
         opened_datasets = []
         for doc in docs:
             data_DS = xr.open_dataset(doc['transformation_file_path_s'], decode_times=True)
@@ -79,7 +88,7 @@ class AggJob(Aggregation):
             ds = opened_datasets[0]
         return ds
     
-    def process_data_by_date(self, transformation_docs, field, grid, model_grid_ds, date):
+    def process_data_by_date(self, transformation_docs: Iterable[dict], field: dict, grid: dict, model_grid_ds: xr.Dataset, date: str) -> xr.Dataset:
         field_name = field.get('name')
         data_time_scale = self.data_time_scale
 
@@ -215,11 +224,7 @@ class AggJob(Aggregation):
         daily_annual_ds[data_var].attrs['valid_min'] = np.nanmin(daily_annual_ds[data_var].values)
         daily_annual_ds[data_var].attrs['valid_max'] = np.nanmax(daily_annual_ds[data_var].values)
 
-        remove_keys = []
-        for (key, _) in daily_annual_ds[data_var].attrs.items():
-            if ('original' in key and key != 'original_field_name'):
-                remove_keys.append(key)
-
+        remove_keys = [k for k in daily_annual_ds[data_var].attrs.keys() if 'original' in k and k != 'original_field_name']
         for key in remove_keys:
             del daily_annual_ds[data_var].attrs[key]
 
@@ -301,8 +306,8 @@ class AggJob(Aggregation):
                                     'monthly_netCDF': ''}
 
         # Query Solr for existing aggregation
-        fq = [f'dataset_s:{self.dataset_name}', 'type_s:aggregation',
-                f'grid_name_s:{grid_name}', f'field_s:{field_name}', f'year_s:{self.year}']
+        fq = [f'dataset_s:{self.dataset_name}', 'type_s:aggregation', 
+              f'grid_name_s:{grid_name}', f'field_s:{field_name}', f'year_s:{self.year}']
         docs = solr_utils.solr_query(fq)
 
         # If aggregation exists, update using Solr entry id

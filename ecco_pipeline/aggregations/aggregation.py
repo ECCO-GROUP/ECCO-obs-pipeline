@@ -1,3 +1,4 @@
+from typing import Iterable
 import numpy as np
 
 import netCDF4 as nc4
@@ -6,24 +7,27 @@ from utils import solr_utils
 import logging
 
 class Aggregation():
-    
+    '''
+    Aggregation class for containing all dataset level metadata. Values come from
+    dataset config and the state of the dataset in Solr. 
+    '''
     def __init__(self, config: dict) -> None:
-        self.dataset_name = config.get('ds_name')
-        self.fields = config.get('fields')
-        self.version = str(config.get('a_version', ''))
-        self.precision = getattr(np, config.get('array_precision'))
-        self.binary_dtype = '>f4' if self.precision == np.float32 else '>f8'
-        self.nc_fill_val = nc4.default_fillvals[self.binary_dtype.replace('>', '')]
-        self.bin_fill_val = -9999
-        self.data_time_scale = config.get('data_time_scale')
-        self.do_monthly_aggregation = config.get('do_monthly_aggregation', False)
-        self.remove_nan_days_from_data = config.get('remove_nan_days_from_data', True)
-        self.skipna_in_mean = config.get('skipna_in_mean', False)
+        self.dataset_name: str = config.get('ds_name')
+        self.fields: dict = config.get('fields')
+        self.version: str = str(config.get('a_version', ''))
+        self.precision: float = getattr(np, config.get('array_precision'))
+        self.binary_dtype: str = '>f4' if self.precision == np.float32 else '>f8'
+        self.nc_fill_val: float = nc4.default_fillvals[self.binary_dtype.replace('>', '')]
+        self.bin_fill_val: int = -9999
+        self.data_time_scale: str = config.get('data_time_scale')
+        self.do_monthly_aggregation: bool = config.get('do_monthly_aggregation', False)
+        self.remove_nan_days_from_data: bool = config.get('remove_nan_days_from_data', True)
+        self.skipna_in_mean: bool = config.get('skipna_in_mean', False)
 
-        self.save_binary = config.get('save_binary', True)
-        self.save_netcdf = config.get('save_netcdf', True)
+        self.save_binary: bool = config.get('save_binary', True)
+        self.save_netcdf: bool = config.get('save_netcdf', True)
 
-        self.transformations = defaultdict(list)
+        self.transformations: Iterable[dict] = defaultdict(list)
         self._set_ds_meta()
 
     def _set_ds_meta(self):
