@@ -4,6 +4,7 @@ from typing import List, Tuple
 import numpy as np
 import pyresample as pr
 import xarray as xr
+from aggregations.aggregation import Aggregation
 from utils.ecco_utils import date_time, records
 
 
@@ -285,7 +286,7 @@ def generalized_grid_product(data_res: float, area_extent: List[float], dims: Li
     return (source_grid_min_L, source_grid_max_L, source_grid)
 
 
-def monthly_aggregation(ds, var, year: str, A, uuid):
+def monthly_aggregation(ds: xr.Dataset, var: str, year: str, A: Aggregation, uuid: str):
     attrs = ds.attrs
     mon_DS_year = []
     for month in range(1, 13):
@@ -547,17 +548,12 @@ def MEaSUREs_fix_time(da):
     this function takes the provided center time, removes the hours:minutes:seconds.ns
     and sets the new time_start and time_end based on that new time
     '''
-    cur_time = da.time.values
 
     # remove time from date
-    cur_day = str(cur_time[0])[:10]
+    today = str(da.time.values[0])[:10]
+    tomorrow = np.datetime64(today, 'D') + 1
 
-    new_start = str(np.datetime64(cur_day, 'ns'))
-
-    # new end is the start date plus 1 day
-    new_end = str(np.datetime64(str(np.datetime64(cur_day, 'D') + 1), 'ns'))
-
-    da.time_start.values[0] = new_start
-    da.time_end.values[0] = new_end
+    da.time_start.values[0] = str(np.datetime64(today, 'ns'))
+    da.time_end.values[0] = str(np.datetime64(str(tomorrow), 'ns'))
 
     return da

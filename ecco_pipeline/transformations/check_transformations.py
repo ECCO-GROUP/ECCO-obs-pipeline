@@ -1,15 +1,34 @@
 import itertools
 import logging
-import os
+from logging.handlers import QueueHandler
 from collections import defaultdict
-from multiprocessing import Pool
+from multiprocessing import Queue, current_process, Pool, Manager
 import xarray as xr
 
-from utils import solr_utils
-
+from utils import solr_utils, log_config
 from transformations.grid_transformation import transform
 from transformations.transformation import Transformation
 
+import conf.global_settings as global_settings
+
+def logging_process(queue: Queue, log_filename: str):
+    '''
+    Process to run during multiprocessing. Allows for logging of each process.
+    '''
+    log_config.configure_logging(True, log_filename=log_filename)
+
+    # report that the logging process is running
+    logging.debug(f'Logger process running.')
+    # run forever
+    while True:
+        # consume a log message, block until one arrives
+        message = queue.get()
+        # check for shutdown
+        if message is None:
+            logging.debug(f'Logger process shutting down.')
+            break
+        # log the message
+        logging.getLogger().handle(message)
 
 def get_remaining_transformations(config, granule_file_path, grids):
     """
@@ -46,6 +65,7 @@ def get_remaining_transformations(config, granule_file_path, grids):
     if not docs:
         for grid, field in grid_field_combinations:
             grid_field_dict[grid].append(field)
+        logging.info(f'{sum([len(v) for v in grid_field_dict.values()])} remaining transformations for {granule_file_path.split("/")[-1]}')
         return dict(grid_field_dict)
 
     # Dictionary where key is grid, field tuple and value is harvested granule checksum
@@ -94,36 +114,41 @@ def get_remaining_transformations(config, granule_file_path, grids):
 
     for grid, field in grid_field_combinations:
         grid_field_dict[grid].append(field)
-
+    logging.info(f'{sum([len(v) for v in grid_field_dict.values()])} remaining transformations for {granule_file_path.split("/")[-1]}')
     return dict(grid_field_dict)
 
 
-def multiprocess_transformation(granule, config, grids):
+def multiprocess_transformation(granule, config, grids, log_filename: str):
     """
     Callable function that performs the actual transformation on a granule.
     """
-    # f is file path to granule from solr
-    f = granule.get('pre_transformation_file_path_s', '')
+    log_config.configure_logging(True, log_filename=log_filename)
+       
+    process = current_process()
+    granule_filepath = granule.get('pre_transformation_file_path_s')
     granule_date = granule.get('date_s')
 
     # Skips granules that weren't harvested properly
-    if f == '':
-        logging.exception("pre transformation path doesn't exist")
+    if not granule_filepath or granule.get('file_size_l') < 100:
+        logging.exception(f'Granule was not harvested properly. Skipping.')
         return ('', '')
+    # logging.info(f'{process.name} performing transformations for {granule_filepath.split("/")[-1]}')
 
     # Get transformations to be completed for this file
-    remaining_transformations = get_remaining_transformations(config, f, grids)
+    remaining_transformations = get_remaining_transformations(config, granule_filepath, grids)
+    
     # Perform remaining transformations
     if remaining_transformations:
         try:
-            transform(f, remaining_transformations, config, granule_date)
+            transform(granule_filepath, remaining_transformations, config, granule_date)
         except Exception as e:
-            logging.exception(f'Error transforming {f}: {e}')
-        return
+            logging.exception(f'Error transforming {granule_filepath}: {e}')
     else:
-        logging.debug(f'CPU id {os.getpid()} no new transformations for {granule["filename_s"]}')
-        return
-
+        logging.debug(f'No new transformations for {granule["filename_s"]}')
+        
+    # logging.info(f'{process.name} trasnsformations complete for {granule_filepath.split("/")[-1]}')
+    # if queue:
+    #     logging.getLogger().removeHandler(queue_handler)
 
 def find_data_for_factors(harvested_granules):
     data_for_factors = []
@@ -160,7 +185,7 @@ def main(config, user_cpus=1, grids_to_use=[]):
     transformations at the same time. After all transformations have been attempted,
     the Solr dataset entry is updated with additional metadata.
     """
-
+    log_filename = global_settings.log_filename
     dataset_name = config['ds_name']
 
     # Get all harvested granules for this dataset
@@ -193,21 +218,34 @@ def main(config, user_cpus=1, grids_to_use=[]):
 
     # BEGIN MULTIPROCESSING
     # Create list of tuples of function arguments (necessary for using pool.starmap)
-    multiprocess_tuples = [(granule, config, grids) for granule in harvested_granules]
+    multiprocess_parameters = [(granule, config, grids) for granule in harvested_granules]
 
     # for grid in grids:
     logging.info(f'Running transformations for {grids} grids')
-    
+
     if user_cpus == 1:
         logging.info('Not using multiprocessing to do transformation')
-        for (granule, config, grids) in multiprocess_tuples:
+        for (granule, config, grids) in multiprocess_parameters:
             multiprocess_transformation(granule, config, grids)
     else:
         logging.info(f'Using {user_cpus} CPUs to do multiprocess transformation')
-        with Pool(processes=user_cpus) as pool:
-            pool.starmap(multiprocess_transformation, multiprocess_tuples)
-            pool.close()
-            pool.join()
+        with Manager() as manager:
+            queue = manager.Queue()
+            # add a handler that uses the shared queue
+            queue_handler = QueueHandler(queue)
+            logging.getLogger().addHandler(queue_handler)
+            queue_handler.setFormatter(logging.Formatter('[%(levelname)s] %(asctime)s - %(message)s'))
+            
+            with Pool(processes=user_cpus) as pool:               
+                # issue a long running task to receive logging messages
+                _ = pool.apply_async(logging_process, args=(queue,log_filename,))
+
+                pool.starmap(multiprocess_transformation, [(granule, config, grids, log_filename) for granule in harvested_granules])
+                queue.put(None)
+                pool.close()
+                pool.join()
+            logging.getLogger().removeHandler(queue_handler)
+
 
     # Query Solr for dataset metadata
     fq = [f'dataset_s:{dataset_name}', 'type_s:dataset']
