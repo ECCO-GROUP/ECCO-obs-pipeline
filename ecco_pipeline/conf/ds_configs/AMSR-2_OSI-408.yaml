@@ -21,7 +21,7 @@ fields:
   - name: ice_conc
     long_name: Sea ice concentration
     standard_name: sea_ice_area_fraction
-    units: "%"
+    units: " "
     pre_transformations: []
     post_transformations: ["seaice_concentration_to_fraction"]
   - name: confidence_level
@@ -43,7 +43,7 @@ original_dataset_reference: "https://osisaf-hl.met.no/sites/osisaf-hl.met.no/fil
 original_dataset_doi: "OSI-408"
 
 # Transformation
-t_version: 1.6 # Update this value if any changes are made to this file
+t_version: 2.0 # Update this value if any changes are made to this file
 array_precision: float32
 data_res: 10/111 # Resolution of dataset
 
@@ -66,7 +66,7 @@ proj_info_sh:
 notes: "" # String to include in global attributes of output files
 
 # Aggregation
-a_version: 1.0 # Update this value if any changes are made to this file
+a_version: 1.3 # Update this value if any changes are made to this file
 remove_nan_days_from_data: False # Remove empty days from data when aggregating
 do_monthly_aggregation: True
 skipna_in_mean: True # Controls skipna when calculating monthly mean
