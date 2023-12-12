@@ -2,10 +2,11 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import Iterable, List
 
 import numpy as np
 import xarray as xr
+from field import Field
 from utils.ecco_utils import ecco_functions, records, date_time
 from utils import file_utils, solr_utils
 from conf.global_settings import OUTPUT_DIR
@@ -43,12 +44,12 @@ def transform(source_file_path, remaining_transformations, config, granule_date)
         ds = xr.open_dataset(source_file_path, decode_times=True)
     ds.attrs['original_file_name'] = T.file_name
     
-    grid_fields = [[f'({grid_name}, {field_name})' for field_name in remaining_transformations[grid_name]] for grid_name in remaining_transformations.keys()]
+    grid_fields = [[f'({grid_name}, {field})' for field in remaining_transformations[grid_name]] for grid_name in remaining_transformations.keys()]
     logging.debug(f'{T.file_name} needs to transform: {grid_fields} ')
 
     # Iterate through grids in remaining_transformations
     for grid_name in remaining_transformations.keys():
-        fields = remaining_transformations[grid_name]
+        fields: Iterable[Field] = remaining_transformations[grid_name]
         grid_path, grid_type = get_grids(grid_name)
 
         # =====================================================
@@ -64,12 +65,11 @@ def transform(source_file_path, remaining_transformations, config, granule_date)
 
         # Iterate through remaining transformation fields
         for field in fields:
-            logging.debug(f'Transforming {field}')
-            field_name = field["name"]
+            logging.debug(f'Transforming {field.name}')
 
             # Query if grid/field combination transformation entry exists
-            query_fq = [f'dataset_s:{T.dataset_name}', 'type_s:transformation', f'grid_name_s:{grid_name}',
-                        f'field_s:{field_name}', f'pre_transformation_file_path_s:"{source_file_path}"']
+            query_fq = [f'dataset_s:{T.ds_name}', 'type_s:transformation', f'grid_name_s:{grid_name}',
+                        f'field_s:{field.name}', f'pre_transformation_file_path_s:"{source_file_path}"']
             docs = solr_utils.solr_query(query_fq)
             update_body = []
             transform = {}
@@ -83,19 +83,19 @@ def transform(source_file_path, remaining_transformations, config, granule_date)
                 transform['success_b'] = {"set": False}
             else:
                 # Query for granule entry to get checksum
-                query_fq = [f'dataset_s:{T.dataset_name}', 'type_s:granule',
+                query_fq = [f'dataset_s:{T.ds_name}', 'type_s:granule',
                             f'pre_transformation_file_path_s:"{source_file_path}"']
                 docs = solr_utils.solr_query(query_fq)
 
                 # Initialize new transformation entry
                 transform['type_s'] = 'transformation'
                 transform['date_s'] = T.date
-                transform['dataset_s'] = T.dataset_name
+                transform['dataset_s'] = T.ds_name
                 transform['pre_transformation_file_path_s'] = source_file_path
                 transform['hemisphere_s'] = T.hemi.replace('_', '')
                 transform['origin_checksum_s'] = docs[0]['checksum_s']
                 transform['grid_name_s'] = grid_name
-                transform['field_s'] = field_name
+                transform['field_s'] = field.name
                 transform['transformation_in_progress_b'] = True
                 transform['success_b'] = False
 
@@ -103,7 +103,7 @@ def transform(source_file_path, remaining_transformations, config, granule_date)
             r = solr_utils.solr_update(update_body, r=True)
 
             if r.status_code != 200:
-                logging.exception(f'Failed to update Solr transformation status for {T.dataset_name} on {T.date}')
+                logging.exception(f'Failed to update Solr transformation status for {T.ds_name} on {T.date}')
 
         # =====================================================
         # Run transformation
@@ -118,30 +118,26 @@ def transform(source_file_path, remaining_transformations, config, granule_date)
         # =====================================================
         # Save each transformed granule for the current field
         for field, (field_DS, success) in zip(fields, field_DSs):
-            field_name = field["name"]
-            output_filename = f'{grid_name}_{field_name}_{T.file_name[:-3]}.nc'
-            output_filename = f'{grid_name}_{field_name}_{T.file_name}.nc'
+            output_filename = f'{grid_name}_{field.name}_{T.file_name[:-3]}.nc'
+            output_filename = f'{grid_name}_{field.name}_{T.file_name}.nc'
             
-            output_path = f'{OUTPUT_DIR}/{T.dataset_name}/transformed_products/{grid_name}/transformed/{field_name}/'
+            output_path = f'{OUTPUT_DIR}/{T.ds_name}/transformed_products/{grid_name}/transformed/{field.name}/'
             transformed_location = f'{output_path}{output_filename}'
 
             os.makedirs(output_path, exist_ok=True)
 
             # save field_DS
             records.save_netcdf(field_DS, output_filename[:-3], T.fill_values.get('netcdf'), Path(output_path))
-            # records.save_to_disk(field_DS, output_filename[:-3], T.fill_values.get('binary'),
-            #                      T.fill_values.get('netcdf'), Path(output_path),
-            #                      Path(output_path), T.binary_dtype, grid_type, save_binary=False)
 
             # Query Solr for transformation entry
-            query_fq = [f'dataset_s:{T.dataset_name}', 'type_s:transformation', f'grid_name_s:{grid_name}',
-                        f'field_s:{field_name}', f'pre_transformation_file_path_s:"{source_file_path}"']
+            query_fq = [f'dataset_s:{T.ds_name}', 'type_s:transformation', f'grid_name_s:{grid_name}',
+                        f'field_s:{field.name}', f'pre_transformation_file_path_s:"{source_file_path}"']
 
             docs = solr_utils.solr_query(query_fq)
             doc_id = solr_utils.solr_query(query_fq)[0]['id']
 
             transformation_successes = transformation_successes and success
-            transformation_file_paths[f'{grid_name}_{field_name}_transformation_file_path_s'] = transformed_location
+            transformation_file_paths[f'{grid_name}_{field.name}_transformation_file_path_s'] = transformed_location
 
             # Update Solr transformation entry with file paths and status
             update_body = [
@@ -164,7 +160,7 @@ def transform(source_file_path, remaining_transformations, config, granule_date)
 
             if r.status_code != 200:
                 logging.exception(
-                    f'Failed to update Solr transformation entry for {field["name"]} in {T.dataset_name} on {T.date}')
+                    f'Failed to update Solr transformation entry for {field["name"]} in {T.ds_name} on {T.date}')
 
             if success and grid_name not in grids_updated:
                 grids_updated.append(grid_name)

@@ -4,6 +4,7 @@ from multiprocessing import Queue, current_process, Pool, Manager
 from typing import Iterable
 from aggregations.aggjob import AggJob
 from aggregations.aggregation import Aggregation
+from field import Field
 from utils import solr_utils, log_config
 import conf.global_settings as global_settings
 
@@ -47,7 +48,7 @@ def get_solr_ds_metadata(ds_name: str) -> dict:
         raise Exception('No transformed granules to aggregate.')
     return ds_meta
 
-def make_jobs(ds_name: str, grids: Iterable[dict], fields: Iterable[dict], config: dict) -> Iterable[AggJob]:
+def make_jobs(ds_name: str, grids: Iterable[dict], fields: Iterable[Field], config: dict) -> Iterable[AggJob]:
     '''
     Generates list of AggJob objects that define the grid/field/year aggregations to be performed.
     Checks if aggregation exists for a given grid/field/year combo and if so if it needs to be reprocessed.
@@ -58,7 +59,7 @@ def make_jobs(ds_name: str, grids: Iterable[dict], fields: Iterable[dict], confi
             grid_name = grid.get('grid_name_s')
 
             # Get grid / field transformation documents from Solr
-            fq = [f'dataset_s:{ds_name}', f'field_s:{field["name"]}',
+            fq = [f'dataset_s:{ds_name}', f'field_s:{field.name}',
                     'type_s:transformation', f'grid_name_s:{grid_name}']
             transformation_docs = solr_utils.solr_query(fq)
             transformation_years = list(set([t['date_s'][:4] for t in transformation_docs]))
@@ -67,7 +68,7 @@ def make_jobs(ds_name: str, grids: Iterable[dict], fields: Iterable[dict], confi
             for year in transformation_years:
                 # Check for successful aggregation doc for this combo of grid / field / year 
                 fq = [f'dataset_s:{ds_name}', 'type_s:aggregation', 'aggregation_success_b:true', 
-                      f'field_s:{field["name"]}', f'grid_name_s:{grid_name}', f'year_s:{year}']
+                      f'field_s:{field.name}', f'grid_name_s:{grid_name}', f'year_s:{year}']
                 aggregation_docs = solr_utils.solr_query(fq)
 
                 # If aggregation was previously done compare transformation time with aggregation time
@@ -84,7 +85,7 @@ def make_jobs(ds_name: str, grids: Iterable[dict], fields: Iterable[dict], confi
             all_jobs.extend([AggJob(config, grid, year, field) for year in years_to_aggregate])
     return all_jobs
 
-def make_jobs_all_years(ds_metadata: dict, grids: Iterable[dict], fields: Iterable[dict], config: dict) -> Iterable[AggJob]:
+def make_jobs_all_years(ds_metadata: dict, grids: Iterable[dict], fields: Iterable[Field], config: dict) -> Iterable[AggJob]:
     '''
     Makes AggJob objects for all years for all grids for all fields
     '''
@@ -97,7 +98,7 @@ def make_jobs_all_years(ds_metadata: dict, grids: Iterable[dict], fields: Iterab
             jobs.extend([AggJob(config, grid, year, field) for year in years])
     return jobs
 
-def get_jobs(config: dict, grids: Iterable[dict], fields: Iterable[dict]) -> Iterable[AggJob]:
+def get_jobs(config: dict, grids: Iterable[dict], fields: Iterable[Field]) -> Iterable[AggJob]:
     '''
     Gets list of AggJob objects for each annual aggregation to be performed for each grid / field combination
     '''
@@ -141,7 +142,7 @@ def multiprocess_aggregate(job: AggJob, log_filename: str):
     Function used to execute by multiprocessing to execute a single grid/year/field aggregation
     '''
     log_config.configure_logging(True, log_filename=log_filename)
-    logging.info(f'Beginning aggregation for {job.grid["grid_name_s"]}, {job.year}, {job.field["name"]}')
+    logging.info(f'Beginning aggregation for {job.grid["grid_name_s"]}, {job.year}, {job.field.name}')
     job.aggregate()
     
 def update_solr_ds(aggregation_status: str, config: dict):
@@ -168,7 +169,7 @@ def aggregation(config: dict, user_cpus: int, grids_to_use: Iterable[str]=[]) ->
     log_filename = global_settings.log_filename
     
     grids = get_grids(grids_to_use)
-    agg_jobs = get_jobs(config, grids, config.get('fields'))
+    agg_jobs = get_jobs(config, grids, Aggregation(config).fields)
     
     logging.info(f'Executing jobs: {", ".join([str(job) for job in agg_jobs])}')
     

@@ -7,15 +7,17 @@ from datetime import datetime
 import xarray as xr
 import pyresample as pr
 import pickle
+from dataset import Dataset
 from conf.global_settings import OUTPUT_DIR
+from field import Field
 from utils.ecco_utils import ecco_functions, records, date_time
 
 
-class Transformation():
+class Transformation(Dataset):
 
     def __init__(self, config: dict, source_file_path: str, granule_date: str):
+        super().__init__(config)
         self.file_name: str = os.path.splitext(source_file_path.split('/')[-1])[0]
-        self.dataset_name: str = config.get('ds_name')
         self.transformation_version: float = config.get('t_version')
         self.date: str = granule_date
         self.hemi: str = self._get_hemi(config)
@@ -23,9 +25,6 @@ class Transformation():
         self.array_precision: type = getattr(np, config.get('array_precision'))
         self.binary_dtype: str = '>f4' if self.array_precision == np.float32 else '>f8'
         self.fill_values: dict = {'binary': -9999, 'netcdf': nc4.default_fillvals[self.binary_dtype.replace('>', '')]}
-
-        self.og_ds_metadata: dict = {k: v for k, v in config.items() if 'original' in k}
-        self.data_time_scale: str = config.get('data_time_scale')
 
         # Projection information
         self.data_res: float = self._compute_data_res(config)
@@ -86,7 +85,7 @@ class Transformation():
 
         '''
         grid_name = grid_ds.name
-        factors_dir = f'{OUTPUT_DIR}/{self.dataset_name}/transformed_products/{grid_name}/'
+        factors_dir = f'{OUTPUT_DIR}/{self.ds_name}/transformed_products/{grid_name}/'
         factors_file = f'{grid_name}{self.hemi}_v{self.transformation_version}_factors'
         factors_path = f'{factors_dir}{factors_file}'
 
@@ -96,7 +95,7 @@ class Transformation():
                 factors = pickle.load(f)
                 return factors
         else:
-            logging.info(f'Creating {grid_name} factors for {self.dataset_name}')
+            logging.info(f'Creating {grid_name} factors for {self.ds_name}')
 
         # Use hemisphere specific variables if data is hemisphere specific
         source_grid_min_L, source_grid_max_L, source_grid = ecco_functions.generalized_grid_product(self.data_res, self.area_extent,
@@ -127,7 +126,7 @@ class Transformation():
         return factors
 
     
-    def perform_mapping(self, ds: xr.Dataset, factors: Tuple, data_field_info: Mapping, model_grid: xr.Dataset) -> xr.DataArray:
+    def perform_mapping(self, ds: xr.Dataset, factors: Tuple, field: Field, model_grid: xr.Dataset) -> xr.DataArray:
         '''
         Maps source data to target grid and applies metadata
         '''
@@ -135,32 +134,29 @@ class Transformation():
         # initialize notes for this record
         record_notes = ''
 
-        # set data info values
-        data_field = data_field_info['name']
-
         # create empty data array
         data_DA = records.make_empty_record(self.date, model_grid, self.array_precision)
 
         # print(data_DA)
 
         # add some metadata to the newly formed data array object
-        data_DA.attrs['long_name'] = data_field_info['long_name']
-        data_DA.attrs['standard_name'] = data_field_info['standard_name']
-        data_DA.attrs['units'] = data_field_info['units']
+        data_DA.attrs['long_name'] = field.long_name
+        data_DA.attrs['standard_name'] = field.standard_name
+        data_DA.attrs['units'] = field.units
         data_DA.attrs['original_filename'] = self.file_name
-        data_DA.attrs['original_field_name'] = data_field
+        data_DA.attrs['original_field_name'] = field.name
         data_DA.attrs['interpolation_parameters'] = 'bin averaging'
         data_DA.attrs['interpolation_code'] = 'pyresample'
         data_DA.attrs['interpolation_date'] = str(np.datetime64(datetime.now(), 'D'))
 
         data_DA.time.attrs['long_name'] = 'center time of averaging period'
 
-        data_DA.name = f'{data_field}_interpolated_to_{model_grid.name}'
+        data_DA.name = f'{field.name}_interpolated_to_{model_grid.name}'
 
         if self.transpose:
-            orig_data = ds[data_field].values[0, :].T
+            orig_data = ds[field.name].values[0, :].T
         else:
-            orig_data = ds[data_field].values
+            orig_data = ds[field.name].values
 
         # see if we have any valid data
         if np.sum(~np.isnan(orig_data)) > 0:
@@ -212,7 +208,7 @@ class Transformation():
 
         return data_DA
     
-    def transform(self, model_grid: xr.Dataset, factors: Tuple, ds: xr.Dataset, fields: Iterable[dict], config: dict) -> Iterable[Tuple[xr.Dataset, bool]]:
+    def transform(self, model_grid: xr.Dataset, factors: Tuple, ds: xr.Dataset, fields: Field, config: dict) -> Iterable[Tuple[xr.Dataset, bool]]:
         """
         Function that actually performs the transformations. Returns a list of transformed
         xarray datasets, one dataset for each field being transformed for the given grid.
@@ -226,48 +222,41 @@ class Transformation():
         # =====================================================
         # Loop through fields to transform
         # =====================================================
-        for data_field_info in fields:            
-            field_name = data_field_info['name']
-            standard_name = data_field_info['standard_name']
-            long_name = data_field_info['long_name']
-            units = data_field_info['units']
-            pre_transformations = data_field_info.get('pre_transformations', [])
-            
-            logging.debug(f'Transforming {self.file_name} for field {field_name}')
+        for field in fields:
+            logging.debug(f'Transforming {self.file_name} for field {field.name}')
             
             try:
-                self.apply_funcs(ds, pre_transformations)
+                self.apply_funcs(ds, field.pre_transformations)
             except Exception as e:
                 logging.exception(e)
 
-            if field_name in ds.data_vars: 
+            if field.name in ds.data_vars: 
                 try:
-                    field_DA = self.perform_mapping(ds, factors, data_field_info, model_grid)
+                    field_DA = self.perform_mapping(ds, factors, field, model_grid)
                     mapping_success = True
                 except Exception as e:
                     logging.exception(f'Transformation failed: {e}')
                     field_DA = records.make_empty_record(record_date, model_grid, self.array_precision)
-                    field_DA.attrs['long_name'] = long_name
-                    field_DA.attrs['standard_name'] = standard_name
-                    field_DA.attrs['units'] = units
+                    field_DA.attrs['long_name'] = field.long_name
+                    field_DA.attrs['standard_name'] = field.standard_name
+                    field_DA.attrs['units'] = field.units
                     field_DA.attrs['empty_record_note'] = 'Transformation failed'
                     mapping_success = False
             else:
-                logging.error(f'Transformation failed: key {field_name} is missing from source data. Making empty record.')
+                logging.error(f'Transformation failed: key {field.name} is missing from source data. Making empty record.')
                 field_DA = records.make_empty_record(record_date, model_grid, self.array_precision)
-                field_DA.attrs['long_name'] = long_name
-                field_DA.attrs['standard_name'] = standard_name
-                field_DA.attrs['units'] = units
-                field_DA.attrs['empty_record_note'] = f'{field_name} missing from source data'
+                field_DA.attrs['long_name'] = field.long_name
+                field_DA.attrs['standard_name'] = field.standard_name
+                field_DA.attrs['units'] = field.units
+                field_DA.attrs['empty_record_note'] = f'{field.name} missing from source data'
                 mapping_success = True
 
             # =====================================================
             # Post transformation functions
             # =====================================================
             if mapping_success:
-                post_transformations = data_field_info.get('post_transformations', [])
                 try:
-                    field_DA = self.apply_funcs(field_DA, post_transformations)
+                    field_DA = self.apply_funcs(field_DA, field.post_transformations)
                     if np.isnan(field_DA.values).all():
                         field_DA.attrs['valid_min'] = np.nan
                         field_DA.attrs['valid_max'] = np.nan
@@ -277,9 +266,9 @@ class Transformation():
                 except Exception as e:
                     logging.exception(f'Post-transformation failed: {e}')
                     field_DA = records.make_empty_record(record_date, model_grid, self.array_precision)
-                    field_DA.attrs['long_name'] = long_name
-                    field_DA.attrs['standard_name'] = standard_name
-                    field_DA.attrs['units'] = units
+                    field_DA.attrs['long_name'] = field.long_name
+                    field_DA.attrs['standard_name'] = field.standard_name
+                    field_DA.attrs['units'] = field.units
                     field_DA.attrs['empty_record_note'] = 'Post transformation(s) failed'
                     mapping_success = False
 
@@ -334,7 +323,7 @@ class Transformation():
 
                 rec_end = cur_mon_year
 
-            if 'DEBIAS_LOCEAN' in self.dataset_name:
+            if 'DEBIAS_LOCEAN' in self.ds_name:
                 rec_end = field_DS.time.values[0] + np.timedelta64(1, 'D')
 
             tb, ct = date_time.make_time_bounds_from_ds64(rec_end, output_freq_code)

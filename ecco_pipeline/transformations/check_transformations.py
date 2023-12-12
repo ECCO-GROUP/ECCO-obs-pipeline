@@ -3,12 +3,13 @@ import logging
 from logging.handlers import QueueHandler
 from collections import defaultdict
 from multiprocessing import Queue, current_process, Pool, Manager
+from typing import Iterable
 import xarray as xr
 
+from dataset import Dataset
 from utils import solr_utils, log_config
 from transformations.grid_transformation import transform
 from transformations.transformation import Transformation
-
 import conf.global_settings as global_settings
 
 def logging_process(queue: Queue, log_filename: str):
@@ -30,7 +31,7 @@ def logging_process(queue: Queue, log_filename: str):
         # log the message
         logging.getLogger().handle(message)
 
-def get_remaining_transformations(config, granule_file_path, grids):
+def get_remaining_transformations(dataset: Dataset, granule_file_path: str, grids: Iterable[str]):
     """
     Given a single granule, the function uses Solr to find all combinations of
     grids and fields that have yet to be transformed. It returns a dictionary
@@ -46,18 +47,15 @@ def get_remaining_transformations(config, granule_file_path, grids):
     these checks are made for each grid/field pair associated with the harvested granule
     """
 
-    dataset_name = config['ds_name']
-    fields = config['fields']
-
     # Cartesian product of grid/field combinations
-    grid_field_combinations = list(itertools.product(grids, fields))
+    grid_field_combinations = list(itertools.product(grids, dataset.fields))
 
     # Build dictionary of remaining transformations
     # -- grid_field_dict has grid key, entries is list of fields
     grid_field_dict = defaultdict(list)
 
     # Query for existing transformations
-    fq = [f'dataset_s:{dataset_name}', 'type_s:transformation',
+    fq = [f'dataset_s:{dataset.ds_name}', 'type_s:transformation',
           f'pre_transformation_file_path_s:"{granule_file_path}"']
     docs = solr_utils.solr_query(fq)
 
@@ -76,22 +74,20 @@ def get_remaining_transformations(config, granule_file_path, grids):
 
     # Loop through all grid/field combos, checking if processing is required
     for (grid, field) in grid_field_combinations:
-        field_name = field['name']
-
         # If transformation exists, must compare checksums and versions for updates
-        if (grid, field_name) in existing_transformations:
+        if (grid, field.name) in existing_transformations:
 
             # Query for harvested granule checksum
-            fq = [f'dataset_s:{dataset_name}', 'type_s:granule',
+            fq = [f'dataset_s:{dataset.ds_name}', 'type_s:granule',
                   f'pre_transformation_file_path_s:"{granule_file_path}"']
             harvested_checksum = solr_utils.solr_query(fq)[0]['checksum_s']
 
-            origin_checksum = existing_transformations[(grid, field_name)]
+            origin_checksum = existing_transformations[(grid, field.name)]
 
             # Query for existing transformation
-            fq = [f'dataset_s:{dataset_name}', 'type_s:transformation',
+            fq = [f'dataset_s:{dataset.ds_name}', 'type_s:transformation',
                   f'pre_transformation_file_path_s:"{granule_file_path}"',
-                  f'field_s:{field_name}']
+                  f'field_s:{field.name}']
             transformation = solr_utils.solr_query(fq)[0]
 
             # Triple if:
@@ -100,9 +96,9 @@ def get_remaining_transformations(config, granule_file_path, grids):
             # 3. compare checksum of harvested file (currently in solr) and checksum
             #    of the harvested file that was previously transformed (recorded in transformation entry)
             if ('success_b' in transformation.keys() and transformation['success_b'] == True) and \
-                ('transformation_version_f' in transformation.keys() and transformation['transformation_version_f'] == config['t_version']) and \
+                ('transformation_version_f' in transformation.keys() and transformation['transformation_version_f'] == dataset.t_version) and \
                     origin_checksum == harvested_checksum:
-                logging.debug(f'No need to transform {granule_file_path} for grid {grid} and field {field_name}')
+                logging.debug(f'No need to transform {granule_file_path} for grid {grid} and field {field.name}')
                 # all tests passed, we do not need to redo the transformation
                 # for this grid/field pair
 
@@ -118,7 +114,7 @@ def get_remaining_transformations(config, granule_file_path, grids):
     return dict(grid_field_dict)
 
 
-def multiprocess_transformation(granule, config, grids, log_filename: str):
+def multiprocess_transformation(config: dict, granule: dict, dataset: Dataset, grids: Iterable[str], log_filename: str):
     """
     Callable function that performs the actual transformation on a granule.
     """
@@ -135,7 +131,7 @@ def multiprocess_transformation(granule, config, grids, log_filename: str):
     # logging.info(f'{process.name} performing transformations for {granule_filepath.split("/")[-1]}')
 
     # Get transformations to be completed for this file
-    remaining_transformations = get_remaining_transformations(config, granule_filepath, grids)
+    remaining_transformations = get_remaining_transformations(dataset, granule_filepath, grids)
     
     # Perform remaining transformations
     if remaining_transformations:
@@ -186,14 +182,14 @@ def main(config, user_cpus=1, grids_to_use=[]):
     the Solr dataset entry is updated with additional metadata.
     """
     log_filename = global_settings.log_filename
-    dataset_name = config['ds_name']
+    dataset = Dataset(config)
 
     # Get all harvested granules for this dataset
-    fq = [f'dataset_s:{dataset_name}', 'type_s:granule', 'harvest_success_b:true']
+    fq = [f'dataset_s:{dataset.ds_name}', 'type_s:granule', 'harvest_success_b:true']
     harvested_granules = solr_utils.solr_query(fq)
 
     if not harvested_granules:
-        logging.info(f'No harvested granules found in solr for {dataset_name}')
+        logging.info(f'No harvested granules found in solr for {dataset.ds_name}')
         return f'No transformations performed'
 
     # Query for grids
@@ -211,7 +207,7 @@ def main(config, user_cpus=1, grids_to_use=[]):
 
         for granule in data_for_factors:
             grid_ds = xr.open_dataset(f'grids/{grid}.nc')
-            T = Transformation(config, granule['pre_transformation_file_path_s'], '1972-04-20')
+            T = Transformation(config, granule['pre_transformation_file_path_s'], '1972-01-01')
             T.make_factors(grid_ds)
 
     # END PRE GENERATE FACTORS TO ACCOMODATE MULTIPROCESSING
@@ -226,7 +222,7 @@ def main(config, user_cpus=1, grids_to_use=[]):
     if user_cpus == 1:
         logging.info('Not using multiprocessing to do transformation')
         for (granule, config, grids) in multiprocess_parameters:
-            multiprocess_transformation(granule, config, grids)
+            multiprocess_transformation(config, granule, dataset, grids, log_filename)
     else:
         logging.info(f'Using {user_cpus} CPUs to do multiprocess transformation')
         with Manager() as manager:
@@ -240,7 +236,7 @@ def main(config, user_cpus=1, grids_to_use=[]):
                 # issue a long running task to receive logging messages
                 _ = pool.apply_async(logging_process, args=(queue,log_filename,))
 
-                pool.starmap(multiprocess_transformation, [(granule, config, grids, log_filename) for granule in harvested_granules])
+                pool.starmap(multiprocess_transformation, [(config, granule, dataset, grids, log_filename) for granule in harvested_granules])
                 queue.put(None)
                 pool.close()
                 pool.join()
@@ -248,15 +244,15 @@ def main(config, user_cpus=1, grids_to_use=[]):
 
 
     # Query Solr for dataset metadata
-    fq = [f'dataset_s:{dataset_name}', 'type_s:dataset']
+    fq = [f'dataset_s:{dataset.ds_name}', 'type_s:dataset']
     dataset_metadata = solr_utils.solr_query(fq)[0]
 
     # Query Solr for successful transformation documents
-    fq = [f'dataset_s:{dataset_name}', 'type_s:transformation', 'success_b:true']
+    fq = [f'dataset_s:{dataset.ds_name}', 'type_s:transformation', 'success_b:true']
     successful_transformations = solr_utils.solr_query(fq)
 
     # Query Solr for failed transformation documents
-    fq = [f'dataset_s:{dataset_name}', 'type_s:transformation', 'success_b:false']
+    fq = [f'dataset_s:{dataset.ds_name}', 'type_s:transformation', 'success_b:false']
     failed_transformations = solr_utils.solr_query(fq)
 
     transformation_status = f'All transformations successful'
@@ -277,8 +273,8 @@ def main(config, user_cpus=1, grids_to_use=[]):
     r = solr_utils.solr_update(update_body, r=True)
 
     if r.status_code == 200:
-        logging.debug(f'Successfully updated Solr with transformation information for {dataset_name}')
+        logging.debug(f'Successfully updated Solr with transformation information for {dataset.ds_name}')
     else:
-        logging.exception(f'Failed to update Solr with transformation information for {dataset_name}')
+        logging.exception(f'Failed to update Solr with transformation information for {dataset.ds_name}')
 
     return transformation_status

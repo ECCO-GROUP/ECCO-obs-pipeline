@@ -9,6 +9,7 @@ import numpy as np
 import xarray as xr
 from conf.global_settings import OUTPUT_DIR
 from aggregations.aggregation import Aggregation
+from field import Field
 from utils import solr_utils
 from utils.ecco_utils import ecco_functions, records, date_time
 
@@ -18,22 +19,22 @@ class AggJob(Aggregation):
     '''
     AggJob class for aggregation job metadata - the specifics for this particular aggregation task.
     '''
-    def __init__(self, config: dict, grid: dict, year: str, field: dict):
+    def __init__(self, config: dict, grid: dict, year: str, field: Field):
         super().__init__(config)
         self.grid: dict = grid
         self.year: str = year
-        self.field: dict = field
+        self.field: Field = field
 
     def __str__(self) -> str:
-        return f'"{self.grid["grid_name_s"]} {self.field["name"]} {self.year}"'
+        return f'"{self.grid["grid_name_s"]} {self.field.name} {self.year}"'
 
-    def get_data_by_date(self, date: str, grid_name: str, field_name: str) -> Iterable[dict]:
+    def get_data_by_date(self, date: str, grid_name: str) -> Iterable[dict]:
         '''
         Query Solr for sucessful transformation docs for given grid, field, and date. Will attempt
         to query with tolerance for date if no docs are initially found.
         '''
-        fq = [f'dataset_s:{self.dataset_name}', 'type_s:transformation', 'success_b:True',
-              f'grid_name_s:{grid_name}', f'field_s:{field_name}', f'date_s:{date}*']
+        fq = [f'dataset_s:{self.ds_name}', 'type_s:transformation', 'success_b:True',
+              f'grid_name_s:{grid_name}', f'field_s:{self.field.name}', f'date_s:{date}*']
 
         docs = solr_utils.solr_query(fq)
 
@@ -47,14 +48,14 @@ class AggJob(Aggregation):
                 tolerance_days.append(datetime.strftime(start_month_date + timedelta(days=i), '%Y-%m-%d'))
                 tolerance_days.append(datetime.strftime(start_month_date - timedelta(days=i), '%Y-%m-%d'))
             for tol_date in tolerance_days:
-                fq = [f'dataset_s:{self.dataset_name}', 'type_s:transformation', 
-                      f'grid_name_s:{grid_name}', f'field_s:{field_name}', f'date_s:{tol_date}*']
+                fq = [f'dataset_s:{self.ds_name}', 'type_s:transformation', 
+                      f'grid_name_s:{grid_name}', f'field_s:{self.field.name}', f'date_s:{tol_date}*']
                 docs = solr_utils.solr_query(fq)
                 if docs:
                     return docs
         return docs
     
-    def open_datasets(self, docs: Iterable[dict], field_name: str) -> xr.Dataset:
+    def open_datasets(self, docs: Iterable[dict]) -> xr.Dataset:
         '''
         Opens transformation files and merges in the case of hemispherical data
         '''
@@ -64,13 +65,13 @@ class AggJob(Aggregation):
             opened_datasets.append(data_DS)
             
             # Update JSON transformations list
-            fq = [f'dataset_s:{self.dataset_name}', 'type_s:granule',
+            fq = [f'dataset_s:{self.ds_name}', 'type_s:granule',
                     f'pre_transformation_file_path_s:"{doc["pre_transformation_file_path_s"]}"']
             harvested_metadata = solr_utils.solr_query(fq)
 
             transformation_metadata = doc
             transformation_metadata['harvested'] = harvested_metadata
-            self.transformations[field_name].append(transformation_metadata)
+            self.transformations[self.field.name].append(transformation_metadata)
             
         if len(docs) == 2:
             first_DS = opened_datasets[0]
@@ -88,8 +89,7 @@ class AggJob(Aggregation):
             ds = opened_datasets[0]
         return ds
     
-    def process_data_by_date(self, transformation_docs: Iterable[dict], field: dict, grid: dict, model_grid_ds: xr.Dataset, date: str) -> xr.Dataset:
-        field_name = field.get('name')
+    def process_data_by_date(self, transformation_docs: Iterable[dict], grid: dict, model_grid_ds: xr.Dataset, date: str) -> xr.Dataset:
         data_time_scale = self.data_time_scale
 
         make_empty_record = False
@@ -98,18 +98,18 @@ class AggJob(Aggregation):
             make_empty_record = True
         else:
             try:
-                data_ds = self.open_datasets(transformation_docs, field_name)
+                data_ds = self.open_datasets(transformation_docs)
             except Exception as e:
                 logging.error(f'Error opening transformation file(s). Making empty record: {e}')
                 make_empty_record = True
             
         if make_empty_record:
             data_da = records.make_empty_record(date, model_grid_ds, self.precision)
-            data_da.attrs['long_name'] = field['long_name']
-            data_da.attrs['standard_name'] = field['standard_name']
-            data_da.attrs['units'] = field['units']
-            data_da.name = f'{field_name}_interpolated_to_{grid.get("grid_name_s")}'
-            data_da.attrs['original_field_name'] = field_name
+            data_da.attrs['long_name'] = self.field.long_name
+            data_da.attrs['standard_name'] = self.field.standard_name
+            data_da.attrs['units'] = self.field.units
+            data_da.name = f'{self.field.name}_interpolated_to_{grid.get("grid_name_s")}'
+            data_da.attrs['original_field_name'] = self.field.name
             data_da.attrs['interpolation_date'] = str(np.datetime64(datetime.now(), 'D'))
             data_da.attrs['agg_notes'] = "empty record created during aggregation"
 
@@ -150,9 +150,9 @@ class AggJob(Aggregation):
             return True
         return False
     
-    def generate_provenance(self, year, grid_name, field_name, solr_output_filepaths, aggregation_successes):
+    def generate_provenance(self, grid_name, solr_output_filepaths, aggregation_successes):
         # Query for descendants entries from this year
-        fq = ['type_s:descendants', f'dataset_s:{self.dataset_name}', f'date_s:{year}*']
+        fq = ['type_s:descendants', f'dataset_s:{self.ds_name}', f'date_s:{self.year}*']
         existing_descendants_docs = solr_utils.solr_query(fq)
 
         # if descendants entries already exist, update them
@@ -169,24 +169,24 @@ class AggJob(Aggregation):
 
                 # Add aggregation file path fields to descendants entry
                 for key, value in solr_output_filepaths.items():
-                    update_body[0][f'{grid_name}_{field_name}_aggregated_{key}_path_s'] = {"set": value}
+                    update_body[0][f'{grid_name}_{self.field.name}_aggregated_{key}_path_s'] = {"set": value}
 
                 r = solr_utils.solr_update(update_body, r=True)
 
                 if r.status_code != 200:
-                    logging.exception(f'Failed to update Solr aggregation entry for {field_name} in {self.dataset_name} for {year} and grid {grid_name}')
+                    logging.exception(f'Failed to update Solr aggregation entry for {self.field.name} in {self.ds_name} for {self.year} and grid {grid_name}')
 
-        fq = [f'dataset_s:{self.dataset_name}', 'type_s:aggregation',
-                f'grid_name_s:{grid_name}', f'field_s:{field_name}', f'year_s:{year}']
+        fq = [f'dataset_s:{self.ds_name}', 'type_s:aggregation',
+                f'grid_name_s:{grid_name}', f'field_s:{self.field.name}', f'year_s:{self.year}']
         docs = solr_utils.solr_query(fq)
 
         # Export annual descendants JSON file for each aggregation created
-        logging.debug(f'Exporting {year} descendants for grid {grid_name} and field {field_name}')
+        logging.debug(f'Exporting {self.year} descendants for grid {grid_name} and field {self.field.name}')
         json_output = {}
         json_output['dataset'] = self.ds_meta
         json_output['aggregation'] = docs
-        json_output['transformations'] = self.transformations[field_name]
-        json_output_path = f'{OUTPUT_DIR}/{self.dataset_name}/transformed_products/{grid_name}/aggregated/{field_name}/{self.dataset_name}_{field_name}_{grid_name}_{year}_descendants'
+        json_output['transformations'] = self.transformations[self.field.name]
+        json_output_path = f'{OUTPUT_DIR}/{self.ds_name}/transformed_products/{grid_name}/aggregated/{self.field.name}/{self.ds_name}_{self.field.name}_{grid_name}_{self.year}_descendants'
         with open(json_output_path, 'w') as f:
             resp_out = json.dumps(json_output, indent=4)
             f.write(resp_out)
@@ -206,14 +206,12 @@ class AggJob(Aggregation):
         elif data_time_scale == 'monthly':
             dates_in_year = [f'{self.year}-{str(month).zfill(2)}-01' for month in range(1,13)]
 
-        field_name = self.field.get('name')
-
-        logging.info(f'Aggregating {str(self.year)}_{grid_name}_{field_name}')
+        logging.info(f'Aggregating {str(self.year)}_{grid_name}_{self.field.name}')
 
         daily_DS_year = []
         for date in dates_in_year:
-            docs = self.get_data_by_date(date, grid_name, field_name)
-            data_DS = self.process_data_by_date(docs, self.field, self.grid, model_grid_ds, date)
+            docs = self.get_data_by_date(date, grid_name)
+            data_DS = self.process_data_by_date(docs, self.grid, model_grid_ds, date)
             daily_DS_year.append(data_DS)
 
         # Concatenate all data files within annual list
@@ -230,10 +228,10 @@ class AggJob(Aggregation):
 
         # Create filenames based on date time scale
         # If data time scale is monthly, shortest_filename is monthly
-        shortest_filename = f'{self.dataset_name}_{grid_name}_{data_time_scale.upper()}_{field_name}_{self.year}'
-        monthly_filename = f'{self.dataset_name}_{grid_name}_MONTHLY_{field_name}_{self.year}'
+        shortest_filename = f'{self.ds_name}_{grid_name}_{data_time_scale.upper()}_{self.field.name}_{self.year}'
+        monthly_filename = f'{self.ds_name}_{grid_name}_MONTHLY_{self.field.name}_{self.year}'
 
-        output_path = f'{OUTPUT_DIR}/{self.dataset_name}/transformed_products/{grid_name}/aggregated/{field_name}/'
+        output_path = f'{OUTPUT_DIR}/{self.ds_name}/transformed_products/{grid_name}/aggregated/{self.field.name}/'
 
         bin_output_dir = Path(output_path) / 'bin'
         bin_output_dir.mkdir(parents=True, exist_ok=True)
@@ -251,7 +249,7 @@ class AggJob(Aggregation):
             empty_year = True
         else:
             if self.do_monthly_aggregation:
-                logging.info(f'Aggregating monthly {str(self.year)}_{grid_name}_{field_name}')
+                logging.info(f'Aggregating monthly {str(self.year)}_{grid_name}_{self.field.name}')
                 try:
                     mon_DS_year_merged = ecco_functions.monthly_aggregation(daily_annual_ds, data_var, self.year, self, uuids[1])
                     mon_DS_year_merged[data_var] = mon_DS_year_merged[data_var].fillna(self.nc_fill_val)
@@ -263,7 +261,7 @@ class AggJob(Aggregation):
                         records.save_netcdf(mon_DS_year_merged, monthly_filename, self.nc_fill_val, netCDF_output_dir)
 
                 except Exception as e:
-                    logging.exception(f'Error aggregating {self.dataset_name}. {e}')
+                    logging.exception(f'Error aggregating {self.ds_name}. {e}')
                     empty_year = True
                     success = False
 
@@ -306,8 +304,8 @@ class AggJob(Aggregation):
                                     'monthly_netCDF': ''}
 
         # Query Solr for existing aggregation
-        fq = [f'dataset_s:{self.dataset_name}', 'type_s:aggregation', 
-              f'grid_name_s:{grid_name}', f'field_s:{field_name}', f'year_s:{self.year}']
+        fq = [f'dataset_s:{self.ds_name}', 'type_s:aggregation', 
+              f'grid_name_s:{grid_name}', f'field_s:{self.field.name}', f'year_s:{self.year}']
         docs = solr_utils.solr_query(fq)
 
         # If aggregation exists, update using Solr entry id
@@ -324,10 +322,10 @@ class AggJob(Aggregation):
             update_body = [
                 {
                     "type_s": 'aggregation',
-                    "dataset_s": self.dataset_name,
+                    "dataset_s": self.ds_name,
                     "year_s": self.year,
                     "grid_name_s": grid_name,
-                    "field_s": field_name,
+                    "field_s": self.field.name,
                     "aggregation_time_dt": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "aggregation_success_b": success,
                     "aggregation_version_s": self.version
@@ -356,7 +354,7 @@ class AggJob(Aggregation):
         r = solr_utils.solr_update(update_body, r=True)
 
         if r.status_code != 200:
-            logging.exception(f'Failed to update Solr aggregation entry for {field_name} in {self.dataset_name} for {self.year} and grid {grid_name}')
+            logging.exception(f'Failed to update Solr aggregation entry for {self.field.name} in {self.ds_name} for {self.year} and grid {grid_name}')
 
-        self.generate_provenance(self.year, grid_name, field_name, solr_output_filepaths, aggregation_successes)
+        self.generate_provenance(grid_name, solr_output_filepaths, aggregation_successes)
     
