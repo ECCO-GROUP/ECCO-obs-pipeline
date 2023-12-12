@@ -25,8 +25,7 @@ class Harvester(Dataset):
     
     def _harvester_parsing(self, config: dict):
         if self.harvester_type == 'cmr':
-            self.cmr_short_name = config.get('cmr_short_name')
-            self.cmr_version = config.get('cmr_version')
+            self.cmr_concept_id = config.get('cmr_concept_id')
             self.provider = config.get('provider')
         elif self.harvester_type == 'osisaf_ftp':       
             self.host = config.get('host')

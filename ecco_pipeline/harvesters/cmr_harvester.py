@@ -7,7 +7,7 @@ from typing import Iterable
 import numpy as np
 import requests
 import xarray as xr
-from harvesters.enumeration.cmr_enumerator import cmr_search, CMR_Granule
+from harvesters.enumeration.cmr_enumerator import cmr_search, CMRGranule
 from harvesters.granule import Granule
 from harvesters.harvester import Harvester
 from utils.file_utils import get_date
@@ -17,10 +17,8 @@ from utils.ecco_utils.date_time import make_time_bounds_from_ds64
 class CMR_Harvester(Harvester):
     
     def __init__(self, config: dict):
-        Harvester.__init__(self, config)
-        if config['end'] == 'NOW':
-            config['end'] = datetime.utcnow().strftime("%Y%m%dT%H:%M:%SZ")
-        self.cmr_granules: Iterable[CMR_Granule] = cmr_search(config)
+        super().__init__(config)
+        self.cmr_granules: Iterable[CMRGranule] = cmr_search(self)
     
     def fetch(self):
         for cmr_granule in self.cmr_granules:
@@ -212,7 +210,7 @@ class CMR_Harvester(Harvester):
                         end_of_month_granules.append(url_dict[month_end_str])
                         break
 
-        self.cmr_granules: Iterable[CMR_Granule] = end_of_month_granules
+        self.cmr_granules: Iterable[CMRGranule] = end_of_month_granules
 
         for cmr_granule in self.cmr_granules:
             filename = cmr_granule.url.split('/')[-1]
