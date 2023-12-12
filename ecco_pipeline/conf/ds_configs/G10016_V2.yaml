@@ -3,12 +3,9 @@ start: "19800101T00:00:00Z" # yyyymmddThh:mm:ssZ
 end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 
 # Provider specifications
-harvester_type: nsidc_ftp
-host: sidads.colorado.edu # does not change
-user: anonymous # does not change
+harvester_type: nsidc
 filename_date_fmt: "%Y%m%d"
 filename_date_regex: '\d{8}'
-ddir: "pub/DATASETS/NOAA/G10016_V2/"
 
 # Metadata
 data_time_scale: "daily" # daily or monthly
