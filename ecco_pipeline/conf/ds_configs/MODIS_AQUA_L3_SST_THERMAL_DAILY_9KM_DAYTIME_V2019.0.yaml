@@ -4,8 +4,7 @@ end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 
 # Provider specifications
 harvester_type: cmr
-cmr_short_name: "MODIS_AQUA_L3_SST_THERMAL_DAILY_9KM_DAYTIME_V2019.0"
-cmr_version: "2019.0"
+cmr_concept_id: C2036877928-POCLOUD
 filename_date_fmt: "%Y%m%d"
 filename_date_regex: '\d{8}'
 provider: "archive.podaac"

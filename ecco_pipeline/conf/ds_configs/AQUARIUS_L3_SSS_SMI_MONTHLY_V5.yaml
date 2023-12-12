@@ -4,8 +4,7 @@ end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 
 # Provider specifications
 harvester_type: cmr
-cmr_short_name: AQUARIUS_L3_SSS_SMI_MONTHLY_V5
-cmr_version: "5"
+cmr_concept_id: C2491756442-POCLOUD
 filename_date_fmt: "%Y%j"
 filename_date_regex: '\d{7}'
 provider: "archive.podaac"

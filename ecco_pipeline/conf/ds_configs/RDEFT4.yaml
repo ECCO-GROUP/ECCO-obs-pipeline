@@ -4,8 +4,7 @@ end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 
 # Provider specifications
 harvester_type: cmr
-cmr_short_name: "RDEFT4"
-cmr_version: "1"
+cmr_concept_id: C1431413941-NSIDC_ECS
 filename_date_fmt: "%Y%m%d"
 filename_date_regex: '\d{8}'
 provider: "n5eil01u.ecs.nsidc.org"

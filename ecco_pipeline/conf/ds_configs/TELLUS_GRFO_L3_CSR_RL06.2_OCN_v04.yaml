@@ -4,9 +4,7 @@ end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 
 # Provider specifications
 harvester_type: cmr
-cmr_short_name: "TELLUS_GRFO_L3_CSR_RL06.2_OCN_v04"
-cmr_concept_id: "C2767594383-POCLOUD"
-cmr_version: "RL06.2v04"
+cmr_concept_id: C2767594383-POCLOUD
 filename_date_fmt: "%Y%j"
 filename_date_regex: '\d{7}'
 provider: "archive.podaac"

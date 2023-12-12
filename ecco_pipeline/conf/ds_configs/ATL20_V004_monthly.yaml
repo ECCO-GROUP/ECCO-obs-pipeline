@@ -4,8 +4,6 @@ end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 
 # Provider specifications
 harvester_type: cmr
-cmr_short_name: ATL20
-cmr_version: "004"
 cmr_concept_id: C2753295020-NSIDC_CPRD
 filename_date_fmt: "%Y%m%d%H%M%S" #20200701010729
 filename_date_regex: '\d{14}'
