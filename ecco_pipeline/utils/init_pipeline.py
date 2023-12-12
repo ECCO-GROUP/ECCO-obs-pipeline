@@ -5,6 +5,8 @@ import logging
 import requests
 import netrc
 from utils import log_config, solr_utils, grids_to_solr
+from utils.config_validator import validate_configs
+
 try:
     from conf.global_settings import OUTPUT_DIR, SOLR_COLLECTION, GRIDS
     import conf.global_settings as global_settings
@@ -68,6 +70,7 @@ def init_pipeline(args):
     setup_logger(args)
     validate_output_dir()
     validate_solr()
+    validate_configs()
     validate_netrc()
 
     if args.harvested_entry_validation:
