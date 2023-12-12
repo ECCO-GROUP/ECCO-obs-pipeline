@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import List, Tuple, Mapping
+from typing import Iterable, Tuple, Mapping
 import numpy as np
 import netCDF4 as nc4
 from datetime import datetime
@@ -8,10 +8,7 @@ import xarray as xr
 import pyresample as pr
 import pickle
 from conf.global_settings import OUTPUT_DIR
-
-
 from utils.ecco_utils import ecco_functions, records, date_time
-from utils import file_utils
 
 
 class Transformation():
@@ -32,8 +29,8 @@ class Transformation():
 
         # Projection information
         self.data_res: float = self._compute_data_res(config)
-        self.area_extent: List = config.get(f'area_extent{self.hemi}')
-        self.dims: List = config.get(f'dims{self.hemi}')
+        self.area_extent: Iterable = config.get(f'area_extent{self.hemi}')
+        self.dims: Iterable = config.get(f'dims{self.hemi}')
         self.proj_info: dict = config.get(f'proj_info{self.hemi}')
 
         # Processing information
@@ -66,7 +63,7 @@ class Transformation():
                 return '_sh'
         return ''
 
-    def apply_funcs(self, data_object, funcs: List):
+    def apply_funcs(self, data_object, funcs: Iterable):
         for func_to_run in funcs:
             logging.info(f'Applying {func_to_run} to data')
             try:
@@ -215,7 +212,7 @@ class Transformation():
 
         return data_DA
     
-    def transform(self, model_grid: xr.Dataset, factors: Tuple, ds: xr.Dataset, config: dict) -> List[Tuple[xr.Dataset, bool]]:
+    def transform(self, model_grid: xr.Dataset, factors: Tuple, ds: xr.Dataset, fields: Iterable[dict], config: dict) -> Iterable[Tuple[xr.Dataset, bool]]:
         """
         Function that actually performs the transformations. Returns a list of transformed
         xarray datasets, one dataset for each field being transformed for the given grid.
@@ -226,59 +223,65 @@ class Transformation():
 
         field_DSs = []
 
-        fields = config.get('fields')
-
         # =====================================================
         # Loop through fields to transform
         # =====================================================
-        for data_field_info in fields:
+        for data_field_info in fields:            
             field_name = data_field_info['name']
             standard_name = data_field_info['standard_name']
             long_name = data_field_info['long_name']
             units = data_field_info['units']
             pre_transformations = data_field_info.get('pre_transformations', [])
+            
+            logging.debug(f'Transforming {self.file_name} for field {field_name}')
+            
             try:
                 self.apply_funcs(ds, pre_transformations)
             except Exception as e:
                 logging.exception(e)
 
-            post_transformations = data_field_info.get('post_transformations', [])
-
-            logging.debug(f'Transforming {self.file_name} for field {field_name}')
-
-            try:
-                field_DA = self.perform_mapping(ds, factors, data_field_info, model_grid)
-                success = True
-            except KeyError:
+            if field_name in ds.data_vars: 
+                try:
+                    field_DA = self.perform_mapping(ds, factors, data_field_info, model_grid)
+                    mapping_success = True
+                except Exception as e:
+                    logging.exception(f'Transformation failed: {e}')
+                    field_DA = records.make_empty_record(record_date, model_grid, self.array_precision)
+                    field_DA.attrs['long_name'] = long_name
+                    field_DA.attrs['standard_name'] = standard_name
+                    field_DA.attrs['units'] = units
+                    field_DA.attrs['empty_record_note'] = 'Transformation failed'
+                    mapping_success = False
+            else:
                 logging.error(f'Transformation failed: key {field_name} is missing from source data. Making empty record.')
                 field_DA = records.make_empty_record(record_date, model_grid, self.array_precision)
                 field_DA.attrs['long_name'] = long_name
                 field_DA.attrs['standard_name'] = standard_name
                 field_DA.attrs['units'] = units
-                success = True
-            except Exception as e:
-                logging.exception(f'Transformation failed: {e}')
-                field_DA = records.make_empty_record(record_date, model_grid, self.array_precision)
-                field_DA.attrs['long_name'] = long_name
-                field_DA.attrs['standard_name'] = standard_name
-                field_DA.attrs['units'] = units
-                success = False
+                field_DA.attrs['empty_record_note'] = f'{field_name} missing from source data'
+                mapping_success = True
 
             # =====================================================
             # Post transformation functions
             # =====================================================
-            if success:
+            if mapping_success:
+                post_transformations = data_field_info.get('post_transformations', [])
                 try:
                     field_DA = self.apply_funcs(field_DA, post_transformations)
-                    field_DA.attrs['valid_min'] = np.nanmin(field_DA.values)
-                    field_DA.attrs['valid_max'] = np.nanmax(field_DA.values)
+                    if np.isnan(field_DA.values).all():
+                        field_DA.attrs['valid_min'] = np.nan
+                        field_DA.attrs['valid_max'] = np.nan
+                    else:
+                        field_DA.attrs['valid_min'] = np.nanmin(field_DA.values)
+                        field_DA.attrs['valid_max'] = np.nanmax(field_DA.values)
                 except Exception as e:
                     logging.exception(f'Post-transformation failed: {e}')
                     field_DA = records.make_empty_record(record_date, model_grid, self.array_precision)
                     field_DA.attrs['long_name'] = long_name
                     field_DA.attrs['standard_name'] = standard_name
                     field_DA.attrs['units'] = units
-                    success = False
+                    field_DA.attrs['empty_record_note'] = 'Post transformation(s) failed'
+                    mapping_success = False
 
             field_DA.values = np.where(np.isnan(field_DA.values), self.fill_values['netcdf'], field_DA.values)
 
@@ -345,6 +348,6 @@ class Transformation():
             field_DS = field_DS.drop('time_start')
             field_DS = field_DS.drop('time_end')
             # print(field_DS)
-            field_DSs.append((field_DS, success))
+            field_DSs.append((field_DS, mapping_success))
 
         return field_DSs

@@ -24,12 +24,6 @@ fields:
     units: "%"
     pre_transformations: [] # List of functions to call on the DataSet before transformation
     post_transformations: [] # List of functions to call on the DataArrays after transformation
-  # - name: total_standard_uncertainty
-  #   long_name: total uncertainty (one standard deviation) of concentration of sea ice
-  #   standard_name: "sea_ice_area_fraction standard_error"
-  #   units: "%"
-  #   pre_transformations: [] # List of functions to call on the DataSet before transformation
-  #   post_transformations: [] # List of functions to call on the DataArrays after transformation
 original_dataset_title: "Global Sea Ice Concentration interim climate data record (SSMIS)"
 original_dataset_short_name: "Global Sea Ice Concentration interim climate data record (SSMIS)"
 original_dataset_url: "https://osi-saf.eumetsat.int/products/osi-450-a"

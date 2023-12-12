@@ -10,24 +10,26 @@ from conf.global_settings import SOLR_COLLECTION, SOLR_HOST
 
 
 def solr_query(fq, fl=''):
-    getVars = {'q': '*:*',
+    query_params = {'q': '*:*',
                'fq': fq,
                'fl': fl,
                'rows': 300000}
 
     url = f'{SOLR_HOST}{SOLR_COLLECTION}/select?'
     try:
-        response = requests.get(url, params=getVars, headers={'Connection': 'close'})
+        response = requests.get(url, params=query_params, headers={'Connection': 'close'})
     except:
         time.sleep(5)
-        response = requests.get(url, params=getVars, headers={'Connection': 'close'})
-
+        response = requests.get(url, params=query_params, headers={'Connection': 'close'})
+    logging.debug(f'Querying solr: {response.url}')
     return response.json()['response']['docs']
 
 
 def solr_update(update_body, r=False):
     url = f'{SOLR_HOST}{SOLR_COLLECTION}/update?commit=true'
     response = requests.post(url, json=update_body)
+    logging.debug(f'Updating solr: {response.url}')
+    
     if r:
         return response
 
@@ -65,7 +67,6 @@ def validate_granules():
 
     if docs_to_remove:
         solr_update({'delete': docs_to_remove})
-
         logging.info(f'Succesfully removed {len(docs_to_remove)} granules from Solr')
     else:
         logging.info('All harvested docs are valid')
@@ -116,8 +117,7 @@ def delete_mismatch_transformations():
     transformation version in Solr and in the config YAML. If they differ, the
     function deletes the transformed file from disk and the entry from Solr.
     """
-    datasets = [os.path.splitext(ds)[0] for ds in os.listdir(
-        'conf/ds_configs') if ds != '.DS_Store' and 'tpl' not in ds]
+    datasets = [os.path.splitext(ds)[0] for ds in os.listdir('conf/ds_configs') if ds != '.DS_Store' and 'tpl' not in ds]
     datasets.sort()
 
     for ds in datasets:

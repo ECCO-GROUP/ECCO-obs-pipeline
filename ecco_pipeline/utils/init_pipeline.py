@@ -5,17 +5,17 @@ import logging
 import requests
 import netrc
 from conf.global_settings import OUTPUT_DIR, SOLR_COLLECTION, GRIDS
-
+import conf.global_settings as global_settings
 from utils import log_config, solr_utils, grids_to_solr
 
 
 def setup_logger(args):
-    log_config.configure_logging(True, args.log_level, args.wipe_logs)
+    filename = log_config.configure_logging(True, args.log_level, args.wipe_logs)
 
     # Set package logging level to WARNING
     logging.getLogger("requests").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
-
+    global_settings.log_filename = filename
 
 def validate_output_dir():
     # Verify output directory is valid

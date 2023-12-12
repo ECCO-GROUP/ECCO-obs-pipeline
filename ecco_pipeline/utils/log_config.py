@@ -5,7 +5,7 @@ from glob import glob
 from datetime import datetime
 
 
-def configure_logging(file_timestamp: bool = True, level: str = 'INFO', wipe_logs: bool = False) -> None:
+def configure_logging(file_timestamp: bool = True, level: str = 'INFO', wipe_logs: bool = False, log_filename: str = '') -> None:
     logs_directory = 'logs/'
     os.makedirs(logs_directory, exist_ok=True)
     
@@ -13,20 +13,22 @@ def configure_logging(file_timestamp: bool = True, level: str = 'INFO', wipe_log
         for log_file in glob(f'{logs_directory}*.log'):
             os.remove(log_file)
     
-    log_filename = f'{datetime.now().isoformat(timespec="seconds") if file_timestamp else "log"}.log'
+    if not log_filename:
+        if file_timestamp:
+            log_filename = f'{datetime.now().isoformat(timespec="seconds")}.log'
+        else:
+            log_filename = 'log.log'
     logfile_path = os.path.join(logs_directory, log_filename)
-    print(f'Logging to {logfile_path} with level {logging.getLevelName(get_log_level(level))}')
-
-    logging.root.handlers = []
 
     logging.basicConfig(
         level=get_log_level(level),
-        format='[%(levelname)s] %(asctime)s - %(message)s',
+        format='[%(levelname)s] %(asctime)s (%(process)d) - %(message)s',
         handlers=[
             FileHandler(logfile_path),
-            logging.StreamHandler()
+            logging.StreamHandler(),
         ]
     )
+    return log_filename
 
 
 def get_log_level(level) -> int:

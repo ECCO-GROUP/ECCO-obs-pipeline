@@ -1,451 +1,155 @@
-import itertools
-import json
 import logging
-import uuid
-from datetime import datetime, timedelta
-from pathlib import Path
-
-import numpy as np
-import xarray as xr
+from logging.handlers import QueueHandler
+from multiprocessing import Queue, current_process, Pool, Manager
+from typing import Iterable
+from aggregations.aggjob import AggJob
 from aggregations.aggregation import Aggregation
-from conf.global_settings import OUTPUT_DIR
-from utils import solr_utils
-from utils.ecco_utils import ecco_functions, records, date_time
-from pprint import pprint
+from utils import solr_utils, log_config
+import conf.global_settings as global_settings
 
-
-def get_data_by_date(A, date, grid_name, field_name):
-    # Query for date
-    fq = [f'dataset_s:{A.dataset_name}', 'type_s:transformation',
-          f'grid_name_s:{grid_name}', f'field_s:{field_name}', f'date_s:{date}*']
-    docs = solr_utils.solr_query(fq)
-    # If first of month is not found, query with 7 day tolerance only for monthly data
-    if not docs and A.ds_meta.get('data_time_scale_s') == 'monthly':
-        tolerance = int(A.ds_meta.get('monthly_tolerance', 8))
-        start_month_date = datetime.strptime(date, '%Y-%m-%d')
-        tolerance_days = []
-
-        for i in range(1, tolerance):
-            tolerance_days.append(datetime.strftime(start_month_date + timedelta(days=i), '%Y-%m-%d'))
-            tolerance_days.append(datetime.strftime(start_month_date - timedelta(days=i), '%Y-%m-%d'))
-        for tol_date in tolerance_days:
-            fq = [f'dataset_s:{A.dataset_name}', 'type_s:transformation',
-                    f'grid_name_s:{grid_name}', f'field_s:{field_name}', f'date_s:{tol_date}*']
-            docs = solr_utils.solr_query(fq)
-            if docs:
-                return docs
-    return docs
-
-def open_datasets(A, docs, field_name):
-    opened_datasets = []
-
-    for doc in docs:
-        data_DS = xr.open_dataset(doc['transformation_file_path_s'], decode_times=True)
-        opened_datasets.append(data_DS)
-        
-        # Update JSON transformations list
-        fq = [f'dataset_s:{A.dataset_name}', 'type_s:granule',
-                f'pre_transformation_file_path_s:"{doc["pre_transformation_file_path_s"]}"']
-        harvested_metadata = solr_utils.solr_query(fq)
-
-        transformation_metadata = doc
-        transformation_metadata['harvested'] = harvested_metadata
-        A.transformations[field_name].append(transformation_metadata)
-        
-    if len(docs) == 2:
-        first_DS = opened_datasets[0]
-        var_1 = list(first_DS.keys())[0]
-        
-        second_DS = opened_datasets[1]
-        var_2 = list(first_DS.keys())[0]
-        if ~np.isnan(first_DS[var_1].values).all():
-            ds = first_DS.copy()
-            ds[var_1].values = np.where(np.isnan(ds[var_1].values), second_DS[var_2].values, ds[var_1].values)
-        else:
-            ds = second_DS.copy()
-            ds[var_2].values = np.where(np.isnan(ds[var_2].values), first_DS[var_1].values, ds[var_2].values)
-    else:
-        ds = opened_datasets[0]
-    return ds
-
-def process_data_by_date(A, docs, field, grid, model_grid_ds, date):
-    field_name = field.get('name')
-    data_time_scale = A.data_time_scale
-
-    make_empty_record = False
-    var_name = f'{field_name}_interpolated_to_{grid.get("grid_name_s")}'
-
-    # if docs is empty list, make empty record
-    if docs:
-    # docs list is not empty so first ensure all tx docs were successful before
-    # aggregating.  if not all successful, make empty record
-    # if even one doc at this date and field has success = False, then
-    # make an empty record
-        for doc in docs:
-           if doc['success_b']==False:
-              make_empty_record = True
-    # docs list is empty so make empty record
-    else:
-        make_empty_record = True
-
-    # attempt to open the granules
-    if make_empty_record == False:
-        data_ds = open_datasets(A, docs, field_name)
-
-        # verify that the required var_name in this granule
-        if var_name not in data_ds:
-          # if the var_name is not present, make empty record
-          make_empty_record = True
-
-    if make_empty_record:
-        data_da = records.make_empty_record(date, model_grid_ds, A.precision)
-        data_da.attrs['long_name'] = field['long_name']
-        data_da.attrs['standard_name'] = field['standard_name']
-        data_da.attrs['units'] = field['units']
-        data_da.name = f'{field_name}_interpolated_to_{grid.get("grid_name_s")}'
-        data_da.attrs['agg_notes'] = "empty record created during aggregation"
-
-        empty_record_attrs = data_da.attrs
-        empty_record_attrs['original_field_name'] = field_name
-        empty_record_attrs['interpolation_date'] = str(np.datetime64(datetime.now(), 'D'))
-        data_da.attrs = empty_record_attrs
-
-        data_ds = data_da.to_dataset()
-
-        # add time_bnds coordinate
-        # [start_time, end_time] dimensions
-        # MONTHLY cannot use timedelta64 since it has a variable
-        # number of ns/s/d. DAILY can so we use it.
-        if data_time_scale.upper() == 'MONTHLY':
-            end_time = str(data_ds.time_end.values[0])
-            month = str(np.datetime64(end_time, 'M') + 1)
-            end_time = [str(np.datetime64(month, 'ns'))]
-        elif data_time_scale.upper() == 'DAILY':
-            end_time = data_ds.time_end.values + np.timedelta64(1, 'D')
-
-        _, ct = date_time.make_time_bounds_from_ds64(np.datetime64(end_time[0], 'ns'), 'AVG_MON')
-        data_ds.time.values[0] = ct
-
-        start_time = data_ds.time_start.values
-
-        time_bnds = np.array([start_time, end_time], dtype='datetime64')
-        time_bnds = time_bnds.T
-
-        data_ds = data_ds.assign_coords({'time_bnds': (['time', 'nv'], time_bnds)})
-
-        data_ds.time.attrs.update(bounds='time_bnds')
-
-        data_ds = data_ds.drop('time_start')
-        data_ds = data_ds.drop('time_end')
-
-    return data_ds
-    
-
-def check_nan_da(da: xr.DataArray) -> bool:
+def logging_process(queue: Queue, log_filename: str):
     '''
-    Check if da consists entirely of nans
+    Process to run during multiprocessing. Allows for logging of each process.
     '''
-    if np.sum(~np.isnan(da.values)) == 0:
-        return True
-    return False
+    log_config.configure_logging(True, log_filename=log_filename)
 
+    # report that the logging process is running
+    logging.debug(f'Logger process running.')
+    # run forever
+    while True:
+        # consume a log message, block until one arrives
+        message = queue.get()
+        # check for shutdown
+        if message is None:
+            logging.debug(f'Logger process shutting down.')
+            break
+        # log the message
+        logging.getLogger().handle(message)
 
-def generate_provenance(A, year, grid_name, field_name, solr_output_filepaths, aggregation_successes):
-    # Query for descendants entries from this year
-    fq = ['type_s:descendants', f'dataset_s:{A.dataset_name}', f'date_s:{year}*']
-    existing_descendants_docs = solr_utils.solr_query(fq)
+def get_grids(grids_to_use: Iterable[str]) -> Iterable[dict]:
+    '''
+    Queries for grids on Solr and filters based on grids to use
+    '''
+    fq = ['type_s:grid']
+    grids = [grid for grid in solr_utils.solr_query(fq)]
+    if grids_to_use:
+        grids = [grid for grid in grids if grid['grid_name_s'] in grids_to_use]
+    return grids
 
-    # if descendants entries already exist, update them
-    if len(existing_descendants_docs) > 0:
-        for doc in existing_descendants_docs:
-            doc_id = doc['id']
+def get_solr_ds_metadata(ds_name: str) -> dict:
+    '''
+    Gets type_s:dataset Solr document for a given dataset
+    '''
+    fq = [f'dataset_s:{ds_name}', 'type_s:dataset']
+    ds_meta = solr_utils.solr_query(fq)[0]
+    if 'start_date_dt' not in ds_meta:
+        logging.error('No transformed granules to aggregate.')
+        raise Exception('No transformed granules to aggregate.')
+    return ds_meta
 
-            update_body = [
-                {
-                    "id": doc_id,
-                    "all_aggregation_success_b": {"set": aggregation_successes}
-                }
-            ]
+def make_jobs(ds_name: str, grids: Iterable[dict], fields: Iterable[dict], config: dict) -> Iterable[AggJob]:
+    '''
+    Generates list of AggJob objects that define the grid/field/year aggregations to be performed.
+    Checks if aggregation exists for a given grid/field/year combo and if so if it needs to be reprocessed.
+    '''
+    all_jobs = []
+    for grid in grids:
+        for field in fields:
+            grid_name = grid.get('grid_name_s')
 
-            # Add aggregation file path fields to descendants entry
-            for key, value in solr_output_filepaths.items():
-                update_body[0][f'{grid_name}_{field_name}_aggregated_{key}_path_s'] = {"set": value}
+            # Get grid / field transformation documents from Solr
+            fq = [f'dataset_s:{ds_name}', f'field_s:{field["name"]}',
+                    'type_s:transformation', f'grid_name_s:{grid_name}']
+            transformation_docs = solr_utils.solr_query(fq)
+            transformation_years = list(set([t['date_s'][:4] for t in transformation_docs]))
+            transformation_years.sort()
+            years_to_aggregate = []
+            for year in transformation_years:
+                # Check for successful aggregation doc for this combo of grid / field / year 
+                fq = [f'dataset_s:{ds_name}', 'type_s:aggregation', 'aggregation_success_b:true', 
+                      f'field_s:{field["name"]}', f'grid_name_s:{grid_name}', f'year_s:{year}']
+                aggregation_docs = solr_utils.solr_query(fq)
 
-            r = solr_utils.solr_update(update_body, r=True)
+                # If aggregation was previously done compare transformation time with aggregation time
+                if aggregation_docs:
+                    agg_time = aggregation_docs[0]['aggregation_time_dt']
+                    for t in transformation_docs:
+                        if t['date_s'][:4] != year:
+                            continue
+                        if t['transformation_completed_dt'] > agg_time:
+                            years_to_aggregate.append(year)
+                            break
+                else:
+                    years_to_aggregate.append(year)            
+            all_jobs.extend([AggJob(config, grid, year, field) for year in years_to_aggregate])
+    return all_jobs
 
-            if r.status_code != 200:
-                logging.exception(f'Failed to update Solr aggregation entry for {field_name} in {A.dataset_name} for {year} and grid {grid_name}')
+def make_jobs_all_years(ds_metadata: dict, grids: Iterable[dict], fields: Iterable[dict], config: dict) -> Iterable[AggJob]:
+    '''
+    Makes AggJob objects for all years for all grids for all fields
+    '''
+    start_year = int(ds_metadata.get('start_date_dt')[:4])
+    end_year = int(ds_metadata.get('end_date_dt')[:4])
+    years = [str(year) for year in range(start_year, end_year + 1)]
+    jobs = []
+    for grid in grids:
+        for field in fields:
+            jobs.extend([AggJob(config, grid, year, field) for year in years])
+    return jobs
 
-    fq = [f'dataset_s:{A.dataset_name}', 'type_s:aggregation',
-            f'grid_name_s:{grid_name}', f'field_s:{field_name}', f'year_s:{year}']
-    docs = solr_utils.solr_query(fq)
-
-    # Export annual descendants JSON file for each aggregation created
-    logging.debug(f'Exporting {year} descendants for grid {grid_name} and field {field_name}')
-    json_output = {}
-    json_output['dataset'] = A.ds_meta
-    json_output['aggregation'] = docs
-    json_output['transformations'] = A.transformations[field_name]
-    json_output_path = f'{OUTPUT_DIR}/{A.dataset_name}/transformed_products/{grid_name}/aggregated/{field_name}/{A.dataset_name}_{field_name}_{grid_name}_{year}_descendants'
-    with open(json_output_path, 'w') as f:
-        resp_out = json.dumps(json_output, indent=4)
-        f.write(resp_out)
-
-
-def aggregate(A: Aggregation, grid: dict, year: int, field: dict):
-    aggregation_successes = True
-    # Construct list of dates corresponding to data time scale
-    grid_path = grid['grid_path_s']
-    grid_name = grid['grid_name_s']
-    grid_type = grid['grid_type_s']
+def get_jobs(config: dict, grids: Iterable[dict], fields: Iterable[dict]) -> Iterable[AggJob]:
+    '''
+    Gets list of AggJob objects for each annual aggregation to be performed for each grid / field combination
+    '''
+    ds_metadata = get_solr_ds_metadata(config['ds_name'])
+    existing_agg_version = ds_metadata.get('aggregation_version_s')
     
-    model_grid_ds = xr.open_dataset(grid_path, decode_times=True)
-    
-    data_time_scale = A.ds_meta.get('data_time_scale_s')
-    if  data_time_scale == 'daily':
-        dates_in_year = np.arange(f'{year}-01-01', f'{int(year)+1}-01-01', dtype='datetime64[D]')
-    elif data_time_scale == 'monthly':
-        dates_in_year = [f'{year}-{str(month).zfill(2)}-01' for month in range(1,13)]
-
-    field_name = field.get('name')
-
-    logging.info(f'Aggregating {str(year)}_{grid_name}_{field_name}')
-    print(f'ian: aggregate, Aggregating {str(year)} {grid_name} {field_name}')
-
-    daily_DS_year = []
-    for date in dates_in_year:
-        docs = get_data_by_date(A, date, grid_name, field_name)
-        data_DS = process_data_by_date(A, docs, field, grid, model_grid_ds, date)
-        daily_DS_year.append(data_DS)
-
-    # Concatenate all data files within annual list
-    daily_annual_ds = xr.concat((daily_DS_year), dim='time')
-    data_var = list(daily_annual_ds.keys())[0]
-
-    daily_annual_ds.attrs['aggregation_version'] = A.version
-    daily_annual_ds[data_var].attrs['valid_min'] = np.nanmin(daily_annual_ds[data_var].values)
-    daily_annual_ds[data_var].attrs['valid_max'] = np.nanmax(daily_annual_ds[data_var].values)
-
-    remove_keys = []
-    for (key, _) in daily_annual_ds[data_var].attrs.items():
-        if ('original' in key and key != 'original_field_name'):
-            remove_keys.append(key)
-
-    for key in remove_keys:
-        del daily_annual_ds[data_var].attrs[key]
-
-    # Create filenames based on date time scale
-    # If data time scale is monthly, shortest_filename is monthly
-    shortest_filename = f'{A.dataset_name}_{grid_name}_{data_time_scale.upper()}_{field_name}_{year}'
-    monthly_filename = f'{A.dataset_name}_{grid_name}_MONTHLY_{field_name}_{year}'
-
-    output_path = f'{OUTPUT_DIR}/{A.dataset_name}/transformed_products/{grid_name}/aggregated/{field_name}/'
-
-    bin_output_dir = Path(output_path) / 'bin'
-    bin_output_dir.mkdir(parents=True, exist_ok=True)
-
-    netCDF_output_dir = Path(output_path) / 'netCDF'
-    netCDF_output_dir.mkdir(parents=True, exist_ok=True)
-
-    uuids = [str(uuid.uuid1()), str(uuid.uuid1())]
-
-    success = True
-    empty_year = False
-
-    # Save
-    if check_nan_da(daily_annual_ds[data_var]):
-        empty_year = True
+    if existing_agg_version and existing_agg_version != str(config.get('a_version', '')):
+        logging.debug('Making jobs for all years')
+        agg_jobs = make_jobs_all_years(ds_metadata, grids, fields, config)
     else:
-        if A.do_monthly_aggregation:
-            logging.info(f'Aggregating monthly {str(year)}_{grid_name}_{field_name}')
-            try:
-                mon_DS_year_merged = ecco_functions.monthly_aggregation(daily_annual_ds, data_var, year, A, uuids[1])
-                mon_DS_year_merged[data_var] = mon_DS_year_merged[data_var].fillna(A.nc_fill_val)
+        logging.debug('Determining jobs')
+        agg_jobs = make_jobs(config['ds_name'], grids, fields, config)
+    return agg_jobs
 
-                if A.save_binary:
-                    records.save_binary(mon_DS_year_merged, monthly_filename, A.bin_fill_val,
-                                        bin_output_dir, A.binary_dtype, grid_type, data_var)
-                if A.save_netcdf:
-                    records.save_netcdf(mon_DS_year_merged, monthly_filename, A.nc_fill_val, netCDF_output_dir)
+def get_agg_status(ds_name: str) -> str:
+    '''
+    Queries Solr for dataset aggregations. 
+    Returns overall status of aggregation, not specific to this particular execution.
+    '''
+    # Query Solr for successful aggregation documents
+    fq = [f'dataset_s:{ds_name}', 'type_s:aggregation', 'aggregation_success_b:true']
+    successful_aggregations = solr_utils.solr_query(fq)
 
-            except Exception as e:
-                logging.exception(f'Error aggregating {A.dataset_name}. {e}')
-                empty_year = True
-                success = False
+    # Query Solr for failed aggregation documents
+    fq = [f'dataset_s:{ds_name}', 'type_s:aggregation', 'aggregation_success_b:false']
+    failed_aggregations = solr_utils.solr_query(fq)
 
-        daily_annual_ds.attrs['uuid'] = uuids[0]
-        daily_annual_ds.attrs['time_coverage_duration'] = 'P1Y'
-        daily_annual_ds.attrs['time_coverage_start'] = str(daily_annual_ds.time_bnds.values[0][0])[0:19]
-        daily_annual_ds.attrs['time_coverage_end'] = str(daily_annual_ds.time_bnds.values[-1][-1])[0:19]
-        if data_time_scale.upper() == 'DAILY':
-            daily_annual_ds.attrs['time_coverage_resolution'] = 'P1D'
-        elif data_time_scale.upper() == 'MONTHLY':
-            daily_annual_ds.attrs['time_coverage_resolution'] = 'P1M'
+    aggregation_status = 'All aggregations successful'
 
-        daily_annual_ds[data_var] = daily_annual_ds[data_var].fillna(A.nc_fill_val)
+    if not successful_aggregations and not failed_aggregations:
+        aggregation_status = 'No aggregations performed'
+    elif not successful_aggregations:
+        aggregation_status = 'No successful aggregations'
+    elif failed_aggregations:
+        aggregation_status = f'{len(failed_aggregations)} aggregations failed'
+    return aggregation_status
 
-        if A.save_binary:
-            records.save_binary(daily_annual_ds, shortest_filename, A.bin_fill_val,
-                                bin_output_dir, A.binary_dtype, grid_type, data_var)
-        if A.save_netcdf:
-            records.save_netcdf(daily_annual_ds, shortest_filename, A.nc_fill_val,
-                                netCDF_output_dir)
 
-    if empty_year:
-        solr_output_filepaths = {'daily_bin': '',
-                                'daily_netCDF': '',
-                                'monthly_bin': '',
-                                'monthly_netCDF': ''}
-    else:
-        solr_output_filepaths = {'daily_bin': f'{output_path}bin/{shortest_filename}',
-                                'daily_netCDF': f'{output_path}netCDF/{shortest_filename}.nc',
-                                'monthly_bin': f'{output_path}bin/{monthly_filename}',
-                                'monthly_netCDF': f'{output_path}netCDF/{monthly_filename}.nc'}
-
-    aggregation_successes = aggregation_successes and success
-    empty_year = empty_year and success
-
-    if empty_year:
-        solr_output_filepaths = {'daily_bin': '',
-                                'daily_netCDF': '',
-                                'monthly_bin': '',
-                                'monthly_netCDF': ''}
-
-    # Query Solr for existing aggregation
-    fq = [f'dataset_s:{A.dataset_name}', 'type_s:aggregation',
-            f'grid_name_s:{grid_name}', f'field_s:{field_name}', f'year_s:{year}']
-    docs = solr_utils.solr_query(fq)
-
-    # If aggregation exists, update using Solr entry id
-    if len(docs) > 0:
-        doc_id = docs[0]['id']
-        update_body = [
-            {
-                "id": doc_id,
-                "aggregation_time_dt": {"set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")},
-                "aggregation_version_s": {"set": A.version}
-            }
-        ]
-    else:
-        update_body = [
-            {
-                "type_s": 'aggregation',
-                "dataset_s": A.dataset_name,
-                "year_s": year,
-                "grid_name_s": grid_name,
-                "field_s": field_name,
-                "aggregation_time_dt": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "aggregation_success_b": success,
-                "aggregation_version_s": A.version
-            }
-        ]
-
-    # Update file paths according to the data time scale and do monthly aggregation config field
-    if data_time_scale == 'daily':
-        update_body[0]["aggregated_daily_bin_path_s"] = {"set": solr_output_filepaths['daily_bin']}
-        update_body[0]["aggregated_daily_netCDF_path_s"] = {"set": solr_output_filepaths['daily_netCDF']}
-        update_body[0]["daily_aggregated_uuid_s"] = {"set": uuids[0]}
-        if A.do_monthly_aggregation:
-            update_body[0]["aggregated_monthly_bin_path_s"] = {"set": solr_output_filepaths['monthly_bin']}
-            update_body[0]["aggregated_monthly_netCDF_path_s"] = {"set": solr_output_filepaths['monthly_netCDF']}
-            update_body[0]["monthly_aggregated_uuid_s"] = {"set": uuids[1]}
-    elif data_time_scale == 'monthly':
-        update_body[0]["aggregated_monthly_bin_path_s"] = {"set": solr_output_filepaths['monthly_bin']}
-        update_body[0]["aggregated_monthly_netCDF_path_s"] = {"set": solr_output_filepaths['monthly_netCDF']}
-        update_body[0]["monthly_aggregated_uuid_s"] = {"set": uuids[1]}
-
-    if empty_year:
-        update_body[0]["notes_s"] = {"set": 'Empty year (no data present in grid), not saving to disk.'}
-    else:
-        update_body[0]["notes_s"] = {"set": ''}
-
-    r = solr_utils.solr_update(update_body, r=True)
-
-    if r.status_code != 200:
-        logging.exception(f'Failed to update Solr aggregation entry for {field_name} in {A.dataset_name} for {year} and grid {grid_name}')
-
-    generate_provenance(A, year, grid_name, field_name, solr_output_filepaths, aggregation_successes)
+def multiprocess_aggregate(job: AggJob, log_filename: str):
+    '''
+    Function used to execute by multiprocessing to execute a single grid/year/field aggregation
+    '''
+    log_config.configure_logging(True, log_filename=log_filename)
+    logging.info(f'Beginning aggregation for {job.grid["grid_name_s"]}, {job.year}, {job.field["name"]}')
+    job.aggregate()
     
-    
-
-def daily_aggregation(A: Aggregation, grid: dict, year: int, field: dict):
-    grid_path = grid['grid_path_s']
-    grid_name = grid['grid_name_s']
-    grid_type = grid['grid_type_s']
-    
-    model_grid_ds = xr.open_dataset(grid_path, decode_times=True)
-    dates_in_year = np.arange(f'{year}-01-01', f'{int(year)+1}-01-01', dtype='datetime64[D]')
-    
-    field_name = field.get('name')
-
-    logging.info(f'Aggregating {str(year)}_{grid_name}_{field_name}')
-
-    daily_DS_year = []
-    for date in dates_in_year:
-        docs = get_data_by_date(A, date, grid_name, field_name)
-        data_DS = A.process_data_by_date(docs, field, grid, model_grid_ds, date)
-        daily_DS_year.append(data_DS)
-    return daily_DS_year
-
-
-def monthly_aggregation(A: Aggregation, grid: dict, year: int, field: dict):
-    grid_path = grid['grid_path_s']
-    grid_name = grid['grid_name_s']
-    grid_type = grid['grid_type_s']
-    
-    model_grid_ds = xr.open_dataset(grid_path, decode_times=True)
-    dates_in_year = np.arange(f'{year}-01', f'{int(year)+1}-01', dtype='datetime64[M]')
-    dates_in_year = [f'{date}-01' for date in dates_in_year]
-    
-    field_name = field.get('name')
-
-    logging.info(f'Aggregating {str(year)}_{grid_name}_{field_name}')
-
-    monthly_year_ds = []
-    for date in dates_in_year:
-        docs = get_data_by_date(A, date, grid_name, field_name)
-        data_DS = process_data_by_date(A, docs, field, grid, model_grid_ds, date)
-        monthly_year_ds.append(data_DS)
-    return monthly_year_ds
-
-      
-def monthly_avg_aggregation():
-    pass
-
-def aggregation(config, grids_to_use=[]):
-    """
-    Aggregates data into annual files, saves them, and updates Solr
-    """
-    try:
-        A = Aggregation(config, grids_to_use)
-    except:
-        return 'No aggregations performed'
-
-    update_body = []
-
-    # =====================================================
-    # Loop through grids
-    # =====================================================
-    for grid in A.grids:
-
-        years = A.years.get(grid['grid_name_s'])
-
-        for year, field in list(itertools.product(years, A.fields)):
-            # if A.data_time_scale == 'daily':
-            #     annual_ds = daily_aggregation(A, grid, year, field)
-            #     # monthly_avg_aggregation(A, grid, year, field)
-            # elif A.data_time_scale == 'monthly':
-            #     annual_ds = monthly_aggregation(A, grid, year, field)
-            #     # ecco_functions.monthly_aggregation(A, grid, year, field, str(uuid.uuid1()))
-            aggregate(A, grid, year, field)
-            
-    aggregation_status = A.get_agg_status()
-    
-    # Update Solr dataset entry status
+def update_solr_ds(aggregation_status: str, config: dict):
+    # Update Solr dataset entry with new aggregation status
     update_body = [
         {
-            "id": A.ds_meta['id'],
-            "aggregation_version_s": {"set": A.version},
+            "id": Aggregation(config).ds_meta['id'],
+            "aggregation_version_s": {"set": str(config['a_version'])},
             "aggregation_status_s": {"set": aggregation_status}
         }
     ]
@@ -453,8 +157,47 @@ def aggregation(config, grids_to_use=[]):
     r = solr_utils.solr_update(update_body, r=True)
 
     if r.status_code == 200:
-        logging.debug(f'Successfully updated Solr with aggregation information for {A.dataset_name}')
+        logging.debug(f'Successfully updated Solr with aggregation information for {config["ds_name"]}')
     else:
-        logging.exception(f'Failed to update Solr dataset entry with aggregation information for {A.dataset_name}')
+        logging.exception(f'Failed to update Solr dataset entry with aggregation information for {config["ds_name"]}')
 
+def aggregation(config: dict, user_cpus: int, grids_to_use: Iterable[str]=[]) -> str:
+    """
+    Aggregates data into annual files (either daily, monthly, or both), saves them, and updates Solr
+    """
+    log_filename = global_settings.log_filename
+    
+    grids = get_grids(grids_to_use)
+    agg_jobs = get_jobs(config, grids, config.get('fields'))
+    
+    logging.info(f'Executing jobs: {", ".join([str(job) for job in agg_jobs])}')
+    
+    if user_cpus == 1:
+        logging.info('Not using multiprocessing to do aggregations')
+        for agg_job in agg_jobs:
+            multiprocess_aggregate(agg_job)
+    else:
+        logging.info(f'Using {user_cpus} CPUs to do multiprocess aggregation')
+        with Manager() as manager:
+            queue = manager.Queue()
+            # add a handler that uses the shared queue
+            queue_handler = QueueHandler(queue)
+            logging.getLogger().addHandler(queue_handler)
+            queue_handler.setFormatter(logging.Formatter('[%(levelname)s] %(asctime)s - %(message)s'))
+            
+            try:
+                with Pool(processes=user_cpus) as pool:               
+                    # issue a long running task to receive logging messages
+                    _ = pool.apply_async(logging_process, args=(queue,log_filename,))
+
+                    pool.starmap(multiprocess_aggregate, [(agg_job, log_filename) for agg_job in agg_jobs])
+                    queue.put(None)
+                    pool.close()
+                    pool.join()
+            except Exception as e:
+                logging.exception('Error using multiprocessing aggregation')
+            logging.getLogger().removeHandler(queue_handler)
+        
+    aggregation_status = get_agg_status(config['ds_name'])
+    update_solr_ds(aggregation_status, config)
     return aggregation_status

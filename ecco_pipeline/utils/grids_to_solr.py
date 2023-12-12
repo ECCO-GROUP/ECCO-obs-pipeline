@@ -5,15 +5,21 @@ import xarray as xr
 from utils import file_utils, solr_utils
 
 
-def update_solr_grid(grid_name, grid_type, grid_file, docs):
+def update_solr_grid(grid_name, grid_type, grid_file):
     '''
     Update solr grid docs with latest versions of grids
     '''
 
+    # =====================================================
+    # Query for Solr Grid-type Documents
+    # =====================================================
+    fq = ['type_s:grid']
+    grid_docs = solr_utils.solr_query(fq)
+
     grid_path = f'grids/{grid_file}'
     update_body = []
 
-    grids_in_solr = [doc['grid_name_s'] for doc in docs]
+    grids_in_solr = [doc['grid_name_s'] for doc in grid_docs]
 
     # Add grid to solr
     if grid_name not in grids_in_solr:
@@ -22,17 +28,14 @@ def update_solr_grid(grid_name, grid_type, grid_file, docs):
         grid_meta['grid_type_s'] = grid_type
         grid_meta['grid_name_s'] = grid_name
         grid_meta['grid_path_s'] = str(grid_path)
-
-        grid_meta['date_added_dt'] = datetime.utcnow().strftime(
-            "%Y-%m-%dT%H:%M:%SZ")
-
+        grid_meta['date_added_dt'] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
         grid_meta['grid_checksum_s'] = file_utils.md5(grid_path)
         update_body.append(grid_meta)
     # Verify grid in solr matches grid file
     else:
         current_checksum = file_utils.md5(grid_path)
 
-        for doc in docs:
+        for doc in grid_docs:
             if doc['grid_name_s'] == grid_name:
                 solr_checksum = doc['grid_checksum_s']
 
@@ -82,16 +85,16 @@ def update_solr_grid(grid_name, grid_type, grid_file, docs):
     r = solr_utils.solr_update(update_body, r=True)
 
     if r.status_code == 200:
-        print(f'Successfully updated {grid_name} Solr grid document')
+        logging.debug(f'Successfully updated {grid_name} Solr grid document')
     else:
-        print(f'Failed to update Solr {grid_name} grid document')
+        logging.error(f'Failed to update Solr {grid_name} grid document')
 
 
 def main(grids_to_use=[]):
     # =====================================================
     # Scan directory for grid types
     # =====================================================
-    grid_files = [f for f in os.listdir('grids/') if f[-2:] == 'nc']
+    grid_files = [f for f in os.listdir('grids/') if f.endswith('nc')]
 
     # =====================================================
     # Extract grid names from netCDF
@@ -108,16 +111,11 @@ def main(grids_to_use=[]):
         logging.debug(f'Loaded {grid_name} {grid_type} {grid_file}')
 
     # =====================================================
-    # Query for Solr Grid-type Documents
-    # =====================================================
-    fq = ['type_s:grid']
-    docs = solr_utils.solr_query(fq)
-    # =====================================================
     # Create Solr grid-type document for each missing grid type
     # =====================================================
     for grid_name, grid_type, grid_file in grids:
-        logging.debug(f'Uploading solr grid {grid_name} {grid_type} {grid_file} {docs}')
-        update_solr_grid(grid_name, grid_type, grid_file, docs)
+        logging.debug(f'Uploading solr grid {grid_name} {grid_type} {grid_file}')
+        update_solr_grid(grid_name, grid_type, grid_file)
 
     # =====================================================
     # Verify grid names supplied exist on Solr

@@ -11,11 +11,12 @@ from harvesters.enumeration.cmr_enumerator import cmr_search, CMR_Granule
 from harvesters.granule import Granule
 from harvesters.harvester import Harvester
 from utils import file_utils, harvesting_utils
+from utils.ecco_utils.date_time import make_time_bounds_from_ds64
 
 
 class CMR_Harvester(Harvester):
     
-    def __init__(self, config):
+    def __init__(self, config: dict):
         Harvester.__init__(self, config)
         if config['end'] == 'NOW':
             config['end'] = datetime.utcnow().strftime("%Y%m%dT%H:%M:%SZ")
@@ -133,43 +134,56 @@ class CMR_Harvester(Harvester):
             dt = datetime.strptime(date, self.filename_date_fmt)
             if not (self.start_time_dt <= dt) and (self.end_time_dt >= dt):
                 continue
-            
-            year = str(dt.year)
-            month = str(dt.month)
 
-            local_fp = f'{self.target_dir}{year}/{filename}'
+            local_fp = f'{self.target_dir}/{filename}'
 
-            if not os.path.exists(f'{self.target_dir}{year}/'):
-                os.makedirs(f'{self.target_dir}{year}/')
+            if not os.path.exists(f'{self.target_dir}/'):
+                os.makedirs(f'{self.target_dir}/')
                 
             if harvesting_utils.check_update(self.solr_docs, filename, cmr_granule.mod_time):
-                native_granule = Granule(self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url)
+                logging.info(f'Downloading {filename} to {local_fp}')
+                self.dl_file(cmr_granule.url, local_fp)
+                ds = xr.open_dataset(local_fp, decode_times=True)
+                
+                # Extract time coverage from file metadata
+                time_start = np.datetime64(ds.attrs['time_coverage_start'][:-1]).astype('datetime64[M]')
+                time_end = np.datetime64(ds.attrs['time_coverage_end'][:-1]).astype('datetime64[M]') + 1
+                
+                # Construct months within time coverage
+                months = np.arange(time_start, time_end, 1, dtype='datetime64[M]')
+                # Compute monthly centertimes
+                monthly_cts = [make_time_bounds_from_ds64((month + 1).astype('datetime64[s]'), 'AVG_MON')[1] for month in months]
+                
+                logging.info('Slicing aggregated granule into monthly granules')
 
-                if self.need_to_download(native_granule):
-                    logging.info(f'Downloading {filename} to {local_fp}')
+                for monthly_center in monthly_cts:
                     try:
-                        self.dl_file(cmr_granule.url, local_fp)
-                        ds = xr.open_dataset(local_fp, decode_times=True)
+                        success = True
+                        sub_ds = ds.sel(time=np.datetime64(monthly_center), method = 'nearest')
+                        sub_ds_time = sub_ds.time.values
                         
-                        for time in ds.time.values:
-                            success = True
-                            sub_ds = ds.sel(time=time)
-                            time_dt = datetime.strptime(str(time)[:-3], "%Y-%m-%dT%H:%M:%S.%f")
-                            filename_time = str(time_dt)[:10].replace('-', '')
+                        # Check if slice is within +/- 7 day tolerance
+                        if not (sub_ds_time >= monthly_center - np.timedelta64(7, 'D') and sub_ds_time <= monthly_center + np.timedelta64(7, 'D')):
+                            logging.info(f'No slice found within 7 day tolerance for {monthly_center}')
+                            continue
 
-                            slice_filename = f'{self.ds_name}_{filename_time}.nc'
-                            slice_local_fp = f'{self.target_dir}{year}/{slice_filename}'
-                            sub_ds.to_netcdf(slice_local_fp)
-                            
-                            monthly_granule = Granule(self.ds_name, slice_local_fp, dt, cmr_granule.mod_time, cmr_granule.url)
-                            monthly_granule.update_item(self.solr_docs, success)
-                            monthly_granule.update_descendant(self.descendant_docs, success)
-                            self.updated_solr_docs.extend(monthly_granule.get_solr_docs())
+                        time_dt = datetime.strptime(str(monthly_center.astype('datetime64[M]')), "%Y-%m")
+                        filename_time = str(time_dt)[:10].replace('-', '')
+
+                        slice_filename = f'{self.ds_name}_{filename_time}.nc'
+                        slice_local_fp = f'{self.target_dir}{str(time_dt.year)}/{slice_filename}'
+                        os.makedirs(f'{self.target_dir}{str(time_dt.year)}', exist_ok=True)
+                        sub_ds.to_netcdf(slice_local_fp)
+                        
                     except Exception as e:
-                        print(e)
+                        logging.error(f'Error making granule slice: {e}')
                         success = False
-                else:
-                    logging.debug(f'{filename} already downloaded and up to date')
+                    logging.info(f'Monthly center: {monthly_center}, data_slice_time: {sub_ds_time}, time for solr: {str(time_dt)}')
+                    monthly_granule = Granule(self.ds_name, slice_local_fp, time_dt, cmr_granule.mod_time, cmr_granule.url)
+                    monthly_granule.update_item(self.solr_docs, success)
+                    monthly_granule.update_descendant(self.descendant_docs, success)
+                    self.updated_solr_docs.extend(monthly_granule.get_solr_docs())
+
         logging.info(f'Downloading {self.ds_name} complete')
 
 
@@ -208,7 +222,6 @@ class CMR_Harvester(Harvester):
             
             # Force date to be first of the month
             dt = dt.replace(day=1)
-            date = dt.strftime(self.filename_date_regex)
             
             if not (self.start_time_dt <= dt) and (self.end_time_dt >= dt):
                 continue
@@ -239,6 +252,63 @@ class CMR_Harvester(Harvester):
         logging.info(f'Downloading {self.ds_name} complete')
                 
 
+    def fetch_tolerance_filter(self):
+        sorted_granules = sorted(self.cmr_granules, key=lambda x: x.url)
+        sorted_granule_dict = {np.datetime64(str(datetime.strptime(file_utils.get_date(self.filename_date_regex, g.url.split('/')[-1]), self.filename_date_fmt))[:10]) : g for g in sorted_granules}
+
+        filename_time = file_utils.get_date(self.filename_date_regex, sorted_granules[0].url.split('/')[-1])
+        time_start = datetime.strptime(filename_time, self.filename_date_fmt)
+        
+        filename_time = file_utils.get_date(self.filename_date_regex, sorted_granules[-1].url.split('/')[-1])
+        time_end = datetime.strptime(filename_time, self.filename_date_fmt)
+        
+        # Construct months within time coverage
+        months = np.arange(time_start.strftime('%Y-%m-01'), time_end.strftime('%Y-%m-01'), 1, dtype='datetime64[M]')
+        months = [m.astype('datetime64[D]') for m in months]
+        
+        granules_to_use = []
+        for month in months:
+            delta = [abs(x - month) for x in list(sorted_granule_dict.keys())]
+            idx = np.argmin(delta)
+            nearest_key = list(sorted_granule_dict.keys())[idx]
+            
+            if nearest_key >= month - np.timedelta64(7, 'D') and nearest_key <= month + np.timedelta64(7, 'D'):
+                granules_to_use.append(sorted_granule_dict[nearest_key])
+            else:
+                logging.info(f'Granule nearest to {month} ({nearest_key}) is outside of tolerance window. Skipping.')
+        
+        for cmr_granule in self.cmr_granules:
+            filename = cmr_granule.url.split('/')[-1]
+            # Get date from filename and convert to dt object
+            date = file_utils.get_date(self.filename_date_regex, filename)
+            dt = datetime.strptime(date, self.filename_date_fmt)
+            if not (self.start_time_dt <= dt) and (self.end_time_dt >= dt):
+                continue
+            
+            year = str(dt.year)
+
+            local_fp = f'{self.target_dir}{year}/{filename}'
+
+            if not os.path.exists(f'{self.target_dir}{year}/'):
+                os.makedirs(f'{self.target_dir}{year}/')
+                
+            if harvesting_utils.check_update(self.solr_docs, filename, cmr_granule.mod_time):
+                success = True
+                granule = Granule(self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url)
+                
+                if self.need_to_download(granule):
+                    logging.info(f'Downloading {filename} to {local_fp}')
+                    try:
+                        self.dl_file(cmr_granule.url, local_fp)
+                    except:
+                        success = False
+                else:
+                    logging.debug(f'{filename} already downloaded and up to date')
+                    
+                granule.update_item(self.solr_docs, success)
+                granule.update_descendant(self.descendant_docs, success)
+                self.updated_solr_docs.extend(granule.get_solr_docs())
+        logging.info(f'Downloading {self.ds_name} complete')
 
 def harvester(config: dict) -> str:
     """
@@ -247,12 +317,15 @@ def harvester(config: dict) -> str:
     """
 
     harvester = CMR_Harvester(config)
+        
     if harvester.ds_name == 'ATL20_V004_daily':
         harvester.fetch_atl_daily()
     elif harvester.ds_name == 'TELLUS_GRAC-GRFO_MASCON_CRI_GRID_RL06.1_V3':
         harvester.fetch_tellus_grac_grfo()
     elif harvester.ds_name == 'RDEFT4':
         harvester.fetch_rdeft4()
+    elif 'TELLUS_GR' in harvester.ds_name:
+        harvester.fetch_tolerance_filter()
     else:
         harvester.fetch()
     harvesting_status = harvester.post_fetch()

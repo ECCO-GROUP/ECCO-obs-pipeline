@@ -75,7 +75,7 @@ def show_menu(grids_to_use: List[str], user_cpus: int):
         for ds in datasets:
             run_harvester([ds])
             run_transformation([ds], user_cpus, grids_to_use)
-            run_aggregation([ds], grids_to_use)
+            run_aggregation([ds], user_cpus, grids_to_use)
 
     # Run harvester
     elif chosen_option == '2':
@@ -128,11 +128,11 @@ def show_menu(grids_to_use: List[str], user_cpus: int):
         if 'transform' in wanted_steps:
             run_transformation([wanted_ds], user_cpus, grids_to_use)
         if 'aggregate' in wanted_steps:
-            run_aggregation([wanted_ds], grids_to_use)
+            run_aggregation([wanted_ds], user_cpus, grids_to_use)
         if wanted_steps == 'all':
             run_harvester([wanted_ds])
             run_transformation([wanted_ds], user_cpus, grids_to_use)
-            run_aggregation([wanted_ds], grids_to_use)
+            run_aggregation([wanted_ds], user_cpus, grids_to_use)
 
 
 def run_harvester(datasets: List[str]):
@@ -174,14 +174,14 @@ def run_transformation(datasets: List[str], user_cpus: int, grids_to_use: List[s
             logging.exception(f'{ds} transformation failed.')
 
 
-def run_aggregation(datasets: List[str], grids_to_use: List[str]):
+def run_aggregation(datasets: List[str], user_cpus: int, grids_to_use: List[str]):
     for ds in datasets:
         try:
             logging.info(f'Beginning aggregation on {ds}')
             with open(Path(f'conf/ds_configs/{ds}.yaml'), 'r') as stream:
                 config = yaml.load(stream, yaml.Loader)
 
-            status = aggregation(config, grids_to_use)
+            status = aggregation(config, user_cpus, grids_to_use)
             logging.info(f'{ds} aggregation complete. {status}')
         except Exception as e:
             logging.exception(f'{ds} aggregation failed: {e}')
