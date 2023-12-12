@@ -4,10 +4,12 @@ from glob import glob
 import logging
 import requests
 import netrc
-from conf.global_settings import OUTPUT_DIR, SOLR_COLLECTION, GRIDS
-import conf.global_settings as global_settings
 from utils import log_config, solr_utils, grids_to_solr
-
+try:
+    from conf.global_settings import OUTPUT_DIR, SOLR_COLLECTION, GRIDS
+    import conf.global_settings as global_settings
+except ImportError:
+    raise ImportError('Missing global_settings.py file. See ecco_pipeline/conf/global_settings.py.example for more info.')
 
 def setup_logger(args):
     filename = log_config.configure_logging(True, args.log_level, args.wipe_logs)
