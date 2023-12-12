@@ -19,7 +19,6 @@ filename_filter: "ease2-250_icdr-v3p0"
 # operational climate users.
 
 # Metadata
-aggregated: false # if data is available aggregated
 data_time_scale: "daily" # daily or monthly
 hemi_pattern:
   north: "_nh_"

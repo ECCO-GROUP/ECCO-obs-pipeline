@@ -12,7 +12,6 @@ filename_date_regex: '\d{14}'
 provider: "data.nsidc"
 
 # Metadata
-aggregated: false # if data is available aggregated
 data_time_scale: "monthly" # daily or monthly
 preprocessing: ATL20_V004_monthly
 mapping_operation: 'nanmean'

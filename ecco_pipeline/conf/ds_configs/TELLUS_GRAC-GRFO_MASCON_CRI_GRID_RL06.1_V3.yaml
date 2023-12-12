@@ -14,7 +14,6 @@ filename_date_regex: '\d{6}'
 provider: "archive.podaac"
 
 # Metadata
-aggregated: true # if data is available aggregated
 data_time_scale: "monthly" # daily or monthly
 preprocessing: GRACE_MASCON
 fields:

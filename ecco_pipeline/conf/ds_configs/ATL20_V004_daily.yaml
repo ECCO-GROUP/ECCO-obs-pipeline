@@ -12,7 +12,6 @@ filename_date_regex: '\d{8}'
 provider: "data.nsidc"
 
 # Metadata
-aggregated: false # if data is available aggregated
 data_time_scale: "daily" # daily or monthly
 mapping_operation: 'nanmean'
 hemi_pattern:

@@ -12,7 +12,6 @@ ddir: "reprocessed/ice/conc/v3p0/monthly/"
 filename_filter: "ease2-250_cdr-v3p0"
 
 # Metadata
-aggregated: false # if data is available aggregated
 data_time_scale: "monthly" # daily or monthly
 hemi_pattern:
   north: "_nh_"
@@ -52,8 +51,6 @@ proj_info_sh:
   proj_id: "6932"
   proj4_args: "+proj=laea +lat_0=-90 +lon_0=0 +x_0=0 +y_0=0 +ellps=WGS84 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"
 
-pre_transformation_steps: [] # List of functions to call on the DataSet before transformation
-post_transformation_steps: [] # List of functions to call on the DataArrays after transformation
 notes: "" # String to include in global attributes of output files
 
 # Aggregation

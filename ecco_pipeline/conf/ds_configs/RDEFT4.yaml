@@ -11,7 +11,6 @@ filename_date_regex: '\d{8}'
 provider: "n5eil01u.ecs.nsidc.org"
 
 # Metadata
-aggregated: false # if data is available aggregated
 data_time_scale: "monthly" # daily or monthly
 fields:
   - name: sea_ice_thickness
