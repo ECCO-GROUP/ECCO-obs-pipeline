@@ -17,3 +17,6 @@ class Dataset():
         self.hemi_pattern:dict = config.get('hemi_pattern')        
         self.fields: Iterable[Field] = [Field(**config_field) for config_field in config.get('fields')]        
         self.og_ds_metadata: dict = {k: v for k, v in config.items() if 'original' in k}
+        self.preprocessing_function = config.get('preprocessing')
+        self.t_version = config.get('t_version')
+        self.a_version = config.get('a_version')
