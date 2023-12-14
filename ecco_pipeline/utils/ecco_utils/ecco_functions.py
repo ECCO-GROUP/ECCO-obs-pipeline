@@ -5,6 +5,7 @@ import numpy as np
 import pyresample as pr
 import xarray as xr
 from aggregations.aggregation import Aggregation
+from transformations.transformation import Transformation
 from utils.ecco_utils import date_time, records
 
 
@@ -460,10 +461,14 @@ def generalized_aggregate_and_save(DS_year_merged, data_var, do_monthly_aggregat
     return False
 
 # Preprocessing functions
+# Requirements: function parameters MUST be file_path, Transformation object
 # -----------------------------------------------------------------------------------------------------------------------------------------------
 
-def ATL20_V004_monthly(file_path, config):
-    vars = [field['name'] for field in config['fields']]
+def ATL20_V004_monthly(file_path: str, T: Transformation) -> xr.Dataset:
+    '''
+    Handle data groups
+    '''
+    vars = [field.name for field in T.fields]
 
     ds = xr.open_dataset(file_path, decode_times=True)
     ds = ds[['grid_x', 'grid_y', 'crs']]
@@ -472,21 +477,13 @@ def ATL20_V004_monthly(file_path, config):
     merged_ds = xr.merge([ds, var_ds])
     return merged_ds
 
-def GRACE_MASCON(file_path, config):
-    '''
-    Mask out land and convert cm to m.
-    '''
-    ds = xr.open_dataset(file_path, decode_times=True)
-    ds.lwe_thickness.values = np.where(ds.land_mask == 0.0, ds.lwe_thickness.values / 100, np.nan)
-    ds.uncertainty.values = np.where(ds.land_mask == 0.0, ds.uncertainty.values / 100, np.nan)
-    return ds
 
 
 # Pre-transformation (on Datasets only)
 # -----------------------------------------------------------------------------------------------------------------------------------------------
 
 
-def RDEFT4_remove_negative_values(ds):
+def RDEFT4_remove_negative_values(ds: xr.Dataset) -> xr.Dataset:
     '''
     Replaces negative values with nans for all data vars
     '''
@@ -497,7 +494,7 @@ def RDEFT4_remove_negative_values(ds):
     return ds
 
 
-def G2202_mask_flagged_conc(ds):
+def G2202_mask_flagged_conc(ds: xr.Dataset) -> xr.Dataset:
     '''
     Masks out values greater than 1 in nsidc_nt_seaice_conc and cdr_seaice_conc
     '''
@@ -520,11 +517,19 @@ def G2202_mask_flagged_conc(ds):
     return ds
 
 
+def GRACE_MASCON(ds: xr.Dataset) -> xr.Dataset:
+    '''
+    Mask out land, setting land points to NaN.
+    '''
+    ds = ds.where(ds.land_mask == 0.0)
+    return ds
+
+
 # Post-transformations (on DataArrays only)
 # -----------------------------------------------------------------------------------------------------------------------------------------------
 
 
-def kelvin_to_celsius(da):
+def kelvin_to_celsius(da: xr.DataArray) -> xr.DataArray:
     '''
     Converts Kelvin values to Celsius
     '''
@@ -533,7 +538,7 @@ def kelvin_to_celsius(da):
     return da
 
 
-def seaice_concentration_to_fraction(da):
+def seaice_concentration_to_fraction(da: xr.DataArray) -> xr.DataArray:
     '''
     Converts seaice concentration values to a fraction by dividing them by 100
     '''
@@ -542,7 +547,7 @@ def seaice_concentration_to_fraction(da):
     return da
 
 
-def MEaSUREs_fix_time(da):
+def MEaSUREs_fix_time(da: xr.DataArray) -> xr.DataArray:
     '''
     time_start and time_end for MEaSUREs_1812 is not acceptable
     this function takes the provided center time, removes the hours:minutes:seconds.ns
