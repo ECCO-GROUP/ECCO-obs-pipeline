@@ -3,6 +3,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 from typing import Iterable
+import time
 
 import numpy as np
 import requests
@@ -18,7 +19,17 @@ class CMR_Harvester(Harvester):
     
     def __init__(self, config: dict):
         super().__init__(config)
-        self.cmr_granules: Iterable[CMRGranule] = cmr_search(self)
+        try:
+            self.cmr_granules: Iterable[CMRGranule] = cmr_search(self)
+        except:
+            logging.info('Error querying CMR for granules. Trying again in 30 seconds...')
+            time.sleep(30)
+            try:
+                self.cmr_granules: Iterable[CMRGranule] = cmr_search(self)
+            except Exception as e:
+                logging.exception('Error querying CMR for granules. Exiting')
+                raise RuntimeError(f'Error querying CMR for granules. Exiting. {e}')
+            
     
     def fetch(self):
         for cmr_granule in self.cmr_granules:
@@ -176,7 +187,7 @@ class CMR_Harvester(Harvester):
                     except Exception as e:
                         logging.error(f'Error making granule slice: {e}')
                         success = False
-                    logging.info(f'Monthly center: {monthly_center}, data_slice_time: {sub_ds_time}, time for solr: {str(time_dt)}')
+                    logging.debug(f'Monthly center: {monthly_center}, data_slice_time: {sub_ds_time}, time for solr: {str(time_dt)}')
                     monthly_granule = Granule(self.ds_name, slice_local_fp, time_dt, cmr_granule.mod_time, cmr_granule.url)
                     monthly_granule.update_item(self.solr_docs, success)
                     monthly_granule.update_descendant(self.descendant_docs, success)
