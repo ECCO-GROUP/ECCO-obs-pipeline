@@ -64,14 +64,14 @@ class Transformation(Dataset):
 
     def apply_funcs(self, data_object, funcs: Iterable):
         for func_to_run in funcs:
-            logging.info(f'Applying {func_to_run} to data')
+            logging.info(f'Applying {func_to_run} to {self.file_name} data')
             try:
                 callable_func = getattr(ecco_functions, func_to_run)
                 data_object = callable_func(data_object)
-                logging.debug(f'{func_to_run} successfully ran')
+                logging.debug(f'{func_to_run} successfully ran on {self.file_name}')
             except:
-                logging.exception(f'{func_to_run} failed to run')
-                raise Exception(f'{func_to_run} failed to run')
+                logging.exception(f'{func_to_run} failed to run on {self.file_name}')
+                raise Exception(f'{func_to_run} failed to run on {self.file_name}')
         return data_object
 
     def make_factors(self, grid_ds: xr.Dataset) -> Tuple[dict, np.ndarray, dict]:
@@ -90,7 +90,7 @@ class Transformation(Dataset):
         factors_path = f'{factors_dir}{factors_file}'
 
         if os.path.exists(factors_path):
-            logging.debug(f' - Loading {grid_name} factors')
+            logging.debug(f'Loading {grid_name} factors')
             with open(factors_path, "rb") as f:
                 factors = pickle.load(f)
                 return factors
@@ -119,12 +119,11 @@ class Transformation(Dataset):
 
         factors = (ecco_functions.find_mappings_from_source_to_target(source_grid, target_grid, target_grid_radius,
                                                                       source_grid_min_L, source_grid_max_L))
-        logging.debug(f' - Saving {grid_name} factors')
+        logging.debug(f'Saving {grid_name} factors')
         os.makedirs(factors_dir, exist_ok=True)
         with open(factors_path, 'wb') as f:
             pickle.dump(factors, f)
         return factors
-
     
     def perform_mapping(self, ds: xr.Dataset, factors: Tuple, field: Field, model_grid: xr.Dataset) -> xr.DataArray:
         '''

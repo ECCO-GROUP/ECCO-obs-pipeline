@@ -3,6 +3,8 @@
 ## Check transformations
 Determines which target grid/field combinations a single granule for a single dataset need to be transformed, either because the transformation has not yet happened, the harvested granule has been updated, or the transformation configuration has been modified.
 
+Mapping factors are generated and locally cached if needed, and preloaded along with the grids in objects referred to by transformation code, reducing I/O.
+
 Supports Python's multiprocessing to execute transformations in parallel.
 
 ## Transformation
