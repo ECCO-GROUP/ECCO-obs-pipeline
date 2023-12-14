@@ -4,14 +4,12 @@ end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 
 # Provider specifications
 harvester_type: cmr
-cmr_short_name: "OISSS_L4_multimission_monthly_v2"
-cmr_version: "2.0"
+cmr_concept_id: C2589165108-POCLOUD
 filename_date_fmt: "%Y-%m"
 filename_date_regex: '\d{4}-\d{2}'
 provider: "archive.podaac"
 
 # Metadata
-aggregated: false # if data is available aggregated
 data_time_scale: "monthly" # daily or monthly
 fields:
   - name: sss

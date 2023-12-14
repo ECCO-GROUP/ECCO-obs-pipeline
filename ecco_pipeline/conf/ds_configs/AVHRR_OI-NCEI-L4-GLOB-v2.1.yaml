@@ -6,15 +6,12 @@ end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 
 # Provider specifications
 harvester_type: cmr
-cmr_short_name: "AVHRR_OI-NCEI-L4-GLOB-v2.1"
-cmr_version: "2.1"
 cmr_concept_id: C2036881712-POCLOUD
 filename_date_fmt: "%Y%m%d"
 filename_date_regex: '\d{8}'
 provider: "archive.podaac"
 
 # Metadata
-aggregated: false # if data is available aggregated
 data_time_scale: "daily" # daily or monthly
 fields:
   - name: analysed_sst

@@ -1,24 +1,20 @@
-import abc
 import os
 import logging
 from datetime import datetime
 from harvesters.granule import Granule
-
-from utils import harvesting_utils, solr_utils
+from dataset import Dataset
+from utils import solr_utils
 from conf.global_settings import OUTPUT_DIR
 
 
-class Harvester(abc.ABC):
+class Harvester(Dataset):
     
     solr_format:str = "%Y-%m-%dT%H:%M:%SZ"
     
     def __init__(self, config: dict):
-        self.ds_name: str = config['ds_name']
-        self.start_time_dt: datetime = datetime.strptime(config['start'], "%Y%m%dT%H:%M:%SZ")
-        self.end_time_dt: datetime = datetime.strptime(config['end'], "%Y%m%dT%H:%M:%SZ") if config['end'] != 'NOW' else datetime.utcnow()
+        super().__init__(config)
+        self._harvester_parsing(config)
         self.target_dir: str = f'{OUTPUT_DIR}/{self.ds_name}/harvested_granules/'        
-        self.filename_date_regex: str = config['filename_date_regex']
-        self.filename_date_fmt: str = config['filename_date_fmt']
         self.updated_solr_docs: list = []
         
         self.ensure_target_dir()
@@ -26,16 +22,33 @@ class Harvester(abc.ABC):
         
         self.solr_docs, self.descendant_docs = self.get_solr_docs()
         self.config: dict = config
-        
-    @abc.abstractmethod
+    
+    def _harvester_parsing(self, config: dict):
+        if self.harvester_type == 'cmr':
+            self.cmr_concept_id = config.get('cmr_concept_id')
+            self.provider = config.get('provider')
+        elif self.harvester_type == 'osisaf_ftp':       
+            self.host = config.get('host')
+            self.user = config.get('user')
+            self.ddir = config.get('ddir')
+            self.filename_filter = config.get('filename_filter')
+        elif self.harvester_type == 'nsidc_ftp':
+            self.host = config.get('host')
+            self.user = config.get('user')
+            self.ddir = config.get('ddir')
+        elif self.harvester_type == 'ifremer_ftp':
+            self.host = config.get('host')
+            self.user = config.get('user')
+            self.password = config.get('password')
+            self.ddir = config.get('ddir')
+            self.filename_filter = config.get('filename_filter')
+      
     def fetch(self):
         raise NotImplementedError
     
-    @abc.abstractmethod
     def get_mod_time(self):
         raise NotImplementedError
     
-    @abc.abstractmethod
     def dl_file(self):
         raise NotImplementedError
         
@@ -43,7 +56,54 @@ class Harvester(abc.ABC):
         os.makedirs(self.target_dir, exist_ok=True)
        
     def get_solr_docs(self) -> list:
-        return harvesting_utils.get_solr_docs(self.ds_name)
+        docs = {}
+        descendants_docs = {}
+
+        # Query for existing harvested docs
+        fq = ['type_s:granule', f'dataset_s:{self.ds_name}']
+        harvested_docs = solr_utils.solr_query(fq)
+
+        # Dictionary of existing harvested docs
+        # harvested doc filename : solr entry for that doc
+        if len(harvested_docs) > 0:
+            for doc in harvested_docs:
+                docs[doc['filename_s']] = doc
+
+        # Query for existing descendants docs
+        fq = ['type_s:descendants', f'dataset_s:{self.ds_name}']
+        existing_descendants_docs = solr_utils.solr_query(fq)
+
+        # Dictionary of existing descendants docs
+        # descendant doc date : solr entry for that doc
+        if len(existing_descendants_docs) > 0:
+            for doc in existing_descendants_docs:
+                if 'hemisphere_s' in doc.keys() and doc['hemisphere_s']:
+                    key = (doc['date_s'], doc['hemisphere_s'])
+                else:
+                    key = doc['date_s']
+                descendants_docs[key] = doc
+
+        return docs, descendants_docs
+    
+    def make_ds_doc(self, source: str, chk_time: str):
+        ds_meta = {}
+        ds_meta['type_s'] = 'dataset'
+        ds_meta['dataset_s'] = self.ds_name
+        ds_meta['short_name_s'] = self.og_ds_metadata['original_dataset_short_name']
+        ds_meta['source_s'] = source
+        ds_meta['data_time_scale_s'] = self.data_time_scale
+        ds_meta['last_checked_dt'] = chk_time
+        ds_meta['original_dataset_title_s'] = self.og_ds_metadata['original_dataset_title']
+        ds_meta['original_dataset_short_name_s'] = self.og_ds_metadata['original_dataset_short_name']
+        ds_meta['original_dataset_url_s'] = self.og_ds_metadata['original_dataset_url']
+        ds_meta['original_dataset_reference_s'] = self.og_ds_metadata['original_dataset_reference']
+        ds_meta['original_dataset_doi_s'] = self.og_ds_metadata['original_dataset_doi']
+        return ds_meta
+    
+    def check_update(self, filename, mod_time):
+        return (not filename in self.solr_docs.keys()) or \
+            (not self.solr_docs[filename]['harvest_success_b']) or \
+            (self.solr_docs[filename]['download_time_dt'] < str(mod_time))
     
     def need_to_download(self, granule: Granule) -> bool:
         if not os.path.exists(granule.local_fp):
@@ -101,7 +161,7 @@ class Harvester(abc.ABC):
             # Create Solr Dataset-level Document if doesn't exist
             # -----------------------------------------------------
             source = f'https://archive.podaac.earthdata.nasa.gov/podaac-ops-cumulus-protected/{self.ds_name}/'
-            ds_meta = harvesting_utils.make_ds_doc(self.config, source, check_time)
+            ds_meta = self.make_ds_doc(self, source, check_time)
 
             # Only include start_date and end_date if there was at least one successful download
             if self.updated_solr_docs:

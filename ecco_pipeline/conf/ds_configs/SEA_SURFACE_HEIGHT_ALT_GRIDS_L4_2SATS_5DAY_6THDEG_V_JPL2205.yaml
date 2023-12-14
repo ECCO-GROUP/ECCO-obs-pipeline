@@ -4,14 +4,12 @@ end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 
 # Provider specifications
 harvester_type: cmr
-cmr_short_name: "SEA_SURFACE_HEIGHT_ALT_GRIDS_L4_2SATS_5DAY_6THDEG_V_JPL2205"
-cmr_version: "2205"
+cmr_concept_id: C2270392799-POCLOUD
 filename_date_fmt: "%Y%m%d"
 filename_date_regex: '\d{8}'
 provider: "archive.podaac"
 
 # Metadata
-aggregated: false # if data is available aggregated
 data_time_scale: "daily" # daily or monthly
 fields:
   - name: SLA

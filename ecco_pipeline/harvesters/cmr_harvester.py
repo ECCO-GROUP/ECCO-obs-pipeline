@@ -3,32 +3,41 @@ import logging
 import os
 from datetime import datetime, timedelta
 from typing import Iterable
+import time
 
 import numpy as np
 import requests
 import xarray as xr
-from harvesters.enumeration.cmr_enumerator import cmr_search, CMR_Granule
+from harvesters.enumeration.cmr_enumerator import cmr_search, CMRGranule
 from harvesters.granule import Granule
 from harvesters.harvester import Harvester
-from utils import file_utils, harvesting_utils
+from utils.file_utils import get_date
 from utils.ecco_utils.date_time import make_time_bounds_from_ds64
 
 
 class CMR_Harvester(Harvester):
     
     def __init__(self, config: dict):
-        Harvester.__init__(self, config)
-        if config['end'] == 'NOW':
-            config['end'] = datetime.utcnow().strftime("%Y%m%dT%H:%M:%SZ")
-        self.cmr_granules: Iterable[CMR_Granule] = cmr_search(config)
+        super().__init__(config)
+        try:
+            self.cmr_granules: Iterable[CMRGranule] = cmr_search(self)
+        except:
+            logging.info('Error querying CMR for granules. Trying again in 30 seconds...')
+            time.sleep(30)
+            try:
+                self.cmr_granules: Iterable[CMRGranule] = cmr_search(self)
+            except Exception as e:
+                logging.exception('Error querying CMR for granules. Exiting')
+                raise RuntimeError(f'Error querying CMR for granules. Exiting. {e}')
+            
     
     def fetch(self):
         for cmr_granule in self.cmr_granules:
             filename = cmr_granule.url.split('/')[-1]
             # Get date from filename and convert to dt object
-            date = file_utils.get_date(self.filename_date_regex, filename)
+            date = get_date(self.filename_date_regex, filename)
             dt = datetime.strptime(date, self.filename_date_fmt)
-            if not (self.start_time_dt <= dt) and (self.end_time_dt >= dt):
+            if not (self.start <= dt) and (self.end >= dt):
                 continue
             
             year = str(dt.year)
@@ -38,7 +47,7 @@ class CMR_Harvester(Harvester):
             if not os.path.exists(f'{self.target_dir}{year}/'):
                 os.makedirs(f'{self.target_dir}{year}/')
                 
-            if harvesting_utils.check_update(self.solr_docs, filename, cmr_granule.mod_time):
+            if self.check_update(filename, cmr_granule.mod_time):
                 success = True
                 granule = Granule(self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url)
                 
@@ -73,9 +82,9 @@ class CMR_Harvester(Harvester):
         for cmr_granule in self.cmr_granules:
             filename = cmr_granule.url.split('/')[-1]
             # Get date from filename and convert to dt object
-            date = file_utils.get_date(self.filename_date_regex, filename)
+            date = get_date(self.filename_date_regex, filename)
             dt = datetime.strptime(date, self.filename_date_fmt)
-            if not (self.start_time_dt <= dt) and (self.end_time_dt >= dt):
+            if not (self.start <= dt) and (self.end >= dt):
                 continue
             
             year = str(dt.year)
@@ -86,7 +95,7 @@ class CMR_Harvester(Harvester):
             if not os.path.exists(f'{self.target_dir}{year}/'):
                 os.makedirs(f'{self.target_dir}{year}/')
                 
-            if harvesting_utils.check_update(self.solr_docs, filename, cmr_granule.mod_time):
+            if self.check_update(filename, cmr_granule.mod_time):
                 native_granule = Granule(self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url)
 
                 if self.need_to_download(native_granule):
@@ -107,7 +116,7 @@ class CMR_Harvester(Harvester):
                             date = np.datetime64(mid_date)
                             dt = datetime(int(year), int(month), i)
                             time_var_ds = var_ds.expand_dims({'time': [date]})
-                            time_var_ds = time_var_ds[[field['name'] for field in self.config['fields']]]
+                            time_var_ds = time_var_ds[[field.name for field in self.fields]]
                             merged_ds = xr.merge([ds, time_var_ds])
                             
                             daily_filename = filename[:9] + year + month + day_number + filename[-10:-3] + '.nc'
@@ -130,9 +139,9 @@ class CMR_Harvester(Harvester):
         for cmr_granule in self.cmr_granules:
             filename = cmr_granule.url.split('/')[-1]
             # Get date from filename and convert to dt object
-            date = file_utils.get_date(self.filename_date_regex, filename)
+            date = get_date(self.filename_date_regex, filename)
             dt = datetime.strptime(date, self.filename_date_fmt)
-            if not (self.start_time_dt <= dt) and (self.end_time_dt >= dt):
+            if not (self.start <= dt) and (self.end >= dt):
                 continue
 
             local_fp = f'{self.target_dir}/{filename}'
@@ -140,7 +149,7 @@ class CMR_Harvester(Harvester):
             if not os.path.exists(f'{self.target_dir}/'):
                 os.makedirs(f'{self.target_dir}/')
                 
-            if harvesting_utils.check_update(self.solr_docs, filename, cmr_granule.mod_time):
+            if self.check_update(filename, cmr_granule.mod_time):
                 logging.info(f'Downloading {filename} to {local_fp}')
                 self.dl_file(cmr_granule.url, local_fp)
                 ds = xr.open_dataset(local_fp, decode_times=True)
@@ -178,7 +187,7 @@ class CMR_Harvester(Harvester):
                     except Exception as e:
                         logging.error(f'Error making granule slice: {e}')
                         success = False
-                    logging.info(f'Monthly center: {monthly_center}, data_slice_time: {sub_ds_time}, time for solr: {str(time_dt)}')
+                    logging.debug(f'Monthly center: {monthly_center}, data_slice_time: {sub_ds_time}, time for solr: {str(time_dt)}')
                     monthly_granule = Granule(self.ds_name, slice_local_fp, time_dt, cmr_granule.mod_time, cmr_granule.url)
                     monthly_granule.update_item(self.solr_docs, success)
                     monthly_granule.update_descendant(self.descendant_docs, success)
@@ -195,7 +204,7 @@ class CMR_Harvester(Harvester):
         
         # Consider looking for closest date (within 2 or 3 days) to end of month if end of month is unavailable
         
-        years = np.arange(int(self.start_time_dt.year), int(self.end_time_dt.year) + 1)
+        years = np.arange(int(self.start.year), int(self.end.year) + 1)
         end_of_month = [datetime(year, month, calendar.monthrange(year,month)[1]) for year in years for month in range(1,13)]
         url_dict = {granule.url.split('RDEFT4_')[-1].split('.')[0]: granule for granule in self.cmr_granules} # granule end date:url
 
@@ -212,18 +221,18 @@ class CMR_Harvester(Harvester):
                         end_of_month_granules.append(url_dict[month_end_str])
                         break
 
-        self.cmr_granules = end_of_month_granules
+        self.cmr_granules: Iterable[CMRGranule] = end_of_month_granules
 
         for cmr_granule in self.cmr_granules:
             filename = cmr_granule.url.split('/')[-1]
             # Get date from filename and convert to dt object
-            date = file_utils.get_date(self.filename_date_regex, filename)
+            date = get_date(self.filename_date_regex, filename)
             dt = datetime.strptime(date, self.filename_date_fmt)
             
             # Force date to be first of the month
             dt = dt.replace(day=1)
             
-            if not (self.start_time_dt <= dt) and (self.end_time_dt >= dt):
+            if not (self.start <= dt) and (self.end >= dt):
                 continue
             
             year = str(dt.year)
@@ -233,7 +242,7 @@ class CMR_Harvester(Harvester):
             if not os.path.exists(f'{self.target_dir}{year}/'):
                 os.makedirs(f'{self.target_dir}{year}/')
                 
-            if harvesting_utils.check_update(self.solr_docs, filename, cmr_granule.mod_time):
+            if self.check_update(filename, cmr_granule.mod_time):
                 success = True
                 granule = Granule(self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url)
                 
@@ -254,12 +263,12 @@ class CMR_Harvester(Harvester):
 
     def fetch_tolerance_filter(self):
         sorted_granules = sorted(self.cmr_granules, key=lambda x: x.url)
-        sorted_granule_dict = {np.datetime64(str(datetime.strptime(file_utils.get_date(self.filename_date_regex, g.url.split('/')[-1]), self.filename_date_fmt))[:10]) : g for g in sorted_granules}
+        sorted_granule_dict = {np.datetime64(str(datetime.strptime(get_date(self.filename_date_regex, g.url.split('/')[-1]), self.filename_date_fmt))[:10]) : g for g in sorted_granules}
 
-        filename_time = file_utils.get_date(self.filename_date_regex, sorted_granules[0].url.split('/')[-1])
+        filename_time = get_date(self.filename_date_regex, sorted_granules[0].url.split('/')[-1])
         time_start = datetime.strptime(filename_time, self.filename_date_fmt)
         
-        filename_time = file_utils.get_date(self.filename_date_regex, sorted_granules[-1].url.split('/')[-1])
+        filename_time = get_date(self.filename_date_regex, sorted_granules[-1].url.split('/')[-1])
         time_end = datetime.strptime(filename_time, self.filename_date_fmt)
         
         # Construct months within time coverage
@@ -280,9 +289,9 @@ class CMR_Harvester(Harvester):
         for cmr_granule in self.cmr_granules:
             filename = cmr_granule.url.split('/')[-1]
             # Get date from filename and convert to dt object
-            date = file_utils.get_date(self.filename_date_regex, filename)
+            date = get_date(self.filename_date_regex, filename)
             dt = datetime.strptime(date, self.filename_date_fmt)
-            if not (self.start_time_dt <= dt) and (self.end_time_dt >= dt):
+            if not (self.start <= dt) and (self.end >= dt):
                 continue
             
             year = str(dt.year)
@@ -292,7 +301,7 @@ class CMR_Harvester(Harvester):
             if not os.path.exists(f'{self.target_dir}{year}/'):
                 os.makedirs(f'{self.target_dir}{year}/')
                 
-            if harvesting_utils.check_update(self.solr_docs, filename, cmr_granule.mod_time):
+            if self.check_update(filename, cmr_granule.mod_time):
                 success = True
                 granule = Granule(self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url)
                 

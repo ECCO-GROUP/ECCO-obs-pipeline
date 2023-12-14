@@ -12,7 +12,6 @@ ddir: "reprocessed/ice/conc/v3p0/"
 filename_filter: "ease2-250_cdr-v3p0"
 
 # Metadata
-aggregated: false # if data is available aggregated
 data_time_scale: "daily" # daily or monthly
 hemi_pattern:
   north: "_nh_"

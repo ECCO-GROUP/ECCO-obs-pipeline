@@ -4,15 +4,12 @@ end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 
 # Provider specifications
 harvester_type: cmr
-cmr_short_name: ATL20
-cmr_version: "004"
 cmr_concept_id: C2753295020-NSIDC_CPRD
 filename_date_fmt: "%Y%m%d%H%M%S" #20200701010729
 filename_date_regex: '\d{14}'
 provider: "data.nsidc"
 
 # Metadata
-aggregated: false # if data is available aggregated
 data_time_scale: "monthly" # daily or monthly
 preprocessing: ATL20_V004_monthly
 mapping_operation: 'nanmean'

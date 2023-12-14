@@ -6,29 +6,25 @@ end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 
 # Provider specifications
 harvester_type: cmr
-cmr_short_name: "TELLUS_GRAC-GRFO_MASCON_CRI_GRID_RL06.1_V3"
-cmr_concept_id: "C2536962485-POCLOUD"
-cmr_version: "RL06.1Mv03"
+cmr_concept_id: C2536962485-POCLOUD
 filename_date_fmt: "%Y%m"
 filename_date_regex: '\d{6}'
 provider: "archive.podaac"
 
 # Metadata
-aggregated: true # if data is available aggregated
 data_time_scale: "monthly" # daily or monthly
-preprocessing: GRACE_MASCON
 fields:
   - name: lwe_thickness
     long_name: Liquid_Water_Equivalent_Thickness
     standard_name: Liquid_Water_Equivalent_Thickness
     units: m
-    pre_transformations: [] # List of functions to call on the DataSet before transformation
+    pre_transformations: [GRACE_MASCON] # List of functions to call on the DataSet before transformation
     post_transformations: [] # List of functions to call on the DataArrays after transformation
   - name: uncertainty
     long_name: uncertainty
     standard_name: uncertainty
     units: m
-    pre_transformations: [] # List of functions to call on the DataSet before transformation
+    pre_transformations: [GRACE_MASCON] # List of functions to call on the DataSet before transformation
     post_transformations: [] # List of functions to call on the DataArrays after transformation
 original_dataset_title: "JPL GRACE and GRACE-FO Mascon Ocean, Ice, and Hydrology Equivalent Water Height Coastal Resolution Improvement (CRI) Filtered Release 06 Version 03"
 original_dataset_short_name: "TELLUS_GRAC-GRFO_MASCON_CRI_GRID_RL06.1_V3"

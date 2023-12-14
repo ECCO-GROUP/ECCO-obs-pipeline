@@ -1,30 +1,21 @@
 from datetime import datetime
 import json
+import logging
 import ssl
-import sys
-from typing import Union
 from urllib.request import Request, urlopen
 
 import requests
 
-
-CMR_URL = 'https://cmr.earthdata.nasa.gov'
-CMR_PAGE_SIZE = 2000
-CMR_FILE_URL = ('{0}/search/granules.json?'
-                '&sort_key[]=start_date&sort_key[]=producer_granule_id'
-                '&scroll=true&page_size={1}'.format(CMR_URL, CMR_PAGE_SIZE))
+from harvesters.harvester import Harvester
 
 
-def build_cmr_query_url(short_name, time_start, time_end,
-                        filename_filter=None, concept_id=None):
-    params = '&short_name={0}'.format(short_name)
-    params += '&temporal[]={0},{1}'.format(time_start, time_end)
+CMR_GRANULE_URL = 'https://cmr.earthdata.nasa.gov/search/granules.json?&sort_key[]=start_date&sort_key[]=producer_granule_id&scroll=true&page_size=2000'
+
+def build_cmr_query_url(time_start: str, time_end: str, filename_filter: str, concept_id: str) -> str:
+    query_url = f'{CMR_GRANULE_URL}&temporal[]={time_start},{time_end}&concept_id={concept_id}'
     if filename_filter:
-        option = '&options[producer_granule_id][pattern]=true'
-        params += '&producer_granule_id[]={0}{1}'.format(filename_filter, option)
-    if concept_id:
-        params += f'&concept_id={concept_id}'
-    return CMR_FILE_URL + params
+        query_url += f'&producer_granule_id[]={filename_filter}&options[producer_granule_id][pattern]=true'
+    return query_url
 
 def get_mod_time(id: str) -> datetime:
     meta_url = f'https://cmr.earthdata.nasa.gov/search/concepts/{id}.json'
@@ -71,20 +62,17 @@ def cmr_filter_urls(search_results, provider):
                 continue
 
             unique_filenames.add(filename)
-            granule = CMR_Granule(link['href'], id, update)
+            granule = CMRGranule(link['href'], id, update)
             granules.append(granule)
     return granules
 
 
-def cmr_search(config, filename_filter=''):
-    """Perform a scrolling CMR query for files matching input criteria."""
-    short_name = config['cmr_short_name']
-    concept_id = config.get('cmr_concept_id')
-    provider = config.get('provider')
-    time_start = '-'.join([config['start'][:4], config['start'][4:6], config['start'][6:]])
-    time_end = '-'.join([config['end'][:4], config['end'][4:6], config['end'][6:]])
+def cmr_search(harvester: Harvester, filename_filter=''):
+    logging.info(f'Querying CMR for concept id {harvester.cmr_concept_id}')
+    time_start = harvester.start.strftime('%Y-%m-%dT%H:%M:%SZ')
+    time_end = harvester.end.strftime('%Y-%m-%dT%H:%M:%SZ')
 
-    cmr_query_url = build_cmr_query_url(short_name, time_start, time_end, filename_filter, concept_id)
+    cmr_query_url = build_cmr_query_url(time_start, time_end, filename_filter, harvester.cmr_concept_id)
     cmr_scroll_id = None
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
@@ -104,19 +92,13 @@ def cmr_search(config, filename_filter=''):
 
         search_page = response.read()
         search_page = json.loads(search_page.decode('utf-8'))
-        url_scroll_results = cmr_filter_urls(search_page, provider)
+        url_scroll_results = cmr_filter_urls(search_page, harvester.provider)
         if not url_scroll_results:
             break
-        if hits > CMR_PAGE_SIZE:
-            print('.', end='')
-            sys.stdout.flush()
         granules += url_scroll_results
-
-    if hits > CMR_PAGE_SIZE:
-        print()
     return granules
 
-class CMR_Granule():
+class CMRGranule():
     url: str
     id: str
     mod_time: str
