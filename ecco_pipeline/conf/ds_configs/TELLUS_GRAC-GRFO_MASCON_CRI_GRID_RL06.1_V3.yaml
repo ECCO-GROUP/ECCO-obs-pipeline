@@ -19,13 +19,13 @@ fields:
     standard_name: Liquid_Water_Equivalent_Thickness
     units: cm
     pre_transformations: [GRACE_MASCON] # List of functions to call on the DataSet before transformation
-    post_transformations: [meters_to_cm] # List of functions to call on the DataArrays after transformation
+    post_transformations: [] # List of functions to call on the DataArrays after transformation
   - name: uncertainty
     long_name: uncertainty
     standard_name: uncertainty
     units: cm
     pre_transformations: [GRACE_MASCON] # List of functions to call on the DataSet before transformation
-    post_transformations: [meters_to_cm] # List of functions to call on the DataArrays after transformation
+    post_transformations: [] # List of functions to call on the DataArrays after transformation
 original_dataset_title: "JPL GRACE and GRACE-FO Mascon Ocean, Ice, and Hydrology Equivalent Water Height Coastal Resolution Improvement (CRI) Filtered Release 06 Version 03"
 original_dataset_short_name: "TELLUS_GRAC-GRFO_MASCON_CRI_GRID_RL06.1_V3"
 original_dataset_url: "https://podaac.jpl.nasa.gov/dataset/TELLUS_GRAC-GRFO_MASCON_CRI_GRID_RL06.1_V3"
