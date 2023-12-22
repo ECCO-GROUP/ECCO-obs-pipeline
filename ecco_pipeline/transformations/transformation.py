@@ -64,7 +64,7 @@ class Transformation(Dataset):
 
     def apply_funcs(self, data_object, funcs: Iterable):
         for func_to_run in funcs:
-            logging.info(f'Applying {func_to_run} to {self.file_name} data')
+            logging.debug(f'Applying {func_to_run} to {self.file_name} data')
             try:
                 callable_func = getattr(ecco_functions, func_to_run)
                 data_object = callable_func(data_object)
@@ -225,7 +225,7 @@ class Transformation(Dataset):
             logging.debug(f'Transforming {self.file_name} for field {field.name}')
             
             try:
-                self.apply_funcs(ds, field.pre_transformations)
+                ds = self.apply_funcs(ds, field.pre_transformations)
             except Exception as e:
                 logging.exception(e)
 

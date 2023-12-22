@@ -5,7 +5,6 @@ import numpy as np
 import pyresample as pr
 import xarray as xr
 from aggregations.aggregation import Aggregation
-from transformations.transformation import Transformation
 from utils.ecco_utils import date_time, records
 
 
@@ -464,7 +463,7 @@ def generalized_aggregate_and_save(DS_year_merged, data_var, do_monthly_aggregat
 # Requirements: function parameters MUST be file_path, Transformation object
 # -----------------------------------------------------------------------------------------------------------------------------------------------
 
-def ATL20_V004_monthly(file_path: str, T: Transformation) -> xr.Dataset:
+def ATL20_V004_monthly(file_path: str, T) -> xr.Dataset:
     '''
     Handle data groups
     '''
@@ -521,7 +520,8 @@ def GRACE_MASCON(ds: xr.Dataset) -> xr.Dataset:
     '''
     Mask out land, setting land points to NaN.
     '''
-    ds = ds.where(ds.land_mask == 0.0)
+    ds['lwe_thickness'] = ds.lwe_thickness.where(ds.land_mask == 0.0)
+    ds['uncertainty'] = ds.uncertainty.where(ds.land_mask == 0.0)
     return ds
 
 
