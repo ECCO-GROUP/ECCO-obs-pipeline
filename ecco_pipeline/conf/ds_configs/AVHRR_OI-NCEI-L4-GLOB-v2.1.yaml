@@ -17,16 +17,16 @@ fields:
   - name: analysed_sst
     long_name: analysed sea surface temperature
     standard_name: sea_surface_temperature
-    units: kelvin
+    units: celsius
     pre_transformations: [] # List of functions to call on the DataSet before transformation
     post_transformations: ["kelvin_to_celsius"] # List of functions to call on the DataArrays after transformation
 
   - name: analysis_error
     long_name: estimated error standard deviation of analysed_sst
     standard_name: " "
-    units: kelvin
+    units: celsius
     pre_transformations: [] # List of functions to call on the DataSet before transformation
-    post_transformations: [] # List of functions to call on the DataArrays after transformation
+    post_transformations: ["kelvin_to_celsius"] # List of functions to call on the DataArrays after transformation
 
 original_dataset_title: GHRSST Level 4 AVHRR_OI Global Blended Sea Surface Temperature Analysis (GDS2) from NCEI
 original_dataset_short_name: AVHRR_OI-NCEI-L4-GLOB-v2.1
