@@ -12,7 +12,7 @@ from utils import solr_utils, log_config
 from transformations.grid_transformation import transform
 from transformations.transformation import Transformation
 from transformations.preload import Factors, Grids
-from conf.global_settings import OUTPUT_DIR, log_filename
+from conf.global_settings import OUTPUT_DIR
 
 loaded_factors = Factors()
 loaded_grids = Grids()
@@ -199,7 +199,7 @@ def pregenerate_factors(config: dict, grids: Iterable[str], harvested_granules: 
             loaded_factors.set_factors(factors_path)
 
 
-def main(config: dict, user_cpus: int = 1, grids_to_use: Iterable[str]=[]) -> str:
+def main(config: dict, user_cpus: int = 1, grids_to_use: Iterable[str]=[], log_filename: str='') -> str:
     """
     This function performs all remaining grid/field transformations for all harvested
     granules for a dataset. It also makes use of multiprocessing to perform multiple
@@ -240,7 +240,6 @@ def main(config: dict, user_cpus: int = 1, grids_to_use: Iterable[str]=[]) -> st
             # add a handler that uses the shared queue
             queue_handler = QueueHandler(queue)
             logging.getLogger().addHandler(queue_handler)
-            queue_handler.setFormatter(logging.Formatter('[%(levelname)s] %(asctime)s - %(message)s'))
             
             with Pool(processes=user_cpus) as pool:               
                 # issue a long running task to receive logging messages

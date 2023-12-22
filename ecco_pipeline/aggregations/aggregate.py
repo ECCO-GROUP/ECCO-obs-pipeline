@@ -6,7 +6,6 @@ from aggregations.aggjob import AggJob
 from aggregations.aggregation import Aggregation
 from field import Field
 from utils import solr_utils, log_config
-import conf.global_settings as global_settings
 
 def logging_process(queue: Queue, log_filename: str):
     '''
@@ -162,12 +161,10 @@ def update_solr_ds(aggregation_status: str, config: dict):
     else:
         logging.exception(f'Failed to update Solr dataset entry with aggregation information for {config["ds_name"]}')
 
-def aggregation(config: dict, user_cpus: int, grids_to_use: Iterable[str]=[]) -> str:
+def aggregation(config: dict, user_cpus: int, grids_to_use: Iterable[str]=[], log_filename: str = '') -> str:
     """
     Aggregates data into annual files (either daily, monthly, or both), saves them, and updates Solr
-    """
-    log_filename = global_settings.log_filename
-    
+    """    
     grids = get_grids(grids_to_use)
     agg_jobs = get_jobs(config, grids, Aggregation(config).fields)
     
@@ -184,7 +181,6 @@ def aggregation(config: dict, user_cpus: int, grids_to_use: Iterable[str]=[]) ->
             # add a handler that uses the shared queue
             queue_handler = QueueHandler(queue)
             logging.getLogger().addHandler(queue_handler)
-            queue_handler.setFormatter(logging.Formatter('[%(levelname)s] %(asctime)s - %(message)s'))
             
             try:
                 with Pool(processes=user_cpus) as pool:               

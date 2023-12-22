@@ -528,6 +528,13 @@ def GRACE_MASCON(ds: xr.Dataset) -> xr.Dataset:
 # Post-transformations (on DataArrays only)
 # -----------------------------------------------------------------------------------------------------------------------------------------------
 
+def meters_to_cm(da: xr.DataArray) -> xr.DataArray:
+    '''
+    Converts meters to centimeters
+    '''
+    da.attrs['units'] = 'cm'
+    da.values *= 100
+    return da
 
 def kelvin_to_celsius(da: xr.DataArray) -> xr.DataArray:
     '''

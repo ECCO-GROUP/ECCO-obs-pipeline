@@ -19,7 +19,7 @@ def setup_logger(args):
     # Set package logging level to WARNING
     logging.getLogger("requests").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
-    global_settings.log_filename = filename
+    return filename
 
 def validate_output_dir():
     # Verify output directory is valid
@@ -67,7 +67,7 @@ def validate_netrc():
         exit()
 
 def init_pipeline(args):
-    setup_logger(args)
+    log_filename = setup_logger(args)
     validate_output_dir()
     validate_solr()
     validate_configs()
@@ -105,4 +105,4 @@ def init_pipeline(args):
     user_cpus = args.multiprocesses
     logging.debug(f'Using {user_cpus} processes for multiprocess transformations')
 
-    return grids_to_use, user_cpus
+    return grids_to_use, user_cpus, log_filename
