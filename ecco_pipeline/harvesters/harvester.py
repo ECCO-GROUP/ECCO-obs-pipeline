@@ -161,7 +161,7 @@ class Harvester(Dataset):
             # Create Solr Dataset-level Document if doesn't exist
             # -----------------------------------------------------
             source = f'https://archive.podaac.earthdata.nasa.gov/podaac-ops-cumulus-protected/{self.ds_name}/'
-            ds_meta = self.make_ds_doc(self, source, check_time)
+            ds_meta = self.make_ds_doc(source, check_time)
 
             # Only include start_date and end_date if there was at least one successful download
             if self.updated_solr_docs:
