@@ -18,7 +18,7 @@ fields:
     long_name: analysed sea surface temperature
     standard_name: sea_surface_temperature
     units: celsius
-    pre_transformations: [] # List of functions to call on the DataSet before transformation
+    pre_transformations: ["AVHRR_remove_ice_or_near_ice"] # List of functions to call on the DataSet before transformation
     post_transformations: ["kelvin_to_celsius"] # List of functions to call on the DataArrays after transformation
 
   - name: analysis_error

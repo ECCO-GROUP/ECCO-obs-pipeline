@@ -481,6 +481,19 @@ def ATL20_V004_monthly(file_path: str, T) -> xr.Dataset:
 # Pre-transformation (on Datasets only)
 # -----------------------------------------------------------------------------------------------------------------------------------------------
 
+def AVHRR_remove_ice_or_near_ice(ds):
+    '''
+    Replaces SST values < -0.5 or sea_ice_fraction > 0 to NaN
+    '''
+    # nonzero sea ice fraction
+    if 'sea_ice_fraction' in ds:
+        ds.analysed_sst.values = np.where(ds.sea_ice_fraction > 0, np.nan, ds.analysed_sst.values)
+        
+    # colder than -0.5C
+    ds.analysed_sst.values = np.where(ds.analysed_sst <= 273.15-0.5, np.nan, ds.analysed_sst.values)
+
+    return ds
+
 
 def RDEFT4_remove_negative_values(ds: xr.Dataset) -> xr.Dataset:
     '''
