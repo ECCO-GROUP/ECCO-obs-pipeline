@@ -173,7 +173,7 @@ def aggregation(config: dict, user_cpus: int, grids_to_use: Iterable[str]=[], lo
     if user_cpus == 1:
         logging.info('Not using multiprocessing to do aggregations')
         for agg_job in agg_jobs:
-            multiprocess_aggregate(agg_job)
+            multiprocess_aggregate(agg_job, log_filename)
     else:
         logging.info(f'Using {user_cpus} CPUs to do multiprocess aggregation')
         with Manager() as manager:
