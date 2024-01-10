@@ -1,4 +1,5 @@
 import logging
+from multiprocessing import current_process
 import os
 from typing import Iterable, Tuple, Mapping
 import numpy as np
@@ -12,6 +13,7 @@ from conf.global_settings import OUTPUT_DIR
 from field import Field
 from utils.ecco_utils import ecco_functions, records, date_time
 
+logger = logging.getLogger(str(current_process().pid))
 
 class Transformation(Dataset):
 
@@ -64,13 +66,13 @@ class Transformation(Dataset):
 
     def apply_funcs(self, data_object, funcs: Iterable):
         for func_to_run in funcs:
-            logging.debug(f'Applying {func_to_run} to {self.file_name} data')
+            logger.debug(f'Applying {func_to_run} to {self.file_name} data')
             try:
                 callable_func = getattr(ecco_functions, func_to_run)
                 data_object = callable_func(data_object)
-                logging.debug(f'{func_to_run} successfully ran on {self.file_name}')
+                logger.debug(f'{func_to_run} successfully ran on {self.file_name}')
             except:
-                logging.exception(f'{func_to_run} failed to run on {self.file_name}')
+                logger.exception(f'{func_to_run} failed to run on {self.file_name}')
                 raise Exception(f'{func_to_run} failed to run on {self.file_name}')
         return data_object
 
@@ -90,12 +92,12 @@ class Transformation(Dataset):
         factors_path = f'{factors_dir}{factors_file}'
 
         if os.path.exists(factors_path):
-            logging.debug(f'Loading {grid_name} factors')
+            logger.debug(f'Loading {grid_name} factors')
             with open(factors_path, "rb") as f:
                 factors = pickle.load(f)
                 return factors
         else:
-            logging.info(f'Creating {grid_name} factors for {self.ds_name}')
+            logger.info(f'Creating {grid_name} factors for {self.ds_name}')
 
         # Use hemisphere specific variables if data is hemisphere specific
         source_grid_min_L, source_grid_max_L, source_grid = ecco_functions.generalized_grid_product(self.data_res, self.area_extent,
@@ -115,11 +117,11 @@ class Transformation(Dataset):
         elif 'rA' in grid_ds:
             target_grid_radius = 0.5*np.sqrt(grid_ds.rA.values.ravel())
         else:
-            logging.exception(f'Unable to extract grid radius from {grid_ds.name}. Grid not supported')
+            logger.exception(f'Unable to extract grid radius from {grid_ds.name}. Grid not supported')
 
         factors = (ecco_functions.find_mappings_from_source_to_target(source_grid, target_grid, target_grid_radius,
                                                                       source_grid_min_L, source_grid_max_L))
-        logging.debug(f'Saving {grid_name} factors')
+        logger.debug(f'Saving {grid_name} factors')
         os.makedirs(factors_dir, exist_ok=True)
         with open(factors_path, 'wb') as f:
             pickle.dump(factors, f)
@@ -167,7 +169,7 @@ class Transformation(Dataset):
             # --where they are nan, just leave the original values alone
             data_DA.values = np.where(~np.isnan(data_model_projection), data_model_projection, data_DA.values)
         else:
-            print(f' - CPU id {os.getpid()} empty granule for {self.file_name} (no data to transform to grid {model_grid.name})')
+            logger.debug(f'Empty granule for {self.file_name} (no data to transform to grid {model_grid.name})')
             record_notes = ' -- empty record -- '
 
         if self.time_bounds_var:
@@ -175,7 +177,7 @@ class Transformation(Dataset):
                 time_start = str(ds[self.time_bounds_var].values.ravel()[0])
                 time_end = str(ds[self.time_bounds_var].values.ravel()[0])
             else:
-                logging.info(f'time_bounds_var {self.time_bounds_var} does not exist in file but is defined in config. \
+                logger.info(f'time_bounds_var {self.time_bounds_var} does not exist in file but is defined in config. \
                     Using other method for obtaining start/end times.')
 
         else:
@@ -212,7 +214,7 @@ class Transformation(Dataset):
         Function that actually performs the transformations. Returns a list of transformed
         xarray datasets, one dataset for each field being transformed for the given grid.
         """
-        logging.info(f'Transforming {self.date} to {model_grid.name}')
+        logger.info(f'Transforming {self.date} to {model_grid.name}')
 
         record_date = self.date.replace('Z', '')
 
@@ -222,19 +224,19 @@ class Transformation(Dataset):
         # Loop through fields to transform
         # =====================================================
         for field in fields:
-            logging.debug(f'Transforming {self.file_name} for field {field.name}')
+            logger.debug(f'Transforming {self.file_name} for field {field.name}')
             
             try:
                 ds = self.apply_funcs(ds, field.pre_transformations)
             except Exception as e:
-                logging.exception(e)
+                logger.exception(e)
 
             if field.name in ds.data_vars: 
                 try:
                     field_DA = self.perform_mapping(ds, factors, field, model_grid)
                     mapping_success = True
                 except Exception as e:
-                    logging.exception(f'Transformation failed: {e}')
+                    logger.exception(f'Transformation failed: {e}')
                     field_DA = records.make_empty_record(record_date, model_grid, self.array_precision)
                     field_DA.attrs['long_name'] = field.long_name
                     field_DA.attrs['standard_name'] = field.standard_name
@@ -242,7 +244,7 @@ class Transformation(Dataset):
                     field_DA.attrs['empty_record_note'] = 'Transformation failed'
                     mapping_success = False
             else:
-                logging.error(f'Transformation failed: key {field.name} is missing from source data. Making empty record.')
+                logger.error(f'Transformation failed: key {field.name} is missing from source data. Making empty record.')
                 field_DA = records.make_empty_record(record_date, model_grid, self.array_precision)
                 field_DA.attrs['long_name'] = field.long_name
                 field_DA.attrs['standard_name'] = field.standard_name
@@ -263,7 +265,7 @@ class Transformation(Dataset):
                         field_DA.attrs['valid_min'] = np.nanmin(field_DA.values)
                         field_DA.attrs['valid_max'] = np.nanmax(field_DA.values)
                 except Exception as e:
-                    logging.exception(f'Post-transformation failed: {e}')
+                    logger.exception(f'Post-transformation failed: {e}')
                     field_DA = records.make_empty_record(record_date, model_grid, self.array_precision)
                     field_DA.attrs['long_name'] = field.long_name
                     field_DA.attrs['standard_name'] = field.standard_name

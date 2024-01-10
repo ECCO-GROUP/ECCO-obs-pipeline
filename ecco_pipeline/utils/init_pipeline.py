@@ -8,13 +8,13 @@ from utils import log_config, solr_utils, grids_to_solr
 from utils.config_validator import validate_configs
 
 try:
-    from conf.global_settings import OUTPUT_DIR, SOLR_COLLECTION, GRIDS
     import conf.global_settings as global_settings
+    from conf.global_settings import OUTPUT_DIR, SOLR_COLLECTION, GRIDS
 except ImportError:
     raise ImportError('Missing global_settings.py file. See ecco_pipeline/conf/global_settings.py.example for more info.')
 
 def setup_logger(args):
-    filename = log_config.configure_logging(True, args.log_level, args.wipe_logs)
+    filename = log_config.root_logging(args.log_level)
 
     # Set package logging level to WARNING
     logging.getLogger("requests").setLevel(logging.WARNING)
@@ -67,7 +67,7 @@ def validate_netrc():
         exit()
 
 def init_pipeline(args):
-    log_filename = setup_logger(args)
+    log_dir = setup_logger(args)
     validate_output_dir()
     validate_solr()
     validate_configs()
@@ -105,4 +105,4 @@ def init_pipeline(args):
     user_cpus = args.multiprocesses
     logging.debug(f'Using {user_cpus} processes for multiprocess transformations')
 
-    return grids_to_use, user_cpus, log_filename
+    return grids_to_use, user_cpus, log_dir

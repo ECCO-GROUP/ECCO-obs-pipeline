@@ -1,25 +1,14 @@
 import logging
 from logging import FileHandler
 import os
-from glob import glob
 from datetime import datetime
 
-
-def configure_logging(file_timestamp: bool = True, level: str = 'INFO', wipe_logs: bool = False, log_filename: str = '') -> None:
-    logs_directory = 'logs/'
-    os.makedirs(logs_directory, exist_ok=True)
+def root_logging(level: str = 'INFO'):
+    log_directory = os.path.join('logs', datetime.now().strftime("%Y%m%dT%H%M%S"))
+    os.makedirs(log_directory, exist_ok=True)
     
-    if wipe_logs:
-        for log_file in glob(f'{logs_directory}*.log'):
-            os.remove(log_file)
+    logfile_path = os.path.join(log_directory, 'pipeline.log')
     
-    if not log_filename:
-        if file_timestamp:
-            log_filename = f'{datetime.now().isoformat(timespec="seconds")}.log'
-        else:
-            log_filename = 'log.log'
-    logfile_path = os.path.join(logs_directory, log_filename)
-
     logging.basicConfig(
         level=get_log_level(level),
         format='[%(levelname)s] %(asctime)s (%(process)d) - %(message)s',
@@ -28,8 +17,30 @@ def configure_logging(file_timestamp: bool = True, level: str = 'INFO', wipe_log
             logging.StreamHandler(),
         ]
     )
-    return log_filename
+    return log_directory
 
+def mp_logging(pid: str, log_subdir, level: str = 'INFO'):    
+    os.makedirs(log_subdir, exist_ok=True)
+    
+    logfile_path = os.path.join(log_subdir, f'{pid}.log')
+    
+    logger = logging.getLogger(pid)
+    if logger.hasHandlers():
+        return logger
+    
+    logger.setLevel(get_log_level(level))
+    
+    formatter = logging.Formatter('[%(levelname)s] %(asctime)s (%(process)d) - %(message)s')
+    
+    file_handler = logging.FileHandler(logfile_path)        
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
+    return logger
+    
 
 def get_log_level(level) -> int:
     """

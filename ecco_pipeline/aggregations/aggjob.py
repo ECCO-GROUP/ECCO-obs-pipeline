@@ -1,6 +1,7 @@
 import json
 import logging
 from datetime import datetime, timedelta
+from multiprocessing import current_process
 from pathlib import Path
 from typing import Iterable
 import uuid
@@ -13,6 +14,7 @@ from field import Field
 from utils import solr_utils
 from utils.ecco_utils import ecco_functions, records, date_time
 
+logger = logging.getLogger(str(current_process().pid))
 
 
 class AggJob(Aggregation):
@@ -94,13 +96,13 @@ class AggJob(Aggregation):
 
         make_empty_record = False
         if not transformation_docs:
-            logging.info(f'No transformation docs for {str(date)}. Making empty record.')
+            logger.info(f'No transformation docs for {str(date)}. Making empty record.')
             make_empty_record = True
         else:
             try:
                 data_ds = self.open_datasets(transformation_docs)
             except Exception as e:
-                logging.error(f'Error opening transformation file(s). Making empty record: {e}')
+                logger.error(f'Error opening transformation file(s). Making empty record: {e}')
                 make_empty_record = True
             
         if make_empty_record:
@@ -174,14 +176,14 @@ class AggJob(Aggregation):
                 r = solr_utils.solr_update(update_body, r=True)
 
                 if r.status_code != 200:
-                    logging.exception(f'Failed to update Solr aggregation entry for {self.field.name} in {self.ds_name} for {self.year} and grid {grid_name}')
+                    logger.exception(f'Failed to update Solr aggregation entry for {self.field.name} in {self.ds_name} for {self.year} and grid {grid_name}')
 
         fq = [f'dataset_s:{self.ds_name}', 'type_s:aggregation',
                 f'grid_name_s:{grid_name}', f'field_s:{self.field.name}', f'year_s:{self.year}']
         docs = solr_utils.solr_query(fq)
 
         # Export annual descendants JSON file for each aggregation created
-        logging.debug(f'Exporting {self.year} descendants for grid {grid_name} and field {self.field.name}')
+        logger.debug(f'Exporting {self.year} descendants for grid {grid_name} and field {self.field.name}')
         json_output = {}
         json_output['dataset'] = self.ds_meta
         json_output['aggregation'] = docs
@@ -206,7 +208,7 @@ class AggJob(Aggregation):
         elif data_time_scale == 'monthly':
             dates_in_year = [f'{self.year}-{str(month).zfill(2)}-01' for month in range(1,13)]
 
-        logging.info(f'Aggregating {str(self.year)}_{grid_name}_{self.field.name}')
+        logger.info(f'Aggregating {str(self.year)}_{grid_name}_{self.field.name}')
 
         daily_DS_year = []
         for date in dates_in_year:
@@ -249,7 +251,7 @@ class AggJob(Aggregation):
             empty_year = True
         else:
             if self.do_monthly_aggregation:
-                logging.info(f'Aggregating monthly {str(self.year)}_{grid_name}_{self.field.name}')
+                logger.info(f'Aggregating monthly {str(self.year)}_{grid_name}_{self.field.name}')
                 try:
                     mon_DS_year_merged = ecco_functions.monthly_aggregation(daily_annual_ds, data_var, self.year, self, uuids[1])
                     mon_DS_year_merged[data_var] = mon_DS_year_merged[data_var].fillna(self.nc_fill_val)
@@ -261,7 +263,7 @@ class AggJob(Aggregation):
                         records.save_netcdf(mon_DS_year_merged, monthly_filename, self.nc_fill_val, netCDF_output_dir)
 
                 except Exception as e:
-                    logging.exception(f'Error aggregating {self.ds_name}. {e}')
+                    logger.exception(f'Error aggregating {self.ds_name}. {e}')
                     empty_year = True
                     success = False
 
@@ -354,7 +356,7 @@ class AggJob(Aggregation):
         r = solr_utils.solr_update(update_body, r=True)
 
         if r.status_code != 200:
-            logging.exception(f'Failed to update Solr aggregation entry for {self.field.name} in {self.ds_name} for {self.year} and grid {grid_name}')
+            logger.exception(f'Failed to update Solr aggregation entry for {self.field.name} in {self.ds_name} for {self.year} and grid {grid_name}')
 
         self.generate_provenance(grid_name, solr_output_filepaths, aggregation_successes)
     
