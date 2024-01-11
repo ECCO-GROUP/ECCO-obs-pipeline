@@ -32,7 +32,7 @@ def get_remaining_transformations(dataset: Dataset, granule_file_path: str, grid
 
     these checks are made for each grid/field pair associated with the harvested granule
     """
-    logger = logging.getLogger(str(current_process().pid))
+    logger.debug(f'Getting transformations for {granule_file_path}')
     # Cartesian product of grid/field combinations
     grid_field_combinations = list(itertools.product(grids, dataset.fields))
 
@@ -56,7 +56,6 @@ def get_remaining_transformations(dataset: Dataset, granule_file_path: str, grid
     existing_transformations = {(doc['grid_name_s'], doc['field_s']): doc['origin_checksum_s'] for doc in docs}
 
     drop_list = []
-
     # Loop through all grid/field combos, checking if processing is required
     for (grid, field) in grid_field_combinations:
         # If transformation exists, must compare checksums and versions for updates
@@ -97,6 +96,50 @@ def get_remaining_transformations(dataset: Dataset, granule_file_path: str, grid
         grid_field_dict[grid].append(field)
     return dict(grid_field_dict)
 
+
+def get_tx_for_granule(granule: dict, solr_txs: Iterable[dict]):
+    # "filename_s":"ECCO_llc90_lwe_thickness_GRD-3_2019091-2019120_GRFO_UTCSR_BA01_0602_OCN_v04.nc",
+    txs = []
+    for tx in solr_txs:
+        if tx['pre_transformation_file_path_s'].split('/')[-1] == granule['filename_s']:
+            txs.append(tx)
+    return txs
+    
+
+def need_to_update(granule, tx, ds_tx_version):
+    '''
+    Triple if:
+    1. do we have a version entry,
+    2. compare transformation version number and current transformation version number
+    3. compare checksum of harvested file (currently in solr) and checksum
+       of the harvested file that was previously transformed (recorded in transformation entry)
+    '''
+    if tx.get('success_b') and tx.get('transformation_version_f') == ds_tx_version and tx['origin_checksum_s'] == granule['checksum_s']:
+        return False
+    return True
+
+def get_tx_jobs(harvested_granules: Iterable, dataset: Dataset, grids: Iterable):
+    fq = [f'dataset_s:{dataset.ds_name}', 'type_s:transformation']
+    solr_txs = solr_utils.solr_query(fq)
+    
+    all_jobs = []
+    for granule in harvested_granules:
+        grid_fields = {}
+        for grid in grids:
+            fields_for_grid = []
+            for field in dataset.fields:
+                update = True
+                for tx in get_tx_for_granule(granule, solr_txs):
+                    if tx['field_s'] == field.name and tx['grid_name_s'] == grid:
+                        update = need_to_update(granule, tx, dataset.t_version)
+                        break
+                if update:
+                    fields_for_grid.append(field)
+            if fields_for_grid:
+                grid_fields[grid] = fields_for_grid
+        if grid_fields:
+            all_jobs.append((granule, grid_fields))
+    return all_jobs
 
 def multiprocess_transformation(config: dict, granule: dict, tx_jobs: dict, log_level: str, log_dir: str):
     """
@@ -172,20 +215,29 @@ def pregenerate_factors(config: dict, grids: Iterable[str], harvested_granules: 
 
 
 def generate_jobs(config: dict, harvested_granules: Iterable, dataset: Dataset, grids: Iterable):
+    logger.info('Generating jobs...')
     log_level = logging.getLevelName(logging.getLogger('pipeline').level)
     log_dir = os.path.dirname(logging.getLogger('pipeline').handlers[0].baseFilename)
     log_dir = os.path.join(log_dir[log_dir.find('logs/'):], f'tx_{dataset.ds_name}')
+    
+    all_jobs = get_tx_jobs(harvested_granules, dataset, grids)
 
-    jobs = []
-    for granule in harvested_granules:
-        granule_filepath = granule.get('pre_transformation_file_path_s')
-        remaining_transformations = get_remaining_transformations(dataset, granule_filepath, grids)
-        if remaining_transformations:
-            job_params = (config, granule, remaining_transformations, log_level, log_dir)
-            jobs.append(job_params)
-        else:
-            logger.debug(f'No remaining transformations for {granule_filepath.split("/")[-1]}')
-    return jobs
+    new_jobs = []
+    for (granule, grid_fields) in all_jobs:
+        job_params = (config, granule, grid_fields, log_level, log_dir)
+        new_jobs.append(job_params)
+        
+    # jobs = []
+    # for granule in harvested_granules:
+    #     granule_filepath = granule.get('pre_transformation_file_path_s')
+    #     remaining_transformations = get_remaining_transformations(dataset, granule_filepath, grids)
+    #     print(granule['filename_s'], remaining_transformations)
+    #     if remaining_transformations:
+    #         job_params = (config, granule, remaining_transformations, log_level, log_dir)
+    #         jobs.append(job_params)
+    #     else:
+    #         logger.debug(f'No remaining transformations for {granule_filepath.split("/")[-1]}')
+    return new_jobs
 
 
 def main(config: dict, user_cpus: int = 1, grids_to_use: Iterable[str]=[]) -> str:
