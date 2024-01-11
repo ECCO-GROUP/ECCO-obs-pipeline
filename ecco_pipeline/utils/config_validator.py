@@ -3,6 +3,8 @@ import logging
 from jsonschema import validate, ValidationError
 import yaml
 
+logger = logging.getLogger('pipeline')
+
 def validate_configs():
     configs = glob('conf/ds_configs/*.yaml')
     configs.sort()
@@ -11,13 +13,13 @@ def validate_configs():
         schema = yaml.load(f, Loader=yaml.Loader)
 
     for filepath in configs:
-        logging.debug(f'Validating {filepath.split("/")[-1]}')
+        logger.debug(f'Validating {filepath.split("/")[-1]}')
         with open(filepath, 'r') as f:
             config = yaml.load(f, Loader= yaml.Loader)
             try:
                 validate(config, schema)
             except ValidationError as e:
-                logging.error(e)
+                logger.error(e)
                 raise ValidationError(f'{filepath.split("/")[-1]} is malformed.')
 
 if __name__ == '__main__':

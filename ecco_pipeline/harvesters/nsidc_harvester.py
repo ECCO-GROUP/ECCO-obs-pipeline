@@ -9,6 +9,8 @@ from harvesters.granule import Granule
 from harvesters.harvester import Harvester
 from utils.file_utils import get_date
 
+logger = logging.getLogger('pipeline')
+
 
 class NSIDC_Harvester(Harvester):
     
@@ -37,18 +39,18 @@ class NSIDC_Harvester(Harvester):
                 granule = Granule(self.ds_name, local_fp, dt, nsidc_granule.mod_time, nsidc_granule.url)
                 
                 if self.need_to_download(granule):
-                    logging.info(f'Downloading {filename} to {local_fp}')
+                    logger.info(f'Downloading {filename} to {local_fp}')
                     try:
                         self.dl_file(nsidc_granule.url, local_fp)
                     except:
                         success = False
                 else:
-                    logging.debug(f'{filename} already downloaded and up to date')
+                    logger.debug(f'{filename} already downloaded and up to date')
                     
                 granule.update_item(self.solr_docs, success)
                 granule.update_descendant(self.descendant_docs, success)
                 self.updated_solr_docs.extend(granule.get_solr_docs())
-        logging.info(f'Downloading {self.ds_name} complete')
+        logger.info(f'Downloading {self.ds_name} complete')
         
     
     def dl_file(self, src: str, dst: str):

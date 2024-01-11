@@ -1,7 +1,7 @@
 import itertools
 import logging
 from collections import defaultdict
-from multiprocessing import current_process, Pool, get_logger
+from multiprocessing import current_process, Pool
 import os
 from typing import Iterable
 import xarray as xr
@@ -10,12 +10,12 @@ from dataset import Dataset
 from utils import solr_utils, log_config
 from transformations.grid_transformation import transform
 from transformations.transformation import Transformation
-from transformations.preload import Factors, Grids
-from conf.global_settings import OUTPUT_DIR
+# from transformations.preload import Factors, Grids
+# from conf.global_settings import OUTPUT_DIR
+import utils.log_config as log_config
 
-loaded_factors = Factors()
-loaded_grids = Grids()
 
+logger = logging.getLogger('pipeline')
 
 def get_remaining_transformations(dataset: Dataset, granule_file_path: str, grids: Iterable[str]) -> dict:
     """
@@ -49,7 +49,6 @@ def get_remaining_transformations(dataset: Dataset, granule_file_path: str, grid
     if not docs:
         for grid, field in grid_field_combinations:
             grid_field_dict[grid].append(field)
-        logger.info(f'{sum([len(v) for v in grid_field_dict.values()])} remaining transformations for {granule_file_path.split("/")[-1]}')
         return dict(grid_field_dict)
 
     # Dictionary where key is grid, field tuple and value is harvested granule checksum
@@ -96,40 +95,32 @@ def get_remaining_transformations(dataset: Dataset, granule_file_path: str, grid
 
     for grid, field in grid_field_combinations:
         grid_field_dict[grid].append(field)
-    logger.info(f'{sum([len(v) for v in grid_field_dict.values()])} remaining transformations for {granule_file_path.split("/")[-1]}')
     return dict(grid_field_dict)
 
 
-def multiprocess_transformation(config: dict, granule: dict, dataset: Dataset, grids: Iterable[str], log_dir: str, loaded_factors: Factors, loaded_grids: Grids):
+def multiprocess_transformation(config: dict, granule: dict, tx_jobs: dict, log_level: str, log_dir: str):
     """
     Callable function that performs the actual transformation on a granule.
     """
-    log_subdir = os.path.join(log_dir, f'tx_{dataset.ds_name}')
-    logger = log_config.mp_logging(str(current_process().pid), log_subdir, get_logger().level)
-    
+    try:
+        logger = log_config.mp_logging(str(current_process().pid), log_level, log_dir)
+    except Exception as e:
+        print(e)
+
     granule_filepath = granule.get('pre_transformation_file_path_s')
     granule_date = granule.get('date_s')
 
     # Skips granules that weren't harvested properly
     if not granule_filepath or granule.get('file_size_l') < 100:
         logger.exception(f'Granule {granule_filepath} was not harvested properly. Skipping.')
-        return ('', '')
-
-    # Get transformations to be completed for this file
-    try:
-        remaining_transformations = get_remaining_transformations(dataset, granule_filepath, grids)
-    except Exception as e:
-        logger.exception(f'Unexpected error getting remaining transformations. {e}')
-        raise RuntimeError(e)
+        return
 
     # Perform remaining transformations
-    if remaining_transformations:
-        try:
-            transform(granule_filepath, remaining_transformations, config, granule_date, loaded_factors, loaded_grids)
-        except Exception as e:
-            logger.exception(f'Error transforming {granule_filepath}: {e}')
-    else:
-        logger.debug(f'No new transformations for {granule["filename_s"]}')
+    try:
+        logger.info(f'{sum([len(v) for v in tx_jobs.values()])} remaining transformations for {granule_filepath.split("/")[-1]}')
+        transform(granule_filepath, tx_jobs, config, granule_date)
+    except Exception as e:
+        logger.exception(f'Error transforming {granule_filepath}: {e}')
 
 
 def find_data_for_factors(config: dict, harvested_granules: Iterable[dict]) -> Iterable[dict]:
@@ -168,19 +159,36 @@ def pregenerate_factors(config: dict, grids: Iterable[str], harvested_granules: 
     Factors object which is used to reduce I/O.
     '''
     for grid in grids:
-        loaded_grids.set_grid(f'grids/{grid}.nc')
+        # loaded_grids.set_grid(f'grids/{grid}.nc')
         for granule in find_data_for_factors(config, harvested_granules):
             grid_ds = xr.open_dataset(f'grids/{grid}.nc')
             T = Transformation(config, granule['pre_transformation_file_path_s'], '1972-01-01')
             T.make_factors(grid_ds)
             
-            factors_file = f'{grid_ds.name}{T.hemi}_v{T.transformation_version}_factors'
-            factors_path = os.path.join(OUTPUT_DIR, T.ds_name, 'transformed_products', grid_ds.name, factors_file)
+            # factors_file = f'{grid_ds.name}{T.hemi}_v{T.transformation_version}_factors'
+            # factors_path = os.path.join(OUTPUT_DIR, T.ds_name, 'transformed_products', grid_ds.name, factors_file)
             
-            loaded_factors.set_factors(factors_path)
+            # loaded_factors.set_factors(factors_path)
 
 
-def main(config: dict, user_cpus: int = 1, grids_to_use: Iterable[str]=[], log_dir: str='') -> str:
+def generate_jobs(config: dict, harvested_granules: Iterable, dataset: Dataset, grids: Iterable):
+    log_level = logging.getLevelName(logging.getLogger('pipeline').level)
+    log_dir = os.path.dirname(logging.getLogger('pipeline').handlers[0].baseFilename)
+    log_dir = os.path.join(log_dir[log_dir.find('logs/'):], f'tx_{dataset.ds_name}')
+
+    jobs = []
+    for granule in harvested_granules:
+        granule_filepath = granule.get('pre_transformation_file_path_s')
+        remaining_transformations = get_remaining_transformations(dataset, granule_filepath, grids)
+        if remaining_transformations:
+            job_params = (config, granule, remaining_transformations, log_level, log_dir)
+            jobs.append(job_params)
+        else:
+            logger.debug(f'No remaining transformations for {granule_filepath.split("/")[-1]}')
+    return jobs
+
+
+def main(config: dict, user_cpus: int = 1, grids_to_use: Iterable[str]=[]) -> str:
     """
     This function performs all remaining grid/field transformations for all harvested
     granules for a dataset. It also makes use of multiprocessing to perform multiple
@@ -194,7 +202,7 @@ def main(config: dict, user_cpus: int = 1, grids_to_use: Iterable[str]=[], log_d
     harvested_granules = solr_utils.solr_query(fq)
 
     if not harvested_granules:
-        logging.info(f'No harvested granules found in solr for {dataset.ds_name}')
+        logger.info(f'No harvested granules found in solr for {dataset.ds_name}')
         return f'No transformations performed'
 
     # Query for grids
@@ -207,20 +215,21 @@ def main(config: dict, user_cpus: int = 1, grids_to_use: Iterable[str]=[], log_d
         
     pregenerate_factors(config, grids, harvested_granules)
 
-    job_params = [(config, granule, dataset, grids, log_dir, loaded_factors, loaded_grids) for granule in harvested_granules]
-
-    # BEGIN MULTIPROCESSING
-    if user_cpus == 1:
-        logging.info('Not using multiprocessing to do transformation')
-        for job_param in job_params:
-            multiprocess_transformation(*job_param)
-    else:
-        logging.info(f'Using {user_cpus} CPUs to do multiprocess transformation')
-            
-        with Pool(processes=user_cpus) as pool:
-            pool.starmap(multiprocess_transformation, job_params)
-            pool.close()
-            pool.join()
+    job_params = generate_jobs(config, harvested_granules, dataset, grids)
+    logger.info(f'{len(job_params)} harvested granules with remaining transformations.')
+    if job_params:
+        # BEGIN MULTIPROCESSING
+        if user_cpus == 1:
+            logger.info('Not using multiprocessing to do transformation')
+            for job_param in job_params:
+                multiprocess_transformation(*job_param)
+        else:
+            logger.info(f'Using {user_cpus} CPUs to do multiprocess transformation')
+                
+            with Pool(processes=user_cpus) as pool:
+                pool.starmap_async(multiprocess_transformation, job_params)
+                pool.close()
+                pool.join()
                 
     # Query Solr for dataset metadata
     fq = [f'dataset_s:{dataset.ds_name}', 'type_s:dataset']
@@ -252,8 +261,8 @@ def main(config: dict, user_cpus: int = 1, grids_to_use: Iterable[str]=[], log_d
     r = solr_utils.solr_update(update_body, r=True)
 
     if r.status_code == 200:
-        logging.debug(f'Successfully updated Solr with transformation information for {dataset.ds_name}')
+        logger.debug(f'Successfully updated Solr with transformation information for {dataset.ds_name}')
     else:
-        logging.exception(f'Failed to update Solr with transformation information for {dataset.ds_name}')
+        logger.exception(f'Failed to update Solr with transformation information for {dataset.ds_name}')
 
     return transformation_status

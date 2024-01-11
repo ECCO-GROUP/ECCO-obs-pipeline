@@ -8,6 +8,8 @@ from dateutil import parser
 from conf.global_settings import OUTPUT_DIR
 from utils import file_utils, solr_utils
 
+logger = logging.getLogger('pipeline')
+
 
 SOLR_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
@@ -39,7 +41,7 @@ class OsisafHarvester():
         self.updating = False
 
         solr_utils.clean_solr(config)
-        logging.info(f'Downloading {self.dataset_name} files to {self.target_dir}')
+        logger.info(f'Downloading {self.dataset_name} files to {self.target_dir}')
         
         self.docs_from_solr()
 
@@ -83,7 +85,7 @@ class OsisafHarvester():
                     file_meta[fname] = mod_dt
 
         except:
-            logging.exception(f'Error finding files at {data_dir}. Check harvester config.')
+            logger.exception(f'Error finding files at {data_dir}. Check harvester config.')
 
         for filename, mod_dt in file_meta.items():
             hemi = file_utils.get_hemi(filename)
@@ -133,17 +135,17 @@ class OsisafHarvester():
                 try:
                     # If file doesn't exist locally, download it
                     if not os.path.exists(local_fp):
-                        logging.info(f'Downloading {filename} to {local_fp}')
+                        logger.info(f'Downloading {filename} to {local_fp}')
                         with open(local_fp, 'wb') as f:
                             ftp.retrbinary('RETR '+url, f.write, blocksize=262144)
 
                     # If file exists, but is out of date, download it
                     elif datetime.fromtimestamp(os.path.getmtime(local_fp)) <= mod_dt:
-                        logging.info(f'Updating {filename} and downloading to {local_fp}')
+                        logger.info(f'Updating {filename} and downloading to {local_fp}')
                         with open(local_fp, 'wb') as f:
                             ftp.retrbinary('RETR '+url, f.write, blocksize=262144)
                     else:
-                        logging.debug(f'{filename} already downloaded and up to date')
+                        logger.debug(f'{filename} already downloaded and up to date')
                     # Create checksum for file
                     item['harvest_success_b'] = True
                     item['file_size_l'] = os.path.getsize(local_fp)
@@ -152,7 +154,7 @@ class OsisafHarvester():
                     item['download_time_dt'] = self.chk_time
 
                 except Exception as e:
-                    logging.exception(e)
+                    logger.exception(e)
                     item['harvest_success_b'] = False
                     item['filename'] = ''
                     item['pre_transformation_file_path_s'] = ''
@@ -175,7 +177,7 @@ class OsisafHarvester():
 
                 self.last_success_item = item
             else:
-                logging.debug(f'{filename} already downloaded and up to date')
+                logger.debug(f'{filename} already downloaded and up to date')
 
 def granule_update_check(docs: dict, filename: str, mod_date_time: datetime, time_format: str):
     key = filename.replace('.NRT', '')
@@ -215,13 +217,13 @@ def harvester(config: dict):
     try:
         ftp = FTP(osisaf.host)
         ftp.login(config['user'])
-        logging.debug('Connected to FTP')
+        logger.debug('Connected to FTP')
     except Exception as e:
-        logging.exception(f'Harvesting failed. Unable to connect to FTP. {e}')
+        logger.exception(f'Harvesting failed. Unable to connect to FTP. {e}')
         return 'Harvesting failed. Unable to connect to FTP.'
 
     years_on_ftp = [int(y.split('/')[-1]) for y in ftp.nlst(osisaf.ddir) if not y.endswith('monthly')]
-    logging.debug(f'The following years are available on ftp: {years_on_ftp}')
+    logger.debug(f'The following years are available on ftp: {years_on_ftp}')
     
     for year in osisaf.years:
         if year not in years_on_ftp:
@@ -234,7 +236,7 @@ def harvester(config: dict):
             data_dir = f'{osisaf.ddir}{year}'
             osisaf.download_from_ddir(ftp, data_dir, config)
             
-    logging.info(f'Downloading {osisaf.dataset_name} complete')
+    logger.info(f'Downloading {osisaf.dataset_name} complete')
 
     ftp.quit()
 
@@ -244,9 +246,9 @@ def harvester(config: dict):
         r = solr_utils.solr_update(osisaf.entries_for_solr, r=True)
 
         if r.status_code == 200:
-            logging.debug('Successfully created or updated Solr harvested documents')
+            logger.debug('Successfully created or updated Solr harvested documents')
         else:
-            logging.exception('Failed to create Solr harvested documents')
+            logger.exception('Failed to create Solr harvested documents')
 
     # Query for Solr failed harvest documents
     fq = ['type_s:granule', f'dataset_s:{osisaf.dataset_name}',
@@ -310,9 +312,9 @@ def harvester(config: dict):
         r = solr_utils.solr_update([ds_meta], r=True)
 
         if r.status_code == 200:
-            logging.debug('Successfully created Solr dataset document')
+            logger.debug('Successfully created Solr dataset document')
         else:
-            logging.exception('Failed to create Solr dataset document')
+            logger.exception('Failed to create Solr dataset document')
 
     # if dataset entry exists, update download time, converage start date, coverage end date
     else:
@@ -345,7 +347,7 @@ def harvester(config: dict):
         r = solr_utils.solr_update([update_doc], r=True)
 
         if r.status_code == 200:
-            logging.debug('Successfully updated Solr dataset document')
+            logger.debug('Successfully updated Solr dataset document')
         else:
-            logging.exception('Failed to update Solr dataset document')
+            logger.exception('Failed to update Solr dataset document')
     return harvest_status

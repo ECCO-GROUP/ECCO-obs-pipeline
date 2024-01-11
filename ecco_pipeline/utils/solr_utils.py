@@ -1,5 +1,4 @@
 import logging
-from multiprocessing import current_process
 import os
 import time
 from datetime import datetime
@@ -7,10 +6,13 @@ from pathlib import Path
 
 import requests
 import yaml
+from utils import log_config
 from conf.global_settings import SOLR_COLLECTION, SOLR_HOST
 
-logger = logging.getLogger(str(current_process().pid))
-
+# THIS DOESN"T WORK YET - pipeline logger isn't setup yet
+# log_level = logging.getLevelName(logging.getLogger('pipeline').level)
+# logger = log_config.mp_logging('solr', log_level)
+logger = logging.getLogger('solr')
 
 def solr_query(fq, fl=''):
     query_params = {'q': '*:*',

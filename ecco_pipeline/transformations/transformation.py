@@ -12,11 +12,10 @@ from dataset import Dataset
 from conf.global_settings import OUTPUT_DIR
 from field import Field
 from utils.ecco_utils import ecco_functions, records, date_time
+from utils import log_config as log_config
 
-logger = logging.getLogger(str(current_process().pid))
 
 class Transformation(Dataset):
-
     def __init__(self, config: dict, source_file_path: str, granule_date: str):
         super().__init__(config)
         self.file_name: str = os.path.splitext(source_file_path.split('/')[-1])[0]
@@ -65,6 +64,7 @@ class Transformation(Dataset):
         return ''
 
     def apply_funcs(self, data_object, funcs: Iterable):
+        logger = logging.getLogger(str(current_process().pid))
         for func_to_run in funcs:
             logger.debug(f'Applying {func_to_run} to {self.file_name} data')
             try:
@@ -86,6 +86,8 @@ class Transformation(Dataset):
         nearest_source_index_to_target_index_i)
 
         '''
+        logger = logging.getLogger(str(current_process().pid))
+        
         grid_name = grid_ds.name
         factors_dir = f'{OUTPUT_DIR}/{self.ds_name}/transformed_products/{grid_name}/'
         factors_file = f'{grid_name}{self.hemi}_v{self.transformation_version}_factors'
@@ -131,6 +133,7 @@ class Transformation(Dataset):
         '''
         Maps source data to target grid and applies metadata
         '''
+        logger = logging.getLogger(str(current_process().pid))
 
         # initialize notes for this record
         record_notes = ''
@@ -214,6 +217,8 @@ class Transformation(Dataset):
         Function that actually performs the transformations. Returns a list of transformed
         xarray datasets, one dataset for each field being transformed for the given grid.
         """
+        logger = logging.getLogger(str(current_process().pid))
+        
         logger.info(f'Transforming {self.date} to {model_grid.name}')
 
         record_date = self.date.replace('Z', '')
