@@ -3,11 +3,8 @@ start: 19800101T00:00:01Z # yyyymmddThh:mm:ssZ
 end: NOW # yyyymmddThh:mm:ssZ
 
 # Provider specifications
-harvester_type: ifremer_ftp
-host: ftp.ifremer.fr
-user: ext-catds-cecos-locean # does not change
-password: catds2010
-ddir: Ocean_products/L3_DEBIAS_LOCEAN/L3_DEBIAS_LOCEAN_v8/debiasedSSS_18days_v8/
+harvester_type: catds
+ddir: L3_DEBIAS_LOCEAN/L3_DEBIAS_LOCEAN_v8/debiasedSSS_18days_v8/
 filename_date_fmt: "%Y%m%d"
 filename_date_regex: \d{8}
 filename_filter: "" # string to match for filenames to download ex: polstere-100_multi

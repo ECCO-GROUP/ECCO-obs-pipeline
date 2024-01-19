@@ -43,6 +43,9 @@ class Harvester(Dataset):
             self.password = config.get('password')
             self.ddir = config.get('ddir')
             self.filename_filter = config.get('filename_filter')
+        elif self.harvester_type == 'catds':
+            self.ddir = config.get('ddir')
+            
       
     def fetch(self):
         raise NotImplementedError
