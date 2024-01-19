@@ -42,6 +42,8 @@ class Harvester(Dataset):
             self.password = config.get('password')
             self.ddir = config.get('ddir')
             self.filename_filter = config.get('filename_filter')
+        elif self.harvester_type == 'osisaf':
+            self.ddir = config.get('ddir')
       
     def fetch(self):
         raise NotImplementedError

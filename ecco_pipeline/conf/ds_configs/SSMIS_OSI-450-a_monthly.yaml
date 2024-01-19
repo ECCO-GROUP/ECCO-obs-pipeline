@@ -3,12 +3,10 @@ start: "19800101T00:00:00Z" # yyyymmddThh:mm:ssZ
 end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 
 # Provider specifications
-harvester_type: osisaf_ftp
-host: osisaf.met.no # does not change
-user: anonymous # does not change
+harvester_type: osisaf
+ddir: "conc_450a_files"
 filename_date_fmt: "%Y%m"
 filename_date_regex: '\d{6}'
-ddir: "reprocessed/ice/conc/v3p0/monthly/"
 filename_filter: "ease2-250_cdr-v3p0"
 
 # Metadata
