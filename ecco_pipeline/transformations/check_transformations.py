@@ -1,4 +1,3 @@
-import itertools
 import logging
 from collections import defaultdict
 from multiprocessing import current_process, Pool
@@ -10,101 +9,11 @@ from dataset import Dataset
 from utils import solr_utils, log_config
 from transformations.grid_transformation import transform
 from transformations.transformation import Transformation
-# from transformations.preload import Factors, Grids
-# from conf.global_settings import OUTPUT_DIR
 import utils.log_config as log_config
 
 
 logger = logging.getLogger('pipeline')
 
-def get_remaining_transformations(dataset: Dataset, granule_file_path: str, grids: Iterable[str]) -> dict:
-    """
-    Given a single granule, the function uses Solr to find all combinations of
-    grids and fields that have yet to be transformed. It returns a dictionary
-    where the keys are grids and the values are lists of fields.
-
-    if a transformation entry exists for this granule, check to see if the
-    checksum of the harvested granule matches the checksum recorded in the
-    transformation entry for this granule, if not then we have to retransform
-    also check to see if the version of the transformation code recorded in
-    the entry matches the current version of the transformation code, if not
-    redo the transformation.
-
-    these checks are made for each grid/field pair associated with the harvested granule
-    """
-    logger.debug(f'Getting transformations for {granule_file_path}')
-    # Cartesian product of grid/field combinations
-    grid_field_combinations = list(itertools.product(grids, dataset.fields))
-
-    # Build dictionary of remaining transformations
-    # -- grid_field_dict has grid key, entries is list of fields
-    grid_field_dict = defaultdict(list)
-
-    # Query for existing transformations
-    fq = [f'dataset_s:{dataset.ds_name}', 'type_s:transformation',
-          f'pre_transformation_file_path_s:"{granule_file_path}"']
-    docs = solr_utils.solr_query(fq)
-
-    # No transformations exist yet, so all must be done
-    if not docs:
-        for grid, field in grid_field_combinations:
-            grid_field_dict[grid].append(field)
-        return dict(grid_field_dict)
-
-    # Dictionary where key is grid, field tuple and value is harvested granule checksum
-    # For existing transformations pulled from Solr
-    existing_transformations = {(doc['grid_name_s'], doc['field_s']): doc['origin_checksum_s'] for doc in docs}
-
-    drop_list = []
-    # Loop through all grid/field combos, checking if processing is required
-    for (grid, field) in grid_field_combinations:
-        # If transformation exists, must compare checksums and versions for updates
-        if (grid, field.name) in existing_transformations:
-
-            # Query for harvested granule checksum
-            fq = [f'dataset_s:{dataset.ds_name}', 'type_s:granule',
-                  f'pre_transformation_file_path_s:"{granule_file_path}"']
-            harvested_checksum = solr_utils.solr_query(fq)[0]['checksum_s']
-
-            origin_checksum = existing_transformations[(grid, field.name)]
-
-            # Query for existing transformation
-            fq = [f'dataset_s:{dataset.ds_name}', 'type_s:transformation',
-                  f'pre_transformation_file_path_s:"{granule_file_path}"',
-                  f'field_s:{field.name}']
-            transformation = solr_utils.solr_query(fq)[0]
-
-            # Triple if:
-            # 1. do we have a version entry,
-            # 2. compare transformation version number and current transformation version number
-            # 3. compare checksum of harvested file (currently in solr) and checksum
-            #    of the harvested file that was previously transformed (recorded in transformation entry)
-            if ('success_b' in transformation.keys() and transformation['success_b'] == True) and \
-                ('transformation_version_f' in transformation.keys() and transformation['transformation_version_f'] == dataset.t_version) and \
-                    origin_checksum == harvested_checksum:
-                logger.debug(f'No need to transform {granule_file_path} for grid {grid} and field {field.name}')
-                # all tests passed, we do not need to redo the transformation
-                # for this grid/field pair
-
-                # Add grid/field combination to drop_list
-                drop_list.append((grid, field))
-
-    # Remove drop_list grid/field combinations from list of remaining transformations
-    grid_field_combinations = [combo for combo in grid_field_combinations if combo not in drop_list]
-
-    for grid, field in grid_field_combinations:
-        grid_field_dict[grid].append(field)
-    return dict(grid_field_dict)
-
-
-def get_tx_for_granule(granule: dict, solr_txs: Iterable[dict]):
-    # "filename_s":"ECCO_llc90_lwe_thickness_GRD-3_2019091-2019120_GRFO_UTCSR_BA01_0602_OCN_v04.nc",
-    txs = []
-    for tx in solr_txs:
-        if tx['pre_transformation_file_path_s'].split('/')[-1] == granule['filename_s']:
-            txs.append(tx)
-    return txs
-    
 
 def need_to_update(granule, tx, ds_tx_version):
     '''
@@ -121,6 +30,9 @@ def need_to_update(granule, tx, ds_tx_version):
 def get_tx_jobs(harvested_granules: Iterable, dataset: Dataset, grids: Iterable):
     fq = [f'dataset_s:{dataset.ds_name}', 'type_s:transformation']
     solr_txs = solr_utils.solr_query(fq)
+    tx_dict = defaultdict(list)
+    for tx in solr_txs:
+        tx_dict[tx['pre_transformation_file_path_s'].split('/')[-1]].append(tx)
     
     all_jobs = []
     for granule in harvested_granules:
@@ -129,7 +41,7 @@ def get_tx_jobs(harvested_granules: Iterable, dataset: Dataset, grids: Iterable)
             fields_for_grid = []
             for field in dataset.fields:
                 update = True
-                for tx in get_tx_for_granule(granule, solr_txs):
+                for tx in tx_dict[granule['filename_s']]:
                     if tx['field_s'] == field.name and tx['grid_name_s'] == grid:
                         update = need_to_update(granule, tx, dataset.t_version)
                         break
