@@ -4,7 +4,7 @@ end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 
 # Provider specifications
 harvester_type: osisaf
-ddir: "conc_cra_files"
+ddir: "reprocessed/ice/conc_cra_files"
 filename_date_fmt: "%Y%m"
 filename_date_regex: '\d{6}'
 filename_filter: "ease2-250_icdr-v3p0"
