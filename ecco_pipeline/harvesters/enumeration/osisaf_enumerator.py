@@ -42,7 +42,7 @@ def search_osisaf(harvester: Harvester):
         else:
             for dataset in year_data.find_all('dataset'):
                 for granule in dataset.find_all('dataset'):
-                    url = os.path.join('https://thredds.met.no/thredds/catalog/', granule['urlpath'])
+                    url = os.path.join('https://thredds.met.no/thredds/fileServer/', granule['urlpath'])
                     mod_time = datetime.strptime(granule.find('date').text, '%Y-%m-%dT%H:%M:%SZ')
                     all_granules.append(OSISAFGranule(url, mod_time))
     logging.info(f'Found {len(all_granules)} possible granules')
