@@ -21,19 +21,19 @@ def search_osisaf(harvester: Harvester):
 
     session = requests.session()
     r = session.get(os.path.join(base_url, 'catalog.xml'))
-    data = BeautifulSoup(r.text, 'lxml')
+    data = BeautifulSoup(r.text, 'xml')
     all_granules = []
     for year_dir in data.find_all('catalogref'):
         if 'monthly' in year_dir['xlink:title']:
             continue
         r = session.get(os.path.join(base_url, year_dir['xlink:title'], 'catalog.xml'))
-        year_data = BeautifulSoup(r.text, 'lxml')
+        year_data = BeautifulSoup(r.text, 'xml')
 
         if harvester.data_time_scale == 'daily':
             for month_dir in year_data.find_all('catalogref'):
                 month_url = os.path.join(base_url, year_dir['xlink:title'], month_dir['xlink:title'], 'catalog.xml')
                 r = session.get(month_url)
-                month_data = BeautifulSoup(r.text, 'lxml')
+                month_data = BeautifulSoup(r.text, 'xml')
                 for dataset in month_data.find_all('dataset'):
                     for granule in dataset.find_all('dataset'):
                         url = os.path.join('https://thredds.met.no/thredds/fileServer/', granule['urlpath'])
