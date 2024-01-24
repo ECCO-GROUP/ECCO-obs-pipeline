@@ -14,6 +14,7 @@ from harvesters.harvester import Harvester
 from utils.file_utils import get_date
 from utils.ecco_utils.date_time import make_time_bounds_from_ds64
 
+logger = logging.getLogger('pipeline')
 
 class CMR_Harvester(Harvester):
     
@@ -22,12 +23,12 @@ class CMR_Harvester(Harvester):
         try:
             self.cmr_granules: Iterable[CMRGranule] = cmr_search(self)
         except:
-            logging.info('Error querying CMR for granules. Trying again in 30 seconds...')
+            logger.info('Error querying CMR for granules. Trying again in 30 seconds...')
             time.sleep(30)
             try:
                 self.cmr_granules: Iterable[CMRGranule] = cmr_search(self)
             except Exception as e:
-                logging.exception('Error querying CMR for granules. Exiting')
+                logger.exception('Error querying CMR for granules. Exiting')
                 raise RuntimeError(f'Error querying CMR for granules. Exiting. {e}')
             
     
@@ -52,18 +53,18 @@ class CMR_Harvester(Harvester):
                 granule = Granule(self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url)
                 
                 if self.need_to_download(granule):
-                    logging.info(f'Downloading {filename} to {local_fp}')
+                    logger.info(f'Downloading {filename} to {local_fp}')
                     try:
                         self.dl_file(cmr_granule.url, local_fp)
                     except:
                         success = False
                 else:
-                    logging.debug(f'{filename} already downloaded and up to date')
+                    logger.debug(f'{filename} already downloaded and up to date')
                     
                 granule.update_item(self.solr_docs, success)
                 granule.update_descendant(self.descendant_docs, success)
                 self.updated_solr_docs.extend(granule.get_solr_docs())
-        logging.info(f'Downloading {self.ds_name} complete')
+        logger.info(f'Downloading {self.ds_name} complete')
             
     def get_mod_time(self, id: str) -> datetime:
         meta_url = f'https://cmr.earthdata.nasa.gov/search/concepts/{id}.json'
@@ -99,7 +100,7 @@ class CMR_Harvester(Harvester):
                 native_granule = Granule(self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url)
 
                 if self.need_to_download(native_granule):
-                    logging.info(f'Downloading {filename} to {local_fp}')
+                    logger.info(f'Downloading {filename} to {local_fp}')
                     try:
                         self.dl_file(cmr_granule.url, local_fp)
                         ds = xr.open_dataset(local_fp, decode_times=True)
@@ -131,8 +132,8 @@ class CMR_Harvester(Harvester):
                         print(e)
                         success = False
                 else:
-                    logging.debug(f'{filename} already downloaded and up to date')
-        logging.info(f'Downloading {self.ds_name} complete')
+                    logger.debug(f'{filename} already downloaded and up to date')
+        logger.info(f'Downloading {self.ds_name} complete')
 
 
     def fetch_tellus_grac_grfo(self):
@@ -150,7 +151,7 @@ class CMR_Harvester(Harvester):
                 os.makedirs(f'{self.target_dir}/')
                 
             if self.check_update(filename, cmr_granule.mod_time):
-                logging.info(f'Downloading {filename} to {local_fp}')
+                logger.info(f'Downloading {filename} to {local_fp}')
                 self.dl_file(cmr_granule.url, local_fp)
                 ds = xr.open_dataset(local_fp, decode_times=True)
                 
@@ -163,7 +164,7 @@ class CMR_Harvester(Harvester):
                 # Compute monthly centertimes
                 monthly_cts = [make_time_bounds_from_ds64((month + 1).astype('datetime64[s]'), 'AVG_MON')[1] for month in months]
                 
-                logging.info('Slicing aggregated granule into monthly granules')
+                logger.info('Slicing aggregated granule into monthly granules')
 
                 for monthly_center in monthly_cts:
                     try:
@@ -173,7 +174,7 @@ class CMR_Harvester(Harvester):
                         
                         # Check if slice is within +/- 7 day tolerance
                         if not (sub_ds_time >= monthly_center - np.timedelta64(7, 'D') and sub_ds_time <= monthly_center + np.timedelta64(7, 'D')):
-                            logging.info(f'No slice found within 7 day tolerance for {monthly_center}')
+                            logger.info(f'No slice found within 7 day tolerance for {monthly_center}')
                             continue
 
                         time_dt = datetime.strptime(str(monthly_center.astype('datetime64[M]')), "%Y-%m")
@@ -185,15 +186,15 @@ class CMR_Harvester(Harvester):
                         sub_ds.to_netcdf(slice_local_fp)
                         
                     except Exception as e:
-                        logging.error(f'Error making granule slice: {e}')
+                        logger.error(f'Error making granule slice: {e}')
                         success = False
-                    logging.debug(f'Monthly center: {monthly_center}, data_slice_time: {sub_ds_time}, time for solr: {str(time_dt)}')
+                    logger.debug(f'Monthly center: {monthly_center}, data_slice_time: {sub_ds_time}, time for solr: {str(time_dt)}')
                     monthly_granule = Granule(self.ds_name, slice_local_fp, time_dt, cmr_granule.mod_time, cmr_granule.url)
                     monthly_granule.update_item(self.solr_docs, success)
                     monthly_granule.update_descendant(self.descendant_docs, success)
                     self.updated_solr_docs.extend(monthly_granule.get_solr_docs())
 
-        logging.info(f'Downloading {self.ds_name} complete')
+        logger.info(f'Downloading {self.ds_name} complete')
 
 
     def fetch_rdeft4(self):
@@ -247,18 +248,18 @@ class CMR_Harvester(Harvester):
                 granule = Granule(self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url)
                 
                 if self.need_to_download(granule):
-                    logging.info(f'Downloading {filename} to {local_fp}')
+                    logger.info(f'Downloading {filename} to {local_fp}')
                     try:
                         self.dl_file(cmr_granule.url, local_fp)
                     except:
                         success = False
                 else:
-                    logging.debug(f'{filename} already downloaded and up to date')
+                    logger.debug(f'{filename} already downloaded and up to date')
                     
                 granule.update_item(self.solr_docs, success)
                 granule.update_descendant(self.descendant_docs, success)
                 self.updated_solr_docs.extend(granule.get_solr_docs())
-        logging.info(f'Downloading {self.ds_name} complete')
+        logger.info(f'Downloading {self.ds_name} complete')
                 
 
     def fetch_tolerance_filter(self):
@@ -284,7 +285,7 @@ class CMR_Harvester(Harvester):
             if nearest_key >= month - np.timedelta64(7, 'D') and nearest_key <= month + np.timedelta64(7, 'D'):
                 granules_to_use.append(sorted_granule_dict[nearest_key])
             else:
-                logging.info(f'Granule nearest to {month} ({nearest_key}) is outside of tolerance window. Skipping.')
+                logger.info(f'Granule nearest to {month} ({nearest_key}) is outside of tolerance window. Skipping.')
         
         for cmr_granule in self.cmr_granules:
             filename = cmr_granule.url.split('/')[-1]
@@ -306,18 +307,18 @@ class CMR_Harvester(Harvester):
                 granule = Granule(self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url)
                 
                 if self.need_to_download(granule):
-                    logging.info(f'Downloading {filename} to {local_fp}')
+                    logger.info(f'Downloading {filename} to {local_fp}')
                     try:
                         self.dl_file(cmr_granule.url, local_fp)
                     except:
                         success = False
                 else:
-                    logging.debug(f'{filename} already downloaded and up to date')
+                    logger.debug(f'{filename} already downloaded and up to date')
                     
                 granule.update_item(self.solr_docs, success)
                 granule.update_descendant(self.descendant_docs, success)
                 self.updated_solr_docs.extend(granule.get_solr_docs())
-        logging.info(f'Downloading {self.ds_name} complete')
+        logger.info(f'Downloading {self.ds_name} complete')
 
 def harvester(config: dict) -> str:
     """

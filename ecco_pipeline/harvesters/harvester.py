@@ -6,6 +6,7 @@ from dataset import Dataset
 from utils import solr_utils
 from conf.global_settings import OUTPUT_DIR
 
+logger = logging.getLogger('pipeline')
 
 class Harvester(Dataset):
     
@@ -44,6 +45,9 @@ class Harvester(Dataset):
             self.filename_filter = config.get('filename_filter')
         elif self.harvester_type == 'osisaf':
             self.ddir = config.get('ddir')
+        elif self.harvester_type == 'catds':
+            self.ddir = config.get('ddir')
+            
       
     def fetch(self):
         raise NotImplementedError
@@ -121,12 +125,12 @@ class Harvester(Dataset):
         if self.updated_solr_docs:
             r = solr_utils.solr_update(self.updated_solr_docs, r=True)
             if r.status_code == 200:
-                logging.debug(
+                logger.debug(
                     'Successfully created or updated Solr harvested documents')
             else:
-                logging.exception('Failed to create Solr harvested documents')
+                logger.exception('Failed to create Solr harvested documents')
         else:
-            logging.debug('No downloads required.')
+            logger.debug('No downloads required.')
             
         harvesting_status = self.harvester_status()
         
@@ -180,9 +184,9 @@ class Harvester(Dataset):
         r = solr_utils.solr_update([ds_meta], r=True)
 
         if r.status_code == 200:
-            logging.debug('Successfully updated Solr dataset document')
+            logger.debug('Successfully updated Solr dataset document')
         else:
-            logging.exception('Failed to update Solr dataset document')
+            logger.exception('Failed to update Solr dataset document')
         return harvesting_status
     
     def harvester_status(self) -> str:

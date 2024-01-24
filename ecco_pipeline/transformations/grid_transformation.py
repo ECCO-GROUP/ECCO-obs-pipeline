@@ -1,4 +1,4 @@
-import logging
+from multiprocessing import current_process
 import os
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +11,11 @@ from utils.ecco_utils import ecco_functions, records
 from utils import file_utils, solr_utils
 from conf.global_settings import OUTPUT_DIR
 from transformations.transformation import Transformation
+# from transformations.preload import Factors, Grids
+
+import logging
+
+logger = logging.getLogger(str(current_process().pid))
 
 def load_file(source_file_path: str, T: Transformation) -> xr.Dataset:
     if T.preprocessing_function:
@@ -27,7 +32,7 @@ def prepopulate_solr(T: Transformation, source_file_path: str, grid_name: str):
     '''
     update_body = []
     for field in T.fields:
-        logging.debug(f'Transforming {field.name}')
+        logger.debug(f'Transforming {field.name}')
 
         # Query if grid/field combination transformation entry exists
         query_fq = [f'dataset_s:{T.ds_name}', 'type_s:transformation', f'grid_name_s:{grid_name}',
@@ -64,11 +69,12 @@ def prepopulate_solr(T: Transformation, source_file_path: str, grid_name: str):
     try:
         r.raise_for_status()
     except HTTPError:
-        logging.exception(f'Failed to update Solr transformation status for {T.ds_name} on {T.date}')
+        logger.exception(f'Failed to update Solr transformation status for {T.ds_name} on {T.date}')
         raise HTTPError
+# loaded_factors = Factors()
+# loaded_grids = Grids()
 
-
-def transform(source_file_path, remaining_transformations, config, granule_date, loaded_factors, loaded_grids):
+def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: str):
     """
     Performs and saves locally all remaining transformations for a given source granule
     Updates Solr with transformation entries and updates descendants, and dataset entries
@@ -79,31 +85,32 @@ def transform(source_file_path, remaining_transformations, config, granule_date,
     transformation_file_paths = {}
     grids_updated = []
 
-    logging.debug(f'Loading {T.file_name} data')
+    logger.debug(f'Loading {T.file_name} data')
     ds = load_file(source_file_path, T)
     
-    grid_fields = [[f'({grid_name}, {field})' for field in remaining_transformations[grid_name]] for grid_name in remaining_transformations.keys()]
-    logging.debug(f'{T.file_name} needs to transform: {grid_fields} ')
+    grid_fields = [[f'({grid_name}, {field})' for field in tx_jobs[grid_name]] for grid_name in tx_jobs.keys()]
+    logger.debug(f'{T.file_name} needs to transform: {grid_fields} ')
 
     # Iterate through grids in remaining_transformations
-    for grid_name in remaining_transformations.keys():
-        fields: Iterable[Field] = remaining_transformations[grid_name]
+    for grid_name in tx_jobs.keys():
+        fields: Iterable[Field] = tx_jobs[grid_name]
 
-        logging.debug(f'Loading {grid_name} model grid')
-        grid_ds = getattr(loaded_grids, grid_name).reset_coords()
-
+        logger.debug(f'Loading {grid_name} model grid')
+        # grid_ds = getattr(loaded_grids, grid_name).reset_coords()
+        grid_ds = xr.open_dataset(f'grids/{grid_name}.nc').reset_coords()
         # =====================================================
         # Pull factors from preloaded object
         # =====================================================
-        factors_file = f'{grid_ds.name}{T.hemi}_v{T.transformation_version}_factors'
-        factors = getattr(loaded_factors, factors_file)
-
+        # factors_file = f'{grid_ds.name}{T.hemi}_v{T.transformation_version}_factors'
+        # factors_path = os.path.join(OUTPUT_DIR, T.ds_name, 'transformed_products', grid_ds.name, factors_file)
+        # factors = getattr(loaded_factors, factors_file)
+        factors = T.make_factors(grid_ds)
         prepopulate_solr(T, source_file_path, grid_name)
 
         # =====================================================
         # Run transformation
         # =====================================================
-        logging.debug(f'Running transformations for {T.file_name}')
+        logger.debug(f'Running transformations for {T.file_name}')
 
         # Returns list of transformed DSs, one for each field in fields
         field_DSs = T.transform(grid_ds, factors, ds, fields, config)
@@ -128,7 +135,6 @@ def transform(source_file_path, remaining_transformations, config, granule_date,
             query_fq = [f'dataset_s:{T.ds_name}', 'type_s:transformation', f'grid_name_s:{grid_name}',
                         f'field_s:{field.name}', f'pre_transformation_file_path_s:"{source_file_path}"']
 
-            docs = solr_utils.solr_query(query_fq)
             doc_id = solr_utils.solr_query(query_fq)[0]['id']
 
             transformation_successes = transformation_successes and success
@@ -154,10 +160,9 @@ def transform(source_file_path, remaining_transformations, config, granule_date,
             r = solr_utils.solr_update(update_body, r=True)
 
             if r.status_code != 200:
-                logging.exception(
-                    f'Failed to update Solr transformation entry for {field["name"]} in {T.ds_name} on {T.date}')
+                logger.exception(f'Failed to update Solr transformation entry for {field["name"]} in {T.ds_name} on {T.date}')
 
             if success and grid_name not in grids_updated:
                 grids_updated.append(grid_name)
 
-        logging.debug(f'CPU id {os.getpid()} saving {T.file_name} output file for grid {grid_name}')
+        logger.debug(f'CPU id {os.getpid()} saving {T.file_name} output file for grid {grid_name}')

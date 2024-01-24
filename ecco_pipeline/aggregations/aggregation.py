@@ -1,3 +1,4 @@
+from multiprocessing import current_process
 from typing import Iterable
 import numpy as np
 
@@ -6,6 +7,9 @@ from collections import defaultdict
 from dataset import Dataset
 from utils import solr_utils
 import logging
+
+logger = logging.getLogger(str(current_process().pid))
+
 
 class Aggregation(Dataset):
     '''
@@ -33,6 +37,6 @@ class Aggregation(Dataset):
         fq = [f'dataset_s:{self.ds_name}', 'type_s:dataset']
         ds_meta = solr_utils.solr_query(fq)[0]
         if 'start_date_dt' not in ds_meta:
-            logging.info('No transformed granules to aggregate.')
+            logger.info('No transformed granules to aggregate.')
             raise Exception('No transformed granules to aggregate.')
         self.ds_meta = ds_meta

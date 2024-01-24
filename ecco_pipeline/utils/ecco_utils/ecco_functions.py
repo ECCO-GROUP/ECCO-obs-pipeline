@@ -1,4 +1,5 @@
 import logging
+from multiprocessing import current_process
 from typing import List, Tuple
 
 import numpy as np
@@ -7,6 +8,7 @@ import xarray as xr
 from aggregations.aggregation import Aggregation
 from utils.ecco_utils import date_time, records
 
+logger = logging.getLogger(str(current_process().pid))
 
 def transform_to_target_grid(source_indices_within_target_radius_i: dict,
                              num_source_indices_within_target_radius_i: list,
@@ -510,10 +512,10 @@ def G2202_mask_flagged_conc(ds: xr.Dataset) -> xr.Dataset:
     '''
     Masks out values greater than 1 in nsidc_nt_seaice_conc and cdr_seaice_conc
     '''
-    logging.debug(f'G2202 masking flagged nt pre   : {np.sum(ds["nsidc_nt_seaice_conc"].values.ravel() > 1)}')
+    logger.debug(f'G2202 masking flagged nt pre   : {np.sum(ds["nsidc_nt_seaice_conc"].values.ravel() > 1)}')
     tmpNT = np.where(ds["nsidc_nt_seaice_conc"].values.ravel() > 1, 1, 0)
     tmpCDR = np.where(ds["cdr_seaice_conc"].values.ravel() > 1, 1, 0)
-    logging.debug(f'G2202 masking flagged NDR, CDR pre: {np.sum(tmpNT), np.sum(tmpCDR)}')
+    logger.debug(f'G2202 masking flagged NDR, CDR pre: {np.sum(tmpNT), np.sum(tmpCDR)}')
 
     ds['nsidc_nt_seaice_conc'] = ds['nsidc_nt_seaice_conc'].where(ds['nsidc_nt_seaice_conc'] <= 1)
     ds['cdr_seaice_conc'] = ds['cdr_seaice_conc'].where(ds['cdr_seaice_conc'] <= 1)
@@ -524,7 +526,7 @@ def G2202_mask_flagged_conc(ds: xr.Dataset) -> xr.Dataset:
 
     tmpNT = np.where(ds["nsidc_nt_seaice_conc"].values.ravel() > 1, 1, 0)
     tmpCDR = np.where(ds["cdr_seaice_conc"].values.ravel() > 1, 1, 0)
-    logging.debug(f'G2202 masking flagged NDR, CDR post: {np.sum(tmpNT), np.sum(tmpCDR)}')
+    logger.debug(f'G2202 masking flagged NDR, CDR post: {np.sum(tmpNT), np.sum(tmpCDR)}')
 
     return ds
 

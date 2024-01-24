@@ -8,6 +8,7 @@ import requests
 
 from harvesters.harvester import Harvester
 
+logger = logging.getLogger('pipeline')
 
 CMR_GRANULE_URL = 'https://cmr.earthdata.nasa.gov/search/granules.json?&sort_key[]=start_date&sort_key[]=producer_granule_id&scroll=true&page_size=2000'
 
@@ -68,7 +69,7 @@ def cmr_filter_urls(search_results, provider):
 
 
 def cmr_search(harvester: Harvester, filename_filter=''):
-    logging.info(f'Querying CMR for concept id {harvester.cmr_concept_id}')
+    logger.info(f'Querying CMR for concept id {harvester.cmr_concept_id}')
     time_start = harvester.start.strftime('%Y-%m-%dT%H:%M:%SZ')
     time_end = harvester.end.strftime('%Y-%m-%dT%H:%M:%SZ')
 

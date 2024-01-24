@@ -2,8 +2,9 @@ import logging
 import os
 from datetime import datetime
 import xarray as xr
-from utils import file_utils, solr_utils
+from utils import file_utils, solr_utils, log_config
 
+logger = logging.getLogger('pipeline')
 
 def update_solr_grid(grid_name, grid_type, grid_file):
     '''
@@ -50,9 +51,9 @@ def update_solr_grid(grid_name, grid_type, grid_file):
             r = solr_utils.solr_update(update_body, r=True)
 
             if r.status_code == 200:
-                logging.debug(f'Successfully deleted Solr transformation documents for {grid_name}')
+                logger.debug(f'Successfully deleted Solr transformation documents for {grid_name}')
             else:
-                logging.exception(f'Failed to delete Solr transformation documents for {grid_name}')
+                logger.exception(f'Failed to delete Solr transformation documents for {grid_name}')
 
             # Delete previous grid's aggregations from Solr
             update_body = {
@@ -64,9 +65,9 @@ def update_solr_grid(grid_name, grid_type, grid_file):
             r = solr_utils.solr_update(update_body, r=True)
 
             if r.status_code == 200:
-                logging.debug(f'Successfully deleted Solr aggregation documents for {grid_name}')
+                logger.debug(f'Successfully deleted Solr aggregation documents for {grid_name}')
             else:
-                logging.exception(f'Failed to delete Solr aggregation documents for {grid_name}')
+                logger.exception(f'Failed to delete Solr aggregation documents for {grid_name}')
 
             # Update grid on Solr
             fq = [f'grid_name_s:{grid_name}', 'type_s:grid']
@@ -85,9 +86,9 @@ def update_solr_grid(grid_name, grid_type, grid_file):
     r = solr_utils.solr_update(update_body, r=True)
 
     if r.status_code == 200:
-        logging.debug(f'Successfully updated {grid_name} Solr grid document')
+        logger.debug(f'Successfully updated {grid_name} Solr grid document')
     else:
-        logging.error(f'Failed to update Solr {grid_name} grid document')
+        logger.error(f'Failed to update Solr {grid_name} grid document')
 
 
 def main(grids_to_use=[]):
@@ -108,20 +109,20 @@ def main(grids_to_use=[]):
         grid_name = ds.attrs['name']
         grid_type = ds.attrs['type']
         grids.append((grid_name, grid_type, grid_file))
-        logging.debug(f'Loaded {grid_name} {grid_type} {grid_file}')
+        logger.debug(f'Loaded {grid_name} {grid_type} {grid_file}')
 
     # =====================================================
     # Create Solr grid-type document for each missing grid type
     # =====================================================
     for grid_name, grid_type, grid_file in grids:
-        logging.debug(f'Uploading solr grid {grid_name} {grid_type} {grid_file}')
+        logger.debug(f'Uploading solr grid {grid_name} {grid_type} {grid_file}')
         update_solr_grid(grid_name, grid_type, grid_file)
 
     # =====================================================
     # Verify grid names supplied exist on Solr
     # =====================================================
     grids_not_in_solr = []
-    logging.debug(f'Grids to use: {grids_to_use}')
+    logger.debug(f'Grids to use: {grids_to_use}')
     for grid_name in grids_to_use:
         fq = ['type_s:grid', f'grid_name_s:{grid_name}']
         docs = solr_utils.solr_query(fq)

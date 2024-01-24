@@ -7,10 +7,13 @@ from datetime import datetime
 
 from harvesters.harvester import Harvester
 
+logger = logging.getLogger('pipeline')
+
+
 NSIDC_URL = 'https://noaadata.apps.nsidc.org/NOAA/'
     
 def search_nsidc(harvester: Harvester):
-    logging.info(f'Searching NSIDC for {harvester.ds_name} granules...')
+    logger.info(f'Searching NSIDC for {harvester.ds_name} granules...')
     date_range = range(harvester.start.year, harvester.end.year + 1)
     all_granules = []
     for hemi in ['north', 'south']:
