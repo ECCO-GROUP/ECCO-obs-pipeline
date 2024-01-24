@@ -1,30 +1,13 @@
 import logging
-from logging.handlers import QueueHandler
-from multiprocessing import Queue, current_process, Pool, Manager
+from multiprocessing import current_process, Pool, get_logger
+import os
 from typing import Iterable
 from aggregations.aggjob import AggJob
 from aggregations.aggregation import Aggregation
 from field import Field
 from utils import solr_utils, log_config
 
-def logging_process(queue: Queue, log_filename: str):
-    '''
-    Process to run during multiprocessing. Allows for logging of each process.
-    '''
-    log_config.configure_logging(True, log_filename=log_filename)
-
-    # report that the logging process is running
-    logging.debug(f'Logger process running.')
-    # run forever
-    while True:
-        # consume a log message, block until one arrives
-        message = queue.get()
-        # check for shutdown
-        if message is None:
-            logging.debug(f'Logger process shutting down.')
-            break
-        # log the message
-        logging.getLogger().handle(message)
+logger = logging.getLogger('pipeline')
 
 def get_grids(grids_to_use: Iterable[str]) -> Iterable[dict]:
     '''
@@ -43,7 +26,7 @@ def get_solr_ds_metadata(ds_name: str) -> dict:
     fq = [f'dataset_s:{ds_name}', 'type_s:dataset']
     ds_meta = solr_utils.solr_query(fq)[0]
     if 'start_date_dt' not in ds_meta:
-        logging.error('No transformed granules to aggregate.')
+        logger.error('No transformed granules to aggregate.')
         raise Exception('No transformed granules to aggregate.')
     return ds_meta
 
@@ -105,11 +88,12 @@ def get_jobs(config: dict, grids: Iterable[dict], fields: Iterable[Field]) -> It
     existing_agg_version = ds_metadata.get('aggregation_version_s')
     
     if existing_agg_version and existing_agg_version != str(config.get('a_version', '')):
-        logging.debug('Making jobs for all years')
+        logger.debug('Making jobs for all years')
         agg_jobs = make_jobs_all_years(ds_metadata, grids, fields, config)
     else:
-        logging.debug('Determining jobs')
+        logger.debug('Determining jobs')
         agg_jobs = make_jobs(config['ds_name'], grids, fields, config)
+
     return agg_jobs
 
 def get_agg_status(ds_name: str) -> str:
@@ -136,12 +120,12 @@ def get_agg_status(ds_name: str) -> str:
     return aggregation_status
 
 
-def multiprocess_aggregate(job: AggJob, log_filename: str):
+def multiprocess_aggregate(job: AggJob, log_level: str, log_dir: str):
     '''
     Function used to execute by multiprocessing to execute a single grid/year/field aggregation
     '''
-    log_config.configure_logging(True, log_filename=log_filename)
-    logging.info(f'Beginning aggregation for {job.grid["grid_name_s"]}, {job.year}, {job.field.name}')
+    logger = log_config.mp_logging(str(current_process().pid), log_level, log_dir)
+    logger.info(f'Beginning aggregation for {job.grid["grid_name_s"]}, {job.year}, {job.field.name}')
     job.aggregate()
     
 def update_solr_ds(aggregation_status: str, config: dict):
@@ -157,43 +141,36 @@ def update_solr_ds(aggregation_status: str, config: dict):
     r = solr_utils.solr_update(update_body, r=True)
 
     if r.status_code == 200:
-        logging.debug(f'Successfully updated Solr with aggregation information for {config["ds_name"]}')
+        logger.debug(f'Successfully updated Solr with aggregation information for {config["ds_name"]}')
     else:
-        logging.exception(f'Failed to update Solr dataset entry with aggregation information for {config["ds_name"]}')
+        logger.exception(f'Failed to update Solr dataset entry with aggregation information for {config["ds_name"]}')
 
-def aggregation(config: dict, user_cpus: int, grids_to_use: Iterable[str]=[], log_filename: str = '') -> str:
+def aggregation(config: dict, user_cpus: int, grids_to_use: Iterable[str]=[], log_dir: str = '') -> str:
     """
     Aggregates data into annual files (either daily, monthly, or both), saves them, and updates Solr
     """    
     grids = get_grids(grids_to_use)
     agg_jobs = get_jobs(config, grids, Aggregation(config).fields)
     
-    logging.info(f'Executing jobs: {", ".join([str(job) for job in agg_jobs])}')
-    
-    if user_cpus == 1:
-        logging.info('Not using multiprocessing to do aggregations')
-        for agg_job in agg_jobs:
-            multiprocess_aggregate(agg_job, log_filename)
+    if agg_jobs:
+        log_level = logging.getLevelName(logging.getLogger('pipeline').level)
+        log_dir = os.path.dirname(logging.getLogger('pipeline').handlers[0].baseFilename)
+        log_dir = os.path.join(log_dir[log_dir.find('logs/'):], f'ag_{config["ds_name"]}')
+        
+        logger.info(f'Executing jobs: {", ".join([str(job) for job in agg_jobs])}')
+        
+        if user_cpus == 1:
+            logger.info('Not using multiprocessing to do aggregations')
+            for agg_job in agg_jobs:
+                multiprocess_aggregate(agg_job, log_level, log_dir)
+        else:
+            logger.info(f'Using {user_cpus} CPUs to do multiprocess aggregation')
+            with Pool(processes=user_cpus) as pool:               
+                pool.starmap_async(multiprocess_aggregate, [(job, log_level, log_dir) for job in agg_jobs])
+                pool.close()
+                pool.join()
     else:
-        logging.info(f'Using {user_cpus} CPUs to do multiprocess aggregation')
-        with Manager() as manager:
-            queue = manager.Queue()
-            # add a handler that uses the shared queue
-            queue_handler = QueueHandler(queue)
-            logging.getLogger().addHandler(queue_handler)
-            
-            try:
-                with Pool(processes=user_cpus) as pool:               
-                    # issue a long running task to receive logging messages
-                    _ = pool.apply_async(logging_process, args=(queue,log_filename,))
-
-                    pool.starmap(multiprocess_aggregate, [(agg_job, log_filename) for agg_job in agg_jobs])
-                    queue.put(None)
-                    pool.close()
-                    pool.join()
-            except Exception as e:
-                logging.exception('Error using multiprocessing aggregation')
-            logging.getLogger().removeHandler(queue_handler)
+        logger.info('No new jobs to execute.')
         
     aggregation_status = get_agg_status(config['ds_name'])
     update_solr_ds(aggregation_status, config)

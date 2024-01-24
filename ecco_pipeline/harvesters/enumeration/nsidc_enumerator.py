@@ -7,10 +7,13 @@ from datetime import datetime
 
 from harvesters.harvester import Harvester
 
+logger = logging.getLogger('pipeline')
+
+
 NSIDC_URL = 'https://noaadata.apps.nsidc.org/NOAA/'
     
 def search_nsidc(harvester: Harvester):
-    logging.info(f'Searching NSIDC for {harvester.ds_name} granules...')
+    logger.info(f'Searching NSIDC for {harvester.ds_name} granules...')
     date_range = range(harvester.start.year, harvester.end.year + 1)
     all_granules = []
     for hemi in ['north', 'south']:
@@ -30,7 +33,7 @@ def search_nsidc(harvester: Harvester):
                 mod_time = datetime.strptime(tokens[0] + ' ' + tokens[1], '%d-%b-%Y %H:%M')
                 size = tokens[2]
                 all_granules.append(NSIDCGranule(url, mod_time, size))
-    logging.info(f'Found {len(all_granules)} possible granules')
+    logger.info(f'Found {len(all_granules)} possible granules')
     return all_granules
 
 @dataclass

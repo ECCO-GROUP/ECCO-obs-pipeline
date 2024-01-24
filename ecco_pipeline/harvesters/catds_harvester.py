@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Iterable
 
 import requests
-from harvesters.enumeration.nsidc_enumerator import search_nsidc, NSIDCGranule
+from harvesters.enumeration.catds_enumerator import search_catds, CATDSGranule
 from harvesters.granule import Granule
 from harvesters.harvester import Harvester
 from utils.file_utils import get_date
@@ -12,15 +12,15 @@ from utils.file_utils import get_date
 logger = logging.getLogger('pipeline')
 
 
-class NSIDC_Harvester(Harvester):
+class CATDS_Harvester(Harvester):
     
     def __init__(self, config: dict):
         Harvester.__init__(self, config)
-        self.nsidc_granules: Iterable[NSIDCGranule] = search_nsidc(self)
+        self.catds_granules: Iterable[CATDSGranule] = search_catds(self)
     
     def fetch(self):
-        for nsidc_granule in self.nsidc_granules:
-            filename = nsidc_granule.url.split('/')[-1]
+        for catds_granule in self.catds_granules:
+            filename = catds_granule.url.split('/')[-1]
             # Get date from filename and convert to dt object
             date = get_date(self.filename_date_regex, filename)
             dt = datetime.strptime(date, self.filename_date_fmt)
@@ -34,14 +34,14 @@ class NSIDC_Harvester(Harvester):
             if not os.path.exists(f'{self.target_dir}{year}/'):
                 os.makedirs(f'{self.target_dir}{year}/')
                 
-            if self.check_update(filename, nsidc_granule.mod_time):
+            if self.check_update(filename, catds_granule.mod_time):
                 success = True
-                granule = Granule(self.ds_name, local_fp, dt, nsidc_granule.mod_time, nsidc_granule.url)
+                granule = Granule(self.ds_name, local_fp, dt, catds_granule.mod_time, catds_granule.url)
                 
                 if self.need_to_download(granule):
                     logger.info(f'Downloading {filename} to {local_fp}')
                     try:
-                        self.dl_file(nsidc_granule.url, local_fp)
+                        self.dl_file(catds_granule.url, local_fp)
                     except:
                         success = False
                 else:
@@ -65,7 +65,7 @@ def harvester(config: dict) -> str:
     Creates (or updates) Solr entries for dataset, harvested granule, and descendants.
     """
 
-    harvester = NSIDC_Harvester(config)    
+    harvester = CATDS_Harvester(config)    
     harvester.fetch()
     harvesting_status = harvester.post_fetch()
     return harvesting_status

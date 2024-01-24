@@ -8,6 +8,10 @@ import requests
 import yaml
 from conf.global_settings import SOLR_COLLECTION, SOLR_HOST
 
+# THIS DOESN"T WORK YET - pipeline logger isn't setup yet
+# log_level = logging.getLevelName(logging.getLogger('pipeline').level)
+# logger = log_config.mp_logging('solr', log_level)
+# logger = logging.getLogger('solr')
 
 def solr_query(fq, fl=''):
     query_params = {'q': '*:*',
@@ -21,14 +25,14 @@ def solr_query(fq, fl=''):
     except:
         time.sleep(5)
         response = requests.get(url, params=query_params, headers={'Connection': 'close'})
-    logging.debug(f'Querying solr: {response.url}')
+    # logger.debug(f'Querying solr: {response.url}')
     return response.json()['response']['docs']
 
 
 def solr_update(update_body, r=False):
     url = f'{SOLR_HOST}{SOLR_COLLECTION}/update?commit=true'
     response = requests.post(url, json=update_body)
-    logging.debug(f'Updating solr: {response.url}')
+    # logger.debug(f'Updating solr: {response.url}')
     
     if r:
         return response
@@ -67,9 +71,10 @@ def validate_granules():
 
     if docs_to_remove:
         solr_update({'delete': docs_to_remove})
-        logging.info(f'Succesfully removed {len(docs_to_remove)} granules from Solr')
+        # logger.info(f'Succesfully removed {len(docs_to_remove)} granules from Solr')
     else:
-        logging.info('All harvested docs are valid')
+        pass
+        # logger.info('All harvested docs are valid')
 
 
 def clean_solr(config):
@@ -97,7 +102,7 @@ def clean_solr(config):
     else:
         dataset_metadata = dataset_metadata[0]
 
-    logging.info(f'Removing Solr documents related to dates outside of configuration {config_start} to {config_end}')
+    # logger.info(f'Removing Solr documents related to dates outside of configuration {config_start} to {config_end}')
 
     # Remove entries earlier than config start date
     fq = f'dataset_s:{dataset_name} AND date_s:[* TO {config_start}}}'
