@@ -31,13 +31,11 @@ def search_nsidc(harvester: Harvester):
                 url = os.path.join(ds_hemi_year_url, l["href"])
                 tokens = l.next_sibling.split()
                 mod_time = datetime.strptime(tokens[0] + ' ' + tokens[1], '%d-%b-%Y %H:%M')
-                size = tokens[2]
-                all_granules.append(NSIDCGranule(url, mod_time, size))
-    logger.info(f'Found {len(all_granules)} possible granules')
+                all_granules.append(NSIDCGranule(url, mod_time))
+    logging.info(f'Found {len(all_granules)} possible granules')
     return all_granules
 
 @dataclass
 class NSIDCGranule():
     url: str
     mod_time: datetime
-    size: int

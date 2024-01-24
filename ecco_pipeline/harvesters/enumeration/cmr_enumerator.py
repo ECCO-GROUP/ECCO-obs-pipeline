@@ -56,7 +56,7 @@ def cmr_filter_urls(search_results, provider):
 
             filename = link['href'].split('/')[-1]
 
-            bad_formats = ['md5', 'tif', 'txt', 'png', 'xml', 'jpg', 'dmrpp', 's3credentials']
+            bad_formats = ['md5', 'tif', 'txt', 'png', 'xml', 'jpg', 'dmrpp', 's3credentials', 'NRT']
             if any(s in filename for s in bad_formats):
                 continue
             if filename in unique_filenames:
