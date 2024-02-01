@@ -5,6 +5,7 @@ from multiprocessing import current_process
 from pathlib import Path
 from typing import Iterable
 import uuid
+import warnings
 
 import numpy as np
 import xarray as xr
@@ -212,17 +213,22 @@ class AggJob(Aggregation):
 
         daily_DS_year = []
         for date in dates_in_year:
+            logger.debug(f'Processing {date}')
             docs = self.get_data_by_date(date, grid_name)
             data_DS = self.process_data_by_date(docs, self.grid, model_grid_ds, date)
             daily_DS_year.append(data_DS)
 
         # Concatenate all data files within annual list
+        logger.debug(f'Concatenating opened files...')
         daily_annual_ds = xr.concat((daily_DS_year), dim='time')
         data_var = list(daily_annual_ds.keys())[0]
 
         daily_annual_ds.attrs['aggregation_version'] = self.version
-        daily_annual_ds[data_var].attrs['valid_min'] = np.nanmin(daily_annual_ds[data_var].values)
-        daily_annual_ds[data_var].attrs['valid_max'] = np.nanmax(daily_annual_ds[data_var].values)
+        
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            daily_annual_ds[data_var].attrs['valid_min'] = np.nanmin(daily_annual_ds[data_var].values)
+            daily_annual_ds[data_var].attrs['valid_max'] = np.nanmax(daily_annual_ds[data_var].values)
 
         remove_keys = [k for k in daily_annual_ds[data_var].attrs.keys() if 'original' in k and k != 'original_field_name']
         for key in remove_keys:
