@@ -7,7 +7,6 @@ harvester_type: osisaf
 filename_date_fmt: "%Y%m%d"
 filename_date_regex: '\d{8}'
 ddir: "ice/amsr2_conc"
-filename_filter: "tud" # string to match for filenames to download ex: polstere-100_multi
 
 # Metadata
 data_time_scale: "daily" # daily or monthly
