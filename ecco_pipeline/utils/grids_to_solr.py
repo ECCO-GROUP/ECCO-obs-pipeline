@@ -82,6 +82,8 @@ def update_solr_grid(grid_name, grid_type, grid_file):
                     "date_added_dt": {"set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")}
                 }
             ]
+        else:
+            return
 
     r = solr_utils.solr_update(update_body, r=True)
 
