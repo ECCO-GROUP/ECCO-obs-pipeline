@@ -8,11 +8,14 @@ from datetime import datetime
 
 from harvesters.harvester import Harvester
 
+logger = logging.getLogger('pipeline')
+
+
 OSISAF_URL = 'https://thredds.met.no/thredds/catalog/osisaf/met.no/'
     
 def search_osisaf(harvester: Harvester):
     harvester.data_time_scale
-    logging.info(f'Searching OSISAF for {harvester.ds_name} granules...')
+    logger.info(f'Searching OSISAF for {harvester.ds_name} granules...')
     
     if harvester.data_time_scale == 'monthly':
         base_url = os.path.join(OSISAF_URL, harvester.ddir, 'monthly')
@@ -45,7 +48,7 @@ def search_osisaf(harvester: Harvester):
                     url = os.path.join('https://thredds.met.no/thredds/fileServer/', granule['urlPath'])
                     mod_time = datetime.strptime(granule.find('date').text, '%Y-%m-%dT%H:%M:%SZ')
                     all_granules.append(OSISAFGranule(url, mod_time))
-    logging.info(f'Found {len(all_granules)} possible granules')
+    logger.info(f'Found {len(all_granules)} possible granules')
     return all_granules
     
 

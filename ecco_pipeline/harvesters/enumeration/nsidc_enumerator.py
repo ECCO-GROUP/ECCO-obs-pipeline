@@ -32,7 +32,7 @@ def search_nsidc(harvester: Harvester):
                 tokens = l.next_sibling.split()
                 mod_time = datetime.strptime(tokens[0] + ' ' + tokens[1], '%d-%b-%Y %H:%M')
                 all_granules.append(NSIDCGranule(url, mod_time))
-    logging.info(f'Found {len(all_granules)} possible granules')
+    logger.info(f'Found {len(all_granules)} possible granules')
     return all_granules
 
 @dataclass
