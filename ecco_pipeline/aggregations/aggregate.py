@@ -157,7 +157,7 @@ def aggregation(config: dict, user_cpus: int, grids_to_use: Iterable[str]=[], lo
         log_dir = os.path.dirname(logging.getLogger('pipeline').handlers[0].baseFilename)
         log_dir = os.path.join(log_dir[log_dir.find('logs/'):], f'ag_{config["ds_name"]}')
         
-        logger.info(f'Executing jobs: {", ".join([str(job) for job in agg_jobs])}')
+        logger.info(f'Executing ({len(agg_jobs)}) jobs: {", ".join([str(job) for job in agg_jobs])}')
         
         if user_cpus == 1:
             logger.info('Not using multiprocessing to do aggregations')
