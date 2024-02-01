@@ -102,7 +102,7 @@ def cmr_search(harvester: Harvester, filename_filter=''):
 class CMRGranule():
     url: str
     id: str
-    mod_time: str
+    mod_time: datetime
     
     def __init__(self, url, id, mod_time: datetime):
         self.url = url
