@@ -1,6 +1,7 @@
 import logging
 from multiprocessing import current_process
 from typing import List, Tuple
+import warnings
 
 import numpy as np
 import pyresample as pr
@@ -40,31 +41,33 @@ def transform_to_target_grid(source_indices_within_target_radius_i: dict,
 
         # if the number of source_field points at target grid cell i > 0
         if num_source_indices_within_target_radius_i[i] > 0:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                
+                # average these values
+                if operation == 'mean':
+                    tmp_r[i] = \
+                        np.mean(source_field_r[source_indices_within_target_radius_i[i]])
 
-            # average these values
-            if operation == 'mean':
-                tmp_r[i] = \
-                    np.mean(source_field_r[source_indices_within_target_radius_i[i]])
+                # average of non-nan values (can be slow)
+                elif operation == 'nanmean':
+                    tmp_r[i] = \
+                        np.nanmean(source_field_r[source_indices_within_target_radius_i[i]])
 
-            # average of non-nan values (can be slow)
-            elif operation == 'nanmean':
-                tmp_r[i] = \
-                    np.nanmean(source_field_r[source_indices_within_target_radius_i[i]])
+                # median of these values
+                elif operation == 'median':
+                    tmp_r[i] = \
+                        np.median(source_field_r[source_indices_within_target_radius_i[i]])
 
-            # median of these values
-            elif operation == 'median':
-                tmp_r[i] = \
-                    np.median(source_field_r[source_indices_within_target_radius_i[i]])
+                # median of non-nan values (can be slow)
+                elif operation == 'nanmedian':
+                    tmp_r[i] = \
+                        np.nanmedian(source_field_r[source_indices_within_target_radius_i[i]])
 
-            # median of non-nan values (can be slow)
-            elif operation == 'nanmedian':
-                tmp_r[i] = \
-                    np.nanmedian(source_field_r[source_indices_within_target_radius_i[i]])
-
-            # nearest neighbor is the first element in source_indices
-            elif operation == 'nearest':
-                tmp = source_indices_within_target_radius_i[i]
-                tmp_r[i] = source_field_r[tmp[0]]
+                # nearest neighbor is the first element in source_indices
+                elif operation == 'nearest':
+                    tmp = source_indices_within_target_radius_i[i]
+                    tmp_r[i] = source_field_r[tmp[0]]
 
         # number source indices within target radius is 0, then we can potentially
         # search for a nearest neighbor.

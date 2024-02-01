@@ -2,6 +2,7 @@ import logging
 from multiprocessing import current_process
 import os
 from typing import Iterable, Tuple, Mapping
+import warnings
 import numpy as np
 import netCDF4 as nc4
 from datetime import datetime
@@ -263,10 +264,8 @@ class Transformation(Dataset):
             if mapping_success:
                 try:
                     field_DA = self.apply_funcs(field_DA, field.post_transformations)
-                    if np.isnan(field_DA.values).all():
-                        field_DA.attrs['valid_min'] = np.nan
-                        field_DA.attrs['valid_max'] = np.nan
-                    else:
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", category=RuntimeWarning)
                         field_DA.attrs['valid_min'] = np.nanmin(field_DA.values)
                         field_DA.attrs['valid_max'] = np.nanmax(field_DA.values)
                 except Exception as e:
