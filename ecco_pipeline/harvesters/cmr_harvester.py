@@ -106,6 +106,10 @@ class CMR_Harvester(Harvester):
                     except Exception as e:
                         print(e)
                         success = False
+                    downloaded = True
+                else:
+                    logger.info(f'{year}-{str(month).zfill(2)} monthly file up to date. Slicing to ensure entries in Solr...')
+                    downloaded = False
                         
                 # Pull out daily slices from monthly granule
                 ds = xr.open_dataset(local_fp, decode_times=True)
@@ -115,26 +119,31 @@ class CMR_Harvester(Harvester):
                     success = True
                     day_number = str(i).zfill(2)
                     try:
-                        var_ds = xr.open_dataset(local_fp, group=f'daily/day{day_number}')
+                        datetime(dt.year,dt.month,i)
                     except:
                         continue
-                    mid_date = (var_ds.delta_time_beg.values[0] + ((var_ds.delta_time_end.values[0] - var_ds.delta_time_beg.values[0]) / 2)).astype(str)[:10]
-                    date = np.datetime64(mid_date).astype('datetime64[ns]')
-                    dt = datetime(int(year), int(month), i)
-                    time_var_ds = var_ds.expand_dims({'time': [date]})
-                    time_var_ds = time_var_ds[[field.name for field in self.fields]]
-                    merged_ds = xr.merge([ds, time_var_ds])
                     daily_filename = filename[:9] + year + month + day_number + filename[-10:-3] + '.nc'
                     daily_local_fp = f'{self.target_dir}{year}/{daily_filename}'
-                    merged_ds.to_netcdf(daily_local_fp)
+                    if downloaded:
+                        try:
+                            var_ds = xr.open_dataset(local_fp, group=f'daily/day{day_number}')
+                        except:
+                            continue
+                        mid_date = (var_ds.delta_time_beg.values[0] + ((var_ds.delta_time_end.values[0] - var_ds.delta_time_beg.values[0]) / 2)).astype(str)[:10]
+                        date = np.datetime64(mid_date).astype('datetime64[ns]')
+                        dt = datetime(int(year), int(month), i)
+                        time_var_ds = var_ds.expand_dims({'time': [date]})
+                        time_var_ds = time_var_ds[[field.name for field in self.fields]]
+                        merged_ds = xr.merge([ds, time_var_ds])
+                        merged_ds.to_netcdf(daily_local_fp)
                     
-                    daily_granule = Granule(self.ds_name, daily_local_fp, dt, cmr_granule.mod_time, cmr_granule.url)
-                    daily_granule.update_item(self.solr_docs, success)
-                    daily_granule.update_descendant(self.descendant_docs, success)
-                    self.updated_solr_docs.extend(daily_granule.get_solr_docs())
-                    
-                else:
-                    logger.debug(f'{filename} already downloaded and up to date')
+                    try:
+                        daily_granule = Granule(self.ds_name, daily_local_fp, dt, cmr_granule.mod_time, cmr_granule.url)
+                        daily_granule.update_item(self.solr_docs, success)
+                        daily_granule.update_descendant(self.descendant_docs, success)
+                        self.updated_solr_docs.extend(daily_granule.get_solr_docs())
+                    except:
+                        logger.debug(f'{year}-{str(month).zfill(2)}-{day_number} unable to be sliced. Daily data likely missing in monthly file.')
         logger.info(f'Downloading {self.ds_name} complete')
 
 
