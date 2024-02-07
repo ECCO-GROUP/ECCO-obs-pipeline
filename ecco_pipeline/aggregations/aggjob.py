@@ -92,9 +92,54 @@ class AggJob(Aggregation):
             ds = opened_datasets[0]
         return ds
     
-    def process_data_by_date(self, transformation_docs: Iterable[dict], grid: dict, model_grid_ds: xr.Dataset, date: str) -> xr.Dataset:
-        data_time_scale = self.data_time_scale
+    def make_empty_date(self, date: str, model_grid_ds: xr.Dataset, grid: dict) -> xr.Dataset:
+        '''
+        Creates "empty record" and fills in relevant metadata
+        '''
+        data_da = records.make_empty_record(date, model_grid_ds, self.precision)
+        data_da.attrs['long_name'] = self.field.long_name
+        data_da.attrs['standard_name'] = self.field.standard_name
+        data_da.attrs['units'] = self.field.units
+        data_da.name = f'{self.field.name}_interpolated_to_{grid.get("grid_name_s")}'
+        data_da.attrs['original_field_name'] = self.field.name
+        data_da.attrs['interpolation_date'] = str(np.datetime64(datetime.now(), 'D'))
+        data_da.attrs['agg_notes'] = "empty record created during aggregation"
 
+        data_ds = data_da.to_dataset()
+
+        # add time_bnds coordinate
+        # [start_time, end_time] dimensions
+        # MONTHLY cannot use timedelta64 since it has a variable
+        # number of ns/s/d. DAILY can so we use it.
+        if self.data_time_scale.upper() == 'MONTHLY':
+            end_time = str(data_ds.time_end.values[0])
+            month = str(np.datetime64(end_time, 'M') + 1)
+            end_time = [str(np.datetime64(month, 'ns'))]
+        elif self.data_time_scale.upper() == 'DAILY':
+            end_time = data_ds.time_end.values + np.timedelta64(1, 'D')
+
+        _, ct = date_time.make_time_bounds_from_ds64(np.datetime64(end_time[0], 'ns'), 'AVG_MON')
+        data_ds.time.values[0] = ct
+
+        start_time = data_ds.time_start.values
+
+        time_bnds = np.array([start_time, end_time], dtype='datetime64')
+        time_bnds = time_bnds.T
+
+        data_ds = data_ds.assign_coords({'time_bnds': (['time', 'nv'], time_bnds)})
+
+        data_ds.time.attrs.update(bounds='time_bnds')
+
+        data_ds = data_ds.drop('time_start')
+        data_ds = data_ds.drop('time_end')
+    
+    def process_data_by_date(self, transformation_docs: Iterable[dict], grid: dict, model_grid_ds: xr.Dataset, date: str) -> xr.Dataset:
+        '''
+        Accomplishes one of three things:
+        1. Builds "empty record" in the event of no data for this date
+        2. Opens transformation netCDF in the event of data for this date
+        3. Opens and merges transformation netCDFs in the event of hemispherical data for this date
+        '''
         make_empty_record = False
         if not transformation_docs:
             logger.info(f'No transformation docs for {str(date)}. Making empty record.')
@@ -107,52 +152,10 @@ class AggJob(Aggregation):
                 make_empty_record = True
             
         if make_empty_record:
-            data_da = records.make_empty_record(date, model_grid_ds, self.precision)
-            data_da.attrs['long_name'] = self.field.long_name
-            data_da.attrs['standard_name'] = self.field.standard_name
-            data_da.attrs['units'] = self.field.units
-            data_da.name = f'{self.field.name}_interpolated_to_{grid.get("grid_name_s")}'
-            data_da.attrs['original_field_name'] = self.field.name
-            data_da.attrs['interpolation_date'] = str(np.datetime64(datetime.now(), 'D'))
-            data_da.attrs['agg_notes'] = "empty record created during aggregation"
-
-            data_ds = data_da.to_dataset()
-
-            # add time_bnds coordinate
-            # [start_time, end_time] dimensions
-            # MONTHLY cannot use timedelta64 since it has a variable
-            # number of ns/s/d. DAILY can so we use it.
-            if data_time_scale.upper() == 'MONTHLY':
-                end_time = str(data_ds.time_end.values[0])
-                month = str(np.datetime64(end_time, 'M') + 1)
-                end_time = [str(np.datetime64(month, 'ns'))]
-            elif data_time_scale.upper() == 'DAILY':
-                end_time = data_ds.time_end.values + np.timedelta64(1, 'D')
-
-            _, ct = date_time.make_time_bounds_from_ds64(np.datetime64(end_time[0], 'ns'), 'AVG_MON')
-            data_ds.time.values[0] = ct
-
-            start_time = data_ds.time_start.values
-
-            time_bnds = np.array([start_time, end_time], dtype='datetime64')
-            time_bnds = time_bnds.T
-
-            data_ds = data_ds.assign_coords({'time_bnds': (['time', 'nv'], time_bnds)})
-
-            data_ds.time.attrs.update(bounds='time_bnds')
-
-            data_ds = data_ds.drop('time_start')
-            data_ds = data_ds.drop('time_end')
+            data_ds = self.make_empty_date(date, model_grid_ds, grid)
+            
         return data_ds
-    
-    def check_nan_da(self, da: xr.DataArray) -> bool:
-        '''
-        Check if da consists entirely of nans
-        '''
-        if np.sum(~np.isnan(da.values)) == 0:
-            return True
-        return False
-    
+        
     def generate_provenance(self, grid_name, solr_output_filepaths, aggregation_successes):
         # Query for descendants entries from this year
         fq = ['type_s:descendants', f'dataset_s:{self.ds_name}', f'date_s:{self.year}*']
@@ -253,7 +256,7 @@ class AggJob(Aggregation):
         empty_year = False
 
         # Save
-        if self.check_nan_da(daily_annual_ds[data_var]):
+        if np.isnan(daily_annual_ds[data_var].values).all():
             empty_year = True
         else:
             if self.do_monthly_aggregation:
