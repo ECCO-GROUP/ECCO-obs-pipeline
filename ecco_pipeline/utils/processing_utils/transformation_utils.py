@@ -1,20 +1,17 @@
 import logging
 from multiprocessing import current_process
-from typing import List, Tuple
+from typing import Iterable
 import warnings
 
 import numpy as np
 import pyresample as pr
-import xarray as xr
-from aggregations.aggregation import Aggregation
-from utils.ecco_utils import date_time, records
 
 logger = logging.getLogger(str(current_process().pid))
 
 def transform_to_target_grid(source_indices_within_target_radius_i: dict,
                              num_source_indices_within_target_radius_i: list,
                              nearest_source_index_to_target_index_i: dict,
-                             source_field, target_grid_shape, operation: str = 'mean',
+                             source_field: np.ndarray, target_grid_shape: tuple, operation: str = 'mean',
                              allow_nearest_neighbor: bool = True):
     '''
     Transforms source data to target grid
@@ -31,7 +28,7 @@ def transform_to_target_grid(source_indices_within_target_radius_i: dict,
     source_field_r = source_field.ravel()
 
     # define array that will contain source_field mapped to target_grid
-    source_on_target_grid = np.zeros((target_grid_shape))*np.nan
+    source_on_target_grid = np.full((target_grid_shape), np.nan)
 
     # get a 1D version of source_on_target_grid
     tmp_r = source_on_target_grid.ravel()
@@ -242,7 +239,7 @@ def find_mappings_from_source_to_target(source_grid, target_grid, target_grid_ra
         nearest_source_index_to_target_index_i
 
 
-def generalized_grid_product(data_res: float, area_extent: List[float], dims: List[float], proj_info: dict) -> Tuple[np.ndarray]:
+def generalized_grid_product(data_res: float, area_extent: Iterable[float], dims: Iterable[float], proj_info: dict) -> Iterable[np.ndarray]:
     '''
     Generates tuple containing (source_grid_min_L, source_grid_max_L, source_grid)
 
@@ -290,300 +287,3 @@ def generalized_grid_product(data_res: float, area_extent: List[float], dims: Li
 
     return (source_grid_min_L, source_grid_max_L, source_grid)
 
-
-def monthly_aggregation(ds: xr.Dataset, var: str, year: str, A: Aggregation, uuid: str):
-    attrs = ds.attrs
-    mon_DS_year = []
-    for month in range(1, 13):
-        # to find the last day of the month, we go up one month and back one day
-        # if Jan-Nov, then we'll go forward one month to Feb-Dec
-        # for december we go up one year, and set month to january
-        if month < 12:
-            cur_mon_year = np.datetime64(f'{year}-{str(month+1).zfill(2)}-01', 'ns')
-        else:
-            cur_mon_year = np.datetime64(f'{int(year)+1}-01-01', 'ns')
-
-        mon_str = str(year) + '-' + str(month).zfill(2)
-        cur_mon = ds[var].sel(time=mon_str)
-
-        if A.remove_nan_days_from_data:
-            nonnan_days = []
-            for i in range(len(cur_mon)):
-                if(np.count_nonzero(~np.isnan(cur_mon[i].values)) > 0):
-                    nonnan_days.append(cur_mon[i])
-            if nonnan_days:
-                cur_mon = xr.concat((nonnan_days), dim='time')
-
-        # Compute monthly mean
-        mon_DA = cur_mon.mean(axis=0, skipna=A.skipna_in_mean, keep_attrs=True)
-
-        tb, ct = date_time.make_time_bounds_from_ds64(cur_mon_year, 'AVG_MON')
-
-        mon_DA = mon_DA.assign_coords({'time': ct})
-        mon_DA = mon_DA.expand_dims('time', axis=0)
-
-        avg_center_time = mon_DA.time.copy(deep=True)
-        avg_center_time.values[0] = ct
-
-        # halfway through the approx 1M averaging period.
-        mon_DA.time.values[0] = ct
-        mon_DA.time.attrs['long_name'] = 'center time of 1M averaging period'
-
-        mon_DS = mon_DA.to_dataset()
-
-        mon_DS = mon_DS.assign_coords({'time_bnds': (('time', 'nv'), [tb])})
-        mon_DS.time.attrs.update(bounds='time_bnds')
-
-        mon_DS_year.append(mon_DS)
-
-    mon_DS_year_merged = xr.concat((mon_DS_year), dim='time', combine_attrs='no_conflicts')
-
-    attrs['time_coverage_duration'] = 'P1M'
-    attrs['time_coverage_resolution'] = 'P1M'
-
-    attrs['valid_min'] = np.nanmin(mon_DS_year_merged[var].values)
-    attrs['valid_max'] = np.nanmax(mon_DS_year_merged[var].values)
-    attrs['uuid'] = uuid
-
-    mon_DS_year_merged.attrs = attrs
-
-    return mon_DS_year_merged
-
-
-def generalized_aggregate_and_save(DS_year_merged, data_var, do_monthly_aggregation,
-                                   year, skipna_in_mean, filenames, fill_values,
-                                   output_dirs, binary_dtype, model_grid_type,
-                                   save_binary=True, save_netcdf=True,
-                                   remove_nan_days_from_data=False, data_time_scale='DAILY',
-                                   uuids=[]):
-    '''
-    deprecated in favor of monthly_aggregation()
-    '''
-
-    # # if everything comes back nans it means there were no files
-    # # to load for the entire year.  don't bother saving the
-    # # netcdf or binary files for this year
-    # if np.sum(~np.isnan(DS_year_merged[data_var].values)) == 0:
-    #     print('Empty year not writing to disk', year)
-    #     return True
-
-    global_attrs = DS_year_merged.attrs
-
-    DS_year_merged.attrs['uuid'] = uuids[0]
-
-    DS_year_merged.attrs['time_coverage_duration'] = 'P1Y'
-    DS_year_merged.attrs['time_coverage_start'] = str(DS_year_merged.time_bnds.values[0][0])[0:19]
-    DS_year_merged.attrs['time_coverage_end'] = str(DS_year_merged.time_bnds.values[-1][-1])[0:19]
-
-    if data_time_scale.upper() == 'DAILY':
-        DS_year_merged.attrs['time_coverage_resolution'] = 'P1D'
-    elif data_time_scale.upper() == 'MONTHLY':
-        DS_year_merged.attrs['time_coverage_resolution'] = 'P1M'
-
-    if do_monthly_aggregation:
-        mon_DS_year = []
-        for month in range(1, 13):
-            # to find the last day of the month, we go up one month and back one day
-            # if Jan-Nov, then we'll go forward one month to Feb-Dec
-            # for december we go up one year, and set month to january
-            if month < 12:
-                cur_mon_year = np.datetime64(f'{str(year)}-{str(month+1).zfill(2)}-01', 'ns')
-            else:
-                cur_mon_year = np.datetime64(f'{str(year+1)}-01-01', 'ns')
-
-            mon_str = str(year) + '-' + str(month).zfill(2)
-            cur_mon = DS_year_merged[data_var].sel(time=mon_str)
-
-            if remove_nan_days_from_data:
-                nonnan_days = []
-                for i in range(len(cur_mon)):
-                    if(np.count_nonzero(~np.isnan(cur_mon[i].values)) > 0):
-                        nonnan_days.append(cur_mon[i])
-                if nonnan_days:
-                    cur_mon = xr.concat((nonnan_days), dim='time')
-
-            # Compute monthly mean
-            mon_DA = cur_mon.mean(axis=0, skipna=skipna_in_mean, keep_attrs=True)
-
-            tb, ct = date_time.make_time_bounds_from_ds64(cur_mon_year, 'AVG_MON')
-
-            mon_DA = mon_DA.assign_coords({'time': ct})
-            mon_DA = mon_DA.expand_dims('time', axis=0)
-
-            avg_center_time = mon_DA.time.copy(deep=True)
-            avg_center_time.values[0] = ct
-
-            # halfway through the approx 1M averaging period.
-            mon_DA.time.values[0] = ct
-            mon_DA.time.attrs['long_name'] = 'center time of 1M averaging period'
-
-            mon_DS = mon_DA.to_dataset()
-
-            mon_DS = mon_DS.assign_coords({'time_bnds': (('time', 'nv'), [tb])})
-            mon_DS.time.attrs.update(bounds='time_bnds')
-
-            mon_DS_year.append(mon_DS)
-
-        mon_DS_year_merged = xr.concat((mon_DS_year), dim='time', combine_attrs='no_conflicts')
-
-        # start_time = mon_DS_year_merged.time.values.min()
-        # end_time = mon_DS_year_merged.time.values.max()
-
-        # time_bnds = np.array([start_time, end_time], dtype='datetime64')
-        # time_bnds = time_bnds.T
-        # mon_DS_year_merged = mon_DS_year_merged.assign_coords(
-        #     {'time_bnds': (('time','nv'), [time_bnds])})
-        # mon_DS_year_merged.time.attrs.update(bounds='time_bnds')
-
-        global_attrs['time_coverage_duration'] = 'P1M'
-        global_attrs['time_coverage_resolution'] = 'P1M'
-
-        global_attrs['valid_min'] = np.nanmin(mon_DS_year_merged[data_var].values)
-        global_attrs['valid_max'] = np.nanmax(mon_DS_year_merged[data_var].values)
-        global_attrs['uuid'] = uuids[1]
-
-        mon_DS_year_merged.attrs = global_attrs
-
-    DS_year_merged[data_var] = DS_year_merged[data_var].fillna(fill_values['netcdf'])
-
-    if save_binary:
-        records.save_binary(DS_year_merged, filenames['shortest'], fill_values['binary'],
-                            output_dirs['binary'], binary_dtype, model_grid_type, data_var)
-    if save_netcdf:
-        records.save_netcdf(DS_year_merged, filenames['shortest'], fill_values['netcdf'],
-                            output_dirs['netcdf'])
-
-    if do_monthly_aggregation:
-        mon_DS_year_merged[data_var] = mon_DS_year_merged[data_var].fill_na(fill_values['netcdf'])
-        if save_binary:
-            records.save_binary(mon_DS_year_merged, filenames['monthly'], fill_values['binary'],
-                                output_dirs['binary'], binary_dtype, model_grid_type, data_var)
-        if save_netcdf:
-            records.save_netcdf(mon_DS_year_merged, filenames['monthly'], fill_values['netcdf'],
-                                output_dirs['netcdf'])
-
-    return False
-
-# Preprocessing functions
-# Requirements: function parameters MUST be file_path, Transformation object
-# -----------------------------------------------------------------------------------------------------------------------------------------------
-
-def ATL20_V004_monthly(file_path: str, T) -> xr.Dataset:
-    '''
-    Handle data groups
-    '''
-    vars = [field.name for field in T.fields]
-
-    ds = xr.open_dataset(file_path, decode_times=True)
-    ds = ds[['grid_x', 'grid_y', 'crs']]
-    
-    var_ds = xr.open_dataset(file_path, group='monthly')[vars]
-    merged_ds = xr.merge([ds, var_ds])
-    return merged_ds
-
-
-
-# Pre-transformation (on Datasets only)
-# -----------------------------------------------------------------------------------------------------------------------------------------------
-
-def AVHRR_remove_ice_or_near_ice(ds):
-    '''
-    Replaces SST values < -0.5 or sea_ice_fraction > 0 to NaN
-    '''
-    # nonzero sea ice fraction
-    if 'sea_ice_fraction' in ds:
-        ds.analysed_sst.values = np.where(ds.sea_ice_fraction > 0, np.nan, ds.analysed_sst.values)
-        
-    # colder than -0.5C
-    ds.analysed_sst.values = np.where(ds.analysed_sst <= 273.15-0.5, np.nan, ds.analysed_sst.values)
-
-    return ds
-
-
-def RDEFT4_remove_negative_values(ds: xr.Dataset) -> xr.Dataset:
-    '''
-    Replaces negative values with nans for all data vars
-    '''
-    for field in ds.data_vars:
-        if field in ['lat', 'lon']:
-            continue
-        ds[field].values = np.where(ds[field].values < 0, np.nan, ds[field].values)
-    return ds
-
-
-def G2202_mask_flagged_conc(ds: xr.Dataset) -> xr.Dataset:
-    '''
-    Masks out values greater than 1 in nsidc_nt_seaice_conc and cdr_seaice_conc
-    '''
-    logger.debug(f'G2202 masking flagged nt pre   : {np.sum(ds["nsidc_nt_seaice_conc"].values.ravel() > 1)}')
-    tmpNT = np.where(ds["nsidc_nt_seaice_conc"].values.ravel() > 1, 1, 0)
-    tmpCDR = np.where(ds["cdr_seaice_conc"].values.ravel() > 1, 1, 0)
-    logger.debug(f'G2202 masking flagged NDR, CDR pre: {np.sum(tmpNT), np.sum(tmpCDR)}')
-
-    ds['nsidc_nt_seaice_conc'] = ds['nsidc_nt_seaice_conc'].where(ds['nsidc_nt_seaice_conc'] <= 1)
-    ds['cdr_seaice_conc'] = ds['cdr_seaice_conc'].where(ds['cdr_seaice_conc'] <= 1)
-
-    # nan all spatial interpolation (removes  pole hole)
-    ds['nsidc_nt_seaice_conc'] = ds['nsidc_nt_seaice_conc'].where(np.isnan(ds['spatial_interpolation_flag'].values))
-    ds['cdr_seaice_conc'] = ds['cdr_seaice_conc'].where(np.isnan(ds['spatial_interpolation_flag'].values))
-
-    tmpNT = np.where(ds["nsidc_nt_seaice_conc"].values.ravel() > 1, 1, 0)
-    tmpCDR = np.where(ds["cdr_seaice_conc"].values.ravel() > 1, 1, 0)
-    logger.debug(f'G2202 masking flagged NDR, CDR post: {np.sum(tmpNT), np.sum(tmpCDR)}')
-
-    return ds
-
-
-def GRACE_MASCON(ds: xr.Dataset) -> xr.Dataset:
-    '''
-    Mask out land, setting land points to NaN.
-    '''
-    ds['lwe_thickness'] = ds.lwe_thickness.where(ds.land_mask == 0.0)
-    ds['uncertainty'] = ds.uncertainty.where(ds.land_mask == 0.0)
-    return ds
-
-
-# Post-transformations (on DataArrays only)
-# -----------------------------------------------------------------------------------------------------------------------------------------------
-
-def meters_to_cm(da: xr.DataArray) -> xr.DataArray:
-    '''
-    Converts meters to centimeters
-    '''
-    da.attrs['units'] = 'cm'
-    da.values *= 100
-    return da
-
-def kelvin_to_celsius(da: xr.DataArray) -> xr.DataArray:
-    '''
-    Converts Kelvin values to Celsius
-    '''
-    da.attrs['units'] = 'Celsius'
-    da.values -= 273.15
-    return da
-
-
-def seaice_concentration_to_fraction(da: xr.DataArray) -> xr.DataArray:
-    '''
-    Converts seaice concentration values to a fraction by dividing them by 100
-    '''
-    da.attrs['units'] = "1"
-    da.values /= 100.
-    return da
-
-
-def MEaSUREs_fix_time(da: xr.DataArray) -> xr.DataArray:
-    '''
-    time_start and time_end for MEaSUREs_1812 is not acceptable
-    this function takes the provided center time, removes the hours:minutes:seconds.ns
-    and sets the new time_start and time_end based on that new time
-    '''
-
-    # remove time from date
-    today = str(da.time.values[0])[:10]
-    tomorrow = np.datetime64(today, 'D') + 1
-
-    da.time_start.values[0] = str(np.datetime64(today, 'ns'))
-    da.time_end.values[0] = str(np.datetime64(str(tomorrow), 'ns'))
-
-    return da

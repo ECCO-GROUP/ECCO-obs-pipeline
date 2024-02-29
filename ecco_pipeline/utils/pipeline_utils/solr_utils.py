@@ -1,19 +1,18 @@
-import logging
 import os
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Iterable
 
 import requests
 import yaml
 from conf.global_settings import SOLR_COLLECTION, SOLR_HOST
 
-# THIS DOESN"T WORK YET - pipeline logger isn't setup yet
-# log_level = logging.getLevelName(logging.getLogger('pipeline').level)
-# logger = log_config.mp_logging('solr', log_level)
-# logger = logging.getLogger('solr')
 
-def solr_query(fq, fl=''):
+def solr_query(fq: Iterable[str], fl: str='') -> Iterable[dict]:
+    '''
+    Submit query to Solr
+    '''
     query_params = {'q': '*:*',
                'fq': fq,
                'fl': fl,
@@ -25,38 +24,41 @@ def solr_query(fq, fl=''):
     except:
         time.sleep(5)
         response = requests.get(url, params=query_params, headers={'Connection': 'close'})
-    # logger.debug(f'Querying solr: {response.url}')
     return response.json()['response']['docs']
 
-
-def solr_update(update_body, r=False):
+def solr_update(update_body: Iterable[dict], r: bool=False):
+    '''
+    Submit update to Solr
+    '''
     url = f'{SOLR_HOST}{SOLR_COLLECTION}/update?commit=true'
-    response = requests.post(url, json=update_body)
-    # logger.debug(f'Updating solr: {response.url}')
-    
+    response = requests.post(url, json=update_body)    
     if r:
         return response
 
-
 def ping_solr():
+    '''
+    Ping Solr to ensure it is running
+    '''
     url = f'{SOLR_HOST}{SOLR_COLLECTION}/admin/ping'
     requests.get(url)
-    return
 
-
-def core_check():
+def core_check() -> bool:
+    '''
+    Check if core has been created on Solr
+    '''
     url = f'{SOLR_HOST}admin/cores?action=STATUS&core={SOLR_COLLECTION}'
     response = requests.get(url).json()
     if response['status'][SOLR_COLLECTION].keys():
         return True
     return False
 
-
 def check_grids():
+    '''
+    Check if grids have been written to Solr
+    '''
     if not solr_query(['type_s=grid']):
         return True
     return False
-
 
 def validate_granules():
     granules = solr_query(['type_s=granule'])
@@ -71,10 +73,6 @@ def validate_granules():
 
     if docs_to_remove:
         solr_update({'delete': docs_to_remove})
-        # logger.info(f'Succesfully removed {len(docs_to_remove)} granules from Solr')
-    else:
-        pass
-        # logger.info('All harvested docs are valid')
 
 
 def clean_solr(config):
@@ -101,8 +99,6 @@ def clean_solr(config):
         return
     else:
         dataset_metadata = dataset_metadata[0]
-
-    # logger.info(f'Removing Solr documents related to dates outside of configuration {config_start} to {config_end}')
 
     # Remove entries earlier than config start date
     fq = f'dataset_s:{dataset_name} AND date_s:[* TO {config_start}}}'
