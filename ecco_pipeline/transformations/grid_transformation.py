@@ -1,21 +1,21 @@
-from multiprocessing import current_process
-import os
-from datetime import datetime
-import pickle
-from typing import Iterable, Tuple
-import warnings
-import numpy as np
-from requests import HTTPError
-import xarray as xr
-import pyresample as pr
-import netCDF4 as nc4
-
-from baseclasses import Dataset, Field
-from utils.pipeline_utils import solr_utils, file_utils
-from utils.processing_utils import records, ds_functions, transformation_utils
-from conf.global_settings import OUTPUT_DIR
-
 import logging
+import os
+import pickle
+import warnings
+from datetime import datetime
+from multiprocessing import current_process
+from typing import Iterable, Tuple
+
+import netCDF4 as nc4
+import numpy as np
+import pyresample as pr
+import xarray as xr
+from baseclasses import Dataset, Field
+from conf.global_settings import OUTPUT_DIR
+from requests import HTTPError
+from utils.pipeline_utils import file_utils, solr_utils
+from utils.processing_utils import ds_functions, records, transformation_utils
+from utils.processing_utils.ds_functions import PosttransformationFuncs, PreprocessingFuncs, PretransformationFuncs
 
 logger = logging.getLogger(str(current_process().pid))
 
@@ -225,17 +225,19 @@ class Transformation(Dataset):
         record_date = self.date.replace('Z', '')
 
         field_DSs = []
-
+        
         # =====================================================
         # Loop through fields to transform
         # =====================================================
         for field in self.fields:
             logger.debug(f'Transforming {self.file_name} for field {field.name}')
-            
-            try:
-                ds = self.apply_funcs(ds, field.pre_transformations)
-            except Exception as e:
-                logger.exception(e)
+
+            if field.pre_transformations:
+                try:
+                    func_machine = PretransformationFuncs()
+                    ds = func_machine.call_functions(field.pre_transformations, ds)
+                except Exception as e:
+                    logger.exception(e)
 
             if field.name in ds.data_vars: 
                 try:
@@ -263,7 +265,8 @@ class Transformation(Dataset):
             # =====================================================
             if mapping_success:
                 try:
-                    field_DA = self.apply_funcs(field_DA, field.post_transformations)
+                    func_machine = PosttransformationFuncs()
+                    field_DA = func_machine.call_functions(field.post_transformations, field_DA)
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore", category=RuntimeWarning)
                         field_DA.attrs['valid_min'] = np.nanmin(field_DA.values)
@@ -340,8 +343,8 @@ class Transformation(Dataset):
 
     def load_file(self, source_file_path: str) -> xr.Dataset:
         if self.preprocessing_function:
-            callable_func = getattr(ds_functions, self.preprocessing_function)
-            ds = callable_func(source_file_path, self.fields)
+            func_machine = PreprocessingFuncs()
+            ds = func_machine.call_function(self.preprocessing_function, source_file_path, self.fields)
         else:
             ds = xr.open_dataset(source_file_path, decode_times=True)
         ds.attrs['original_file_name'] = self.file_name
