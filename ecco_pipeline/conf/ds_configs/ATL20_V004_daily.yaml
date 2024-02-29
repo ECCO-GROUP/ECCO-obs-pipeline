@@ -30,7 +30,6 @@ original_dataset_doi: 10.5067/ATLAS/ATL20.004
 
 # Transformation
 t_version: 1.3 # Update this value if any changes are made to this file
-array_precision: float32
 data_res: 25/111 # Resolution of dataset
 
 # Values for non split datasets (for datasets split into nh/sh, append '_nh'/'_sh')
@@ -56,6 +55,3 @@ a_version: 1.1 # Update this value if any changes are made to this file
 remove_nan_days_from_data: False # Remove empty days from data when aggregating
 do_monthly_aggregation: False
 skipna_in_mean: True # Controls skipna when calculating monthly mean
-monthly_tolerance: 8 # Defines the range of days to look for data around the start of the month (exclusive)
-save_binary: True
-save_netcdf: True
