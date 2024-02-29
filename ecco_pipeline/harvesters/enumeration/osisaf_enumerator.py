@@ -6,7 +6,7 @@ import lxml
 from bs4 import BeautifulSoup
 from datetime import datetime
 
-from harvesters.harvester import Harvester
+from harvesters.harvesterclasses import Harvester
 
 logger = logging.getLogger('pipeline')
 
