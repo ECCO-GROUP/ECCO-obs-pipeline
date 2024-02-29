@@ -1,9 +1,10 @@
-import os
 import logging
+import os
 from datetime import datetime
+
 from baseclasses import Dataset
-from utils.pipeline_utils import solr_utils, file_utils
 from conf.global_settings import OUTPUT_DIR
+from utils.pipeline_utils import file_utils, solr_utils
 
 logger = logging.getLogger('pipeline')
 

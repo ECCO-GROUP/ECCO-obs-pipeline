@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable
 
+
 class Dataset():
     '''
     Base class for working with a dataset's config values. 
@@ -18,10 +19,10 @@ class Dataset():
         self.hemi_pattern:dict = config.get('hemi_pattern')        
         self.fields: Iterable[Field] = [Field(**config_field) for config_field in config.get('fields')]        
         self.og_ds_metadata: dict = {k: v for k, v in config.items() if 'original' in k}
-        self.preprocessing_function = config.get('preprocessing')
+        self.preprocessing_function: str = config.get('preprocessing')
         self.t_version = config.get('t_version')
         self.a_version = config.get('a_version')
-        self.note = config.get('notes')
+        self.note: str = config.get('notes')
 
 @dataclass
 class Field():

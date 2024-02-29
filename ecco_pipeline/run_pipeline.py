@@ -1,14 +1,13 @@
 import argparse
 import importlib
-from glob import glob
 import logging
-from multiprocessing import cpu_count
 import os
+from glob import glob
+from multiprocessing import cpu_count
 from pathlib import Path
 from typing import List
 
 import yaml
-
 from aggregations.aggregation_factory import AgJobFactory
 from transformations.transformation_factory import TxJobFactory
 from utils.pipeline_utils import init_pipeline, log_config

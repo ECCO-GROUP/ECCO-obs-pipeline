@@ -1,10 +1,10 @@
-from dataclasses import dataclass
 import logging
-import requests
 import os
-from bs4 import BeautifulSoup
+from dataclasses import dataclass
 from datetime import datetime
 
+import requests
+from bs4 import BeautifulSoup
 from harvesters.harvesterclasses import Harvester
 
 logger = logging.getLogger('pipeline')

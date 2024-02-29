@@ -1,20 +1,20 @@
-from collections import defaultdict
 import json
 import logging
-from datetime import datetime, timedelta
-from multiprocessing import current_process
 import os
-import netCDF4 as nc4
-from typing import Iterable
 import uuid
 import warnings
+from collections import defaultdict
+from datetime import datetime, timedelta
+from multiprocessing import current_process
+from typing import Iterable
 
+import netCDF4 as nc4
 import numpy as np
 import xarray as xr
-from conf.global_settings import OUTPUT_DIR
 from baseclasses import Dataset, Field
-from utils.processing_utils import records
+from conf.global_settings import OUTPUT_DIR
 from utils.pipeline_utils import solr_utils
+from utils.processing_utils import records
 
 logger = logging.getLogger(str(current_process().pid))
 

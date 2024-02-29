@@ -1,9 +1,11 @@
-from typing import Iterable
 import unittest
 from datetime import datetime
+from typing import Iterable
+
 import yaml
-from harvesters.enumeration.cmr_enumerator import CMRQuery, CMRGranule
+from harvesters.enumeration.cmr_enumerator import CMRGranule, CMRQuery
 from harvesters.harvesterclasses import Harvester
+
 
 class EndToEndCMRQueryTestCase(unittest.TestCase):   
     granules: Iterable[CMRGranule]

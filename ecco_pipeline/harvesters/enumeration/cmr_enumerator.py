@@ -1,10 +1,9 @@
-from datetime import datetime
 import logging
 import time
+from datetime import datetime
 from typing import Iterable
 
 from cmr import GranuleQuery
-
 from harvesters.harvesterclasses import Harvester
 
 logger = logging.getLogger('pipeline')

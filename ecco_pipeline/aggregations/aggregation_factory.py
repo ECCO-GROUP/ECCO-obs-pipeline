@@ -1,10 +1,11 @@
 import logging
-from multiprocessing import cpu_count, current_process, Pool
 import os
+from multiprocessing import Pool, cpu_count, current_process
 from typing import Iterable
+
 from aggregations.aggregation import Aggregation
 from baseclasses import Dataset
-from utils.pipeline_utils import solr_utils, log_config
+from utils.pipeline_utils import log_config, solr_utils
 
 logger = logging.getLogger('pipeline')
 

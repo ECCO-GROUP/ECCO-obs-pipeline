@@ -1,14 +1,13 @@
 import logging
-from collections import defaultdict
-from multiprocessing import cpu_count, current_process, Pool
 import os
+from collections import defaultdict
+from multiprocessing import Pool, cpu_count, current_process
 from typing import Iterable
+
 import xarray as xr
-
 from baseclasses import Dataset
-from utils.pipeline_utils import solr_utils, log_config
 from transformations.grid_transformation import Transformation, transform
-
+from utils.pipeline_utils import log_config, solr_utils
 
 logger = logging.getLogger('pipeline')
 
