@@ -20,6 +20,7 @@ class PreprocessingFuncs():
         func = getattr(self, function_name, None)
         if func:
             # Call the function if found
+            logger.info(f'Applying preprocessing function {function_name} to data.')
             return func(file_path, fields)
         else:
             raise FuncNotFound(f"Function '{function_name}' not found")
