@@ -220,7 +220,7 @@ class Transformation(Dataset):
         """
         logger = logging.getLogger(str(current_process().pid))
         
-        logger.info(f'Transforming {self.date} to {model_grid.name}')
+        logger.info(f'Transforming {len(self.fields)} fields on {self.date} to {model_grid.name}')
 
         record_date = self.date.replace('Z', '')
 
