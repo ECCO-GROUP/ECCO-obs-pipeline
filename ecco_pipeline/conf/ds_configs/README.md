@@ -89,8 +89,8 @@ proj_info_sh:
 notes: ""
 ```
 - `t_version` is a metadata field used internally in the pipeline. Modifying the value will trigger retransformation.
-- `data_res` is the spatial resolution of the dataset
-- `area_extent` is the area extent specific to this data
+- `data_res` is the spatial resolution of the dataset in degrees
+- `area_extent` is the area extent specific to this data in the form: lower_left_x, lower_left_y, upper_right_x, upper_right_y
 - `dims` is the size of longitude or x coordinate, latitude or y coordinate
 - `proj_info` contains projection information used by pyresample
 - `notes` is an optional string to include in global metadata in output files
