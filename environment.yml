@@ -10,6 +10,7 @@ dependencies:
   - pyyaml
   - netcdf4
   - python-dateutil
+  - python-cmr
   - requests
   - xarray
   - ecco_v4_py

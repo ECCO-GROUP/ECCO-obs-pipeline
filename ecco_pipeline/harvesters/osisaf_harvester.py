@@ -4,10 +4,9 @@ from datetime import datetime
 from typing import Iterable
 
 import requests
-from harvesters.enumeration.osisaf_enumerator import search_osisaf, OSISAFGranule
-from harvesters.granule import Granule
-from harvesters.harvester import Harvester
-from utils.file_utils import get_date
+from harvesters.enumeration.osisaf_enumerator import OSISAFGranule, search_osisaf
+from harvesters.harvesterclasses import Granule, Harvester
+from utils.pipeline_utils.file_utils import get_date
 
 logger = logging.getLogger('pipeline')
 

@@ -33,9 +33,6 @@
                 "ddir": {
                     "type": "string"
                 },
-                "filename_filter": {
-                    "type": "string"
-                },
                 "data_time_scale": {
                     "type": "string"
                 },
@@ -76,9 +73,6 @@
                 },
                 "t_version": {
                     "type": "number"
-                },
-                "array_precision": {
-                    "type": "string"
                 },
                 "time_bounds_var": {
                     "type": "string"
@@ -130,20 +124,10 @@
                 },
                 "skipna_in_mean": {
                     "type": "boolean"
-                },
-                "monthly_tolerance": {
-                    "type": "integer"
-                },
-                "save_binary": {
-                    "type": "boolean"
-                },
-                "save_netcdf": {
-                    "type": "boolean"
                 }
             },
             "required": [
                 "a_version",
-                "array_precision",
                 "data_res",
                 "data_time_scale",
                 "do_monthly_aggregation",
@@ -153,7 +137,6 @@
                 "filename_date_fmt",
                 "filename_date_regex",
                 "harvester_type",
-                "monthly_tolerance",
                 "notes",
                 "original_dataset_doi",
                 "original_dataset_reference",
@@ -161,8 +144,6 @@
                 "original_dataset_title",
                 "original_dataset_url",
                 "remove_nan_days_from_data",
-                "save_binary",
-                "save_netcdf",
                 "skipna_in_mean",
                 "start",
                 "t_version"
@@ -175,7 +156,6 @@
                 "dims",
                 "dims_nh",
                 "dims_sh",
-                "filename_filter",
                 "hemi_pattern",
                 "host",
                 "proj_info",

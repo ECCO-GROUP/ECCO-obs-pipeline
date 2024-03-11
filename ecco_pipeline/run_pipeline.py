@@ -1,17 +1,16 @@
 import argparse
 import importlib
-from glob import glob
 import logging
-from multiprocessing import cpu_count
 import os
+from glob import glob
+from multiprocessing import cpu_count
 from pathlib import Path
 from typing import List
 
 import yaml
-
-from aggregations.aggregate import aggregation
-from transformations import check_transformations
-from utils import init_pipeline, log_config
+from aggregations.aggregation_factory import AgJobFactory
+from transformations.transformation_factory import TxJobFactory
+from utils.pipeline_utils import init_pipeline, log_config
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -26,7 +25,8 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument('--multiprocesses', type=int, choices=range(1, cpu_count()+1),
                         default=int(cpu_count()/2), metavar=f'[1, {cpu_count()}]',
                         help=f'sets the number of multiprocesses used during transformation with a \
-                            system max of {cpu_count()} with default set to half of system max')
+                            system max of {cpu_count()} with default set to half of system max \
+                                (aggregation has a stricter cap due to high I/O volume)')
 
     parser.add_argument('--harvested_entry_validation', default=False, action='store_true',
                         help='verifies each Solr granule entry points to a valid file.')
@@ -167,8 +167,7 @@ def run_transformation(datasets: List[str], user_cpus: int, grids_to_use: List[s
             logger.info(f'Beginning transformations on {ds}')
             with open(Path(f'conf/ds_configs/{ds}.yaml'), 'r') as stream:
                 config = yaml.load(stream, yaml.Loader)
-
-            status = check_transformations.main(config, user_cpus, grids_to_use)
+            status = TxJobFactory(config, user_cpus, grids_to_use).start_factory()
             logger.info(f'{ds} transformation complete. {status}')
         except:
             logger.exception(f'{ds} transformation failed.')
@@ -180,8 +179,7 @@ def run_aggregation(datasets: List[str], user_cpus: int, grids_to_use: List[str]
             logger.info(f'Beginning aggregation on {ds}')
             with open(Path(f'conf/ds_configs/{ds}.yaml'), 'r') as stream:
                 config = yaml.load(stream, yaml.Loader)
-
-            status = aggregation(config, user_cpus, grids_to_use)
+            status = AgJobFactory(config, user_cpus, grids_to_use).start_factory()
             logger.info(f'{ds} aggregation complete. {status}')
         except Exception as e:
             logger.exception(f'{ds} aggregation failed: {e}')

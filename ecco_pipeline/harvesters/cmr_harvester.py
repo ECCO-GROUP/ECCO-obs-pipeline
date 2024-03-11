@@ -3,16 +3,14 @@ import logging
 import os
 from datetime import datetime, timedelta
 from typing import Iterable
-import time
 
 import numpy as np
 import requests
 import xarray as xr
-from harvesters.enumeration.cmr_enumerator import cmr_search, CMRGranule
-from harvesters.granule import Granule
-from harvesters.harvester import Harvester
-from utils.file_utils import get_date
-from utils.ecco_utils.date_time import make_time_bounds_from_ds64
+from harvesters.enumeration.cmr_enumerator import CMRGranule, CMRQuery
+from harvesters.harvesterclasses import Granule, Harvester
+from utils.pipeline_utils.file_utils import get_date
+from utils.processing_utils.records import TimeBound
 
 logger = logging.getLogger('pipeline')
 
@@ -20,17 +18,7 @@ class CMR_Harvester(Harvester):
     
     def __init__(self, config: dict):
         super().__init__(config)
-        try:
-            self.cmr_granules: Iterable[CMRGranule] = cmr_search(self)
-        except:
-            logger.info('Error querying CMR for granules. Trying again in 30 seconds...')
-            time.sleep(30)
-            try:
-                self.cmr_granules: Iterable[CMRGranule] = cmr_search(self)
-            except Exception as e:
-                logger.exception('Error querying CMR for granules. Exiting')
-                raise RuntimeError(f'Error querying CMR for granules. Exiting. {e}')
-            
+        self.cmr_granules: Iterable[CMRGranule] = CMRQuery(self).query()           
     
     def fetch(self):
         for cmr_granule in self.cmr_granules:
@@ -65,13 +53,6 @@ class CMR_Harvester(Harvester):
                 granule.update_descendant(self.descendant_docs, success)
                 self.updated_solr_docs.extend(granule.get_solr_docs())
         logger.info(f'Downloading {self.ds_name} complete')
-            
-    def get_mod_time(self, id: str) -> datetime:
-        meta_url = f'https://cmr.earthdata.nasa.gov/search/concepts/{id}.json'
-        r = requests.get(meta_url)
-        meta = r.json()
-        modified_time = datetime.strptime(f'{meta["updated"].split(".")[0]}Z', self.solr_format)
-        return modified_time
     
     def dl_file(self, src: str, dst: str):
         r = requests.get(src)
@@ -122,7 +103,7 @@ class CMR_Harvester(Harvester):
                         datetime(dt.year,dt.month,i)
                     except:
                         continue
-                    daily_filename = filename[:9] + year + month + day_number + filename[-10:-3] + '.nc'
+                    daily_filename = filename[:9] + year + str(month).zfill(2) + day_number + filename[-10:-3] + '.nc'
                     daily_local_fp = f'{self.target_dir}{year}/{daily_filename}'
                     if downloaded:
                         try:
@@ -131,13 +112,13 @@ class CMR_Harvester(Harvester):
                             continue
                         mid_date = (var_ds.delta_time_beg.values[0] + ((var_ds.delta_time_end.values[0] - var_ds.delta_time_beg.values[0]) / 2)).astype(str)[:10]
                         date = np.datetime64(mid_date).astype('datetime64[ns]')
-                        dt = datetime(int(year), int(month), i)
                         time_var_ds = var_ds.expand_dims({'time': [date]})
                         time_var_ds = time_var_ds[[field.name for field in self.fields]]
                         merged_ds = xr.merge([ds, time_var_ds])
                         merged_ds.to_netcdf(daily_local_fp)
                     
                     try:
+                        dt = datetime(int(year), int(month), i)
                         daily_granule = Granule(self.ds_name, daily_local_fp, dt, cmr_granule.mod_time, cmr_granule.url)
                         daily_granule.update_item(self.solr_docs, success)
                         daily_granule.update_descendant(self.descendant_docs, success)
@@ -178,7 +159,7 @@ class CMR_Harvester(Harvester):
             # Construct months within time coverage
             months = np.arange(time_start, time_end, 1, dtype='datetime64[M]')
             # Compute monthly centertimes
-            monthly_cts = [make_time_bounds_from_ds64((month + 1).astype('datetime64[s]'), 'AVG_MON')[1] for month in months]
+            monthly_cts = [TimeBound(rec_avg_start=month, period='AVG_MON').center for month in months]
             
             logger.info('Slicing aggregated granule into monthly granules...')
 

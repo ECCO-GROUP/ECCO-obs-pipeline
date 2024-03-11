@@ -7,14 +7,6 @@ harvester_type: osisaf
 ddir: "reprocessed/ice/conc_cra_files"
 filename_date_fmt: "%Y%m%d"
 filename_date_regex: '\d{8}'
-filename_filter: "ease2-250_icdr-v3p0"
-
-# OSI-430-a
-# has two data streams: 1) the "nominal" ICDR that applies exactly the same algorithm
-# as OSI-450-a and has a latency of 16 days, and 2) the "fast-track" ICDR that applies
-# a slightly different algorithm (tie-point selection) and achieves a latency of 2 days.
-# The fast-track ICDR was introduced for the third release after requests from
-# operational climate users.
 
 # Metadata
 data_time_scale: "daily" # daily or monthly
@@ -42,7 +34,6 @@ original_dataset_doi: "10.15770/EUM_SAF_OSI_0014"
 
 # Transformation
 t_version: 1.7 # Update this value if any changes are made to this file
-array_precision: float32
 time_bounds_var: time_bnds
 data_res: 25/111 # Resolution of dataset
 
@@ -71,6 +62,3 @@ a_version: 1.0 # Update this value if any changes are made to this file
 remove_nan_days_from_data: False # Remove empty days from data when aggregating
 do_monthly_aggregation: True
 skipna_in_mean: True # Controls skipna when calculating monthly mean
-monthly_tolerance: 8 # Defines the range of days to look for data around the start of the month (exclusive)
-save_binary: True
-save_netcdf: True
