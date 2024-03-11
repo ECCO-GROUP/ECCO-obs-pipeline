@@ -142,8 +142,8 @@ class Aggregation(Dataset):
                 f1 = xr.open_dataset(files[0])
                 f2 = xr.open_dataset(files[1])                
                 var = list(f1.keys())[0]
-                if all(np.isnan(f1[var].values)):
-                    if all(np.isnan(f2[var].values)):
+                if np.isnan(f1[var].values).all():
+                    if np.isnan(f2[var].values).all():
                         opened_files.append(f1)
                     else:
                         f2[var].values = np.where(np.isnan(f2[var].values), f1[var].values, f2[var].values)
