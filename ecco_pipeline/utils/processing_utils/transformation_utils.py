@@ -243,6 +243,8 @@ def generalized_grid_product(data_res: float, area_extent: Iterable[float], dims
     '''
     Generates tuple containing (source_grid_min_L, source_grid_max_L, source_grid)
 
+    https://pyresample.readthedocs.io/en/latest/api/pyresample.html#pyresample.area_config.create_area_def
+
     data_res: in degrees
     area_extent: (lower_left_x, lower_left_y, upper_right_x, upper_right_y)
     dims: resolution of source grid
@@ -254,7 +256,7 @@ def generalized_grid_product(data_res: float, area_extent: Iterable[float], dims
     areaExtent = (area_extent[0], area_extent[1],
                   area_extent[2], area_extent[3])
 
-    # Corressponds to resolution of grid from data
+    # Corresponds to resolution of grid from data
     cols = dims[0]
     rows = dims[1]
 
