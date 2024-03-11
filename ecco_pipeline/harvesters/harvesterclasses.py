@@ -88,26 +88,8 @@ class Harvester(Dataset):
         if self.harvester_type == 'cmr':
             self.cmr_concept_id = config.get('cmr_concept_id')
             self.provider = config.get('provider')
-        elif self.harvester_type == 'osisaf_ftp':       
-            self.host = config.get('host')
-            self.user = config.get('user')
-            self.ddir = config.get('ddir')
-            self.filename_filter = config.get('filename_filter')
-        elif self.harvester_type == 'nsidc_ftp':
-            self.host = config.get('host')
-            self.user = config.get('user')
-            self.ddir = config.get('ddir')
-        elif self.harvester_type == 'ifremer_ftp':
-            self.host = config.get('host')
-            self.user = config.get('user')
-            self.password = config.get('password')
-            self.ddir = config.get('ddir')
-            self.filename_filter = config.get('filename_filter')
-        elif self.harvester_type == 'osisaf':
-            self.ddir = config.get('ddir')
-        elif self.harvester_type == 'catds':
-            self.ddir = config.get('ddir')
-            
+        else:
+            self.ddir = config.get('ddir')           
       
     def fetch(self):
         raise NotImplementedError

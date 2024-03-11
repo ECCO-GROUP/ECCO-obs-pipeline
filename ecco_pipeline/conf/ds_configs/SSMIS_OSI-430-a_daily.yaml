@@ -7,14 +7,6 @@ harvester_type: osisaf
 ddir: "reprocessed/ice/conc_cra_files"
 filename_date_fmt: "%Y%m%d"
 filename_date_regex: '\d{8}'
-filename_filter: "ease2-250_icdr-v3p0"
-
-# OSI-430-a
-# has two data streams: 1) the "nominal" ICDR that applies exactly the same algorithm
-# as OSI-450-a and has a latency of 16 days, and 2) the "fast-track" ICDR that applies
-# a slightly different algorithm (tie-point selection) and achieves a latency of 2 days.
-# The fast-track ICDR was introduced for the third release after requests from
-# operational climate users.
 
 # Metadata
 data_time_scale: "daily" # daily or monthly

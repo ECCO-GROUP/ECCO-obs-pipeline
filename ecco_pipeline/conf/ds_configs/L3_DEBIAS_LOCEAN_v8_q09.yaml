@@ -7,7 +7,6 @@ harvester_type: catds
 ddir: L3_DEBIAS_LOCEAN/L3_DEBIAS_LOCEAN_v8/debiasedSSS_09days_v8
 filename_date_fmt: "%Y%m%d"
 filename_date_regex: \d{8}
-filename_filter: "" # string to match for filenames to download ex: polstere-100_multi
 
 # Metadata
 data_time_scale: "daily" # daily or monthly

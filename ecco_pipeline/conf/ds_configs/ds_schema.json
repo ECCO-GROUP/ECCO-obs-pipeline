@@ -33,9 +33,6 @@
                 "ddir": {
                     "type": "string"
                 },
-                "filename_filter": {
-                    "type": "string"
-                },
                 "data_time_scale": {
                     "type": "string"
                 },
@@ -159,7 +156,6 @@
                 "dims",
                 "dims_nh",
                 "dims_sh",
-                "filename_filter",
                 "hemi_pattern",
                 "host",
                 "proj_info",

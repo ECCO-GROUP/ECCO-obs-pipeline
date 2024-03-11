@@ -14,7 +14,6 @@ class Dataset():
         self.harvester_type: str = config.get('harvester_type')
         self.filename_date_fmt: str = config.get('filename_date_fmt')
         self.filename_date_regex: str = config.get('filename_date_regex')
-        self.filename_filter: str = config.get('filename_filter')  
         self.data_time_scale: str = config.get('data_time_scale')
         self.hemi_pattern:dict = config.get('hemi_pattern')        
         self.fields: Iterable[Field] = [Field(**config_field) for config_field in config.get('fields')]        

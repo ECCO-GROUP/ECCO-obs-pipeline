@@ -7,7 +7,6 @@ harvester_type: osisaf
 ddir: "reprocessed/ice/conc_450a_files"
 filename_date_fmt: "%Y%m%d"
 filename_date_regex: '\d{8}'
-filename_filter: "ease2-250_cdr-v3p0"
 
 # Metadata
 data_time_scale: "daily" # daily or monthly
