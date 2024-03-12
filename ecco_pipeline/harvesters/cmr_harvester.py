@@ -31,10 +31,8 @@ class CMR_Harvester(Harvester):
             
             year = str(dt.year)
 
-            local_fp = f'{self.target_dir}{year}/{filename}'
-
-            if not os.path.exists(f'{self.target_dir}{year}/'):
-                os.makedirs(f'{self.target_dir}{year}/')
+            local_fp = os.path.join(self.target_dir, year, filename)
+            os.makedirs(os.path.join(self.target_dir, year), exist_ok=True)
                 
             if self.check_update(filename, cmr_granule.mod_time):
                 success = True
@@ -57,7 +55,8 @@ class CMR_Harvester(Harvester):
     def dl_file(self, src: str, dst: str):
         r = requests.get(src)
         r.raise_for_status()
-        open(dst, 'wb').write(r.content)
+        with open(dst, 'wb') as f:
+            f.write(r.content)
 
 
     def fetch_atl_daily(self):
