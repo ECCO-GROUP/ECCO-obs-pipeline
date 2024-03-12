@@ -4,14 +4,12 @@ end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 
 # Provider specifications
 harvester_type: cmr
-cmr_short_name: "MODIS_AQUA_L3_SST_THERMAL_DAILY_9KM_DAYTIME_V2019.0"
-cmr_version: "2019.0"
+cmr_concept_id: C2036877928-POCLOUD
 filename_date_fmt: "%Y%m%d"
 filename_date_regex: '\d{8}'
 provider: "archive.podaac"
 
 # Metadata
-aggregated: false # if data is available aggregated
 data_time_scale: "daily" # daily or monthly
 fields:
   - name: sst
@@ -28,7 +26,6 @@ original_dataset_doi: 10.5067/MODSA-1D9D9
 
 # Transformation
 t_version: 1.5 # Update this value if any changes are made to this file
-array_precision: float32
 data_res: 0.083333336 # Resolution of dataset
 mapping_operation: "nanmean"
 
@@ -48,6 +45,3 @@ a_version: 1.0 # Update this value if any changes are made to this file
 remove_nan_days_from_data: False # Remove empty days from data when aggregating
 do_monthly_aggregation: True
 skipna_in_mean: True # Controls skipna when calculating monthly mean
-monthly_tolerance: 8 # Defines the range of days to look for data around the start of the month (exclusive)
-save_binary: True
-save_netcdf: True

@@ -14,4 +14,6 @@ GRIDS = ['ECCO_llc90']
 SOLR_HOST = 'http://localhost:8983/solr/'
 SOLR_COLLECTION = 'ecco_datasets'
 
+log_filename = ''
+
 os.chdir(ROOT_DIR)

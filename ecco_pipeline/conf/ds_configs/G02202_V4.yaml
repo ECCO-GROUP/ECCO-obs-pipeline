@@ -3,15 +3,11 @@ start: "19800101T00:00:00Z" # yyyymmddThh:mm:ssZ
 end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 
 # Provider specifications
-harvester_type: nsidc_ftp
-host: sidads.colorado.edu # does not change
-user: anonymous # does not change
+harvester_type: nsidc
 filename_date_fmt: "%Y%m%d"
 filename_date_regex: '\d{8}'
-ddir: "pub/DATASETS/NOAA/G02202_V4/"
 
 # Metadata
-aggregated: false # if data is available aggregated
 data_time_scale: "daily" # daily or monthly
 hemi_pattern:
   north: "_nh_"
@@ -21,19 +17,19 @@ fields:
     long_name: NOAA/NSIDC Climate Data Record of Passive Microwave Sea Ice Concentration
     standard_name: sea_ice_area_fraction
     units: "1"
-    pre_transformations: [G2202_mask_flagged_conc] # List of functions to call on the DataSet before transformation
+    pre_transformations: [G02202_mask_flagged_conc] # List of functions to call on the DataSet before transformation
     post_transformations: [] # List of functions to call on the DataArrays after transformation
   - name: stdev_of_cdr_seaice_conc
     long_name: Passive Microwave Sea Ice Concentration Source Estimated Standard Deviation
     standard_name: " "
     units: "1"
-    pre_transformations: [G2202_mask_flagged_conc] # List of functions to call on the DataSet before transformation
+    pre_transformations: [G02202_mask_flagged_conc] # List of functions to call on the DataSet before transformation
     post_transformations: [] # List of functions to call on the DataArrays after transformation
   - name: nsidc_nt_seaice_conc
     long_name: Passive Microwave Sea Ice Concentration by NASA team algorithm processed by NSIDC
     standard_name: sea_ice_area_fraction
     units: "1"
-    pre_transformations: [G2202_mask_flagged_conc] # List of functions to call on the DataSet before transformation
+    pre_transformations: [G02202_mask_flagged_conc] # List of functions to call on the DataSet before transformation
     post_transformations: [] # List of functions to call on the DataArrays after transformation
 original_dataset_title: NOAA/NSIDC Climate Data Record of Passive Microwave Sea Ice Concentration, Version 4
 original_dataset_short_name: G02202_V4
@@ -43,7 +39,6 @@ original_dataset_doi: 10.7265/efmz-2t65
 
 # Transformation
 t_version: 1.19 # Update this value if any changes are made to this file
-array_precision: float32
 data_res: 25/111 # Resolution of dataset
 
 # Values for non split datasets (for datasets split into nh/sh, append '_nh'/'_sh')
@@ -69,6 +64,3 @@ a_version: 1.3 # Update this value if any changes are made to this file
 remove_nan_days_from_data: False # Remove empty days from data when aggregating
 do_monthly_aggregation: True
 skipna_in_mean: True # Controls skipna when calculating monthly mean
-monthly_tolerance: 8 # Defines the range of days to look for data around the start of the month (exclusive)
-save_binary: True
-save_netcdf: True

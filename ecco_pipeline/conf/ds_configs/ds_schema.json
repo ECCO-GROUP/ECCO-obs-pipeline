@@ -1,0 +1,249 @@
+{
+    "$schema": "http://json-schema.org/draft-06/schema#",
+    "$ref": "#/definitions/main",
+    "definitions": {
+        "main": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+                "ds_name": {
+                    "type": "string"
+                },
+                "start": {
+                    "type": "string"
+                },
+                "end": {
+                    "type": "string"
+                },
+                "harvester_type": {
+                    "type": "string"
+                },
+                "host": {
+                    "type": "string"
+                },
+                "user": {
+                    "type": "string"
+                },
+                "filename_date_fmt": {
+                    "type": "string"
+                },
+                "filename_date_regex": {
+                    "type": "string"
+                },
+                "ddir": {
+                    "type": "string"
+                },
+                "data_time_scale": {
+                    "type": "string"
+                },
+                "hemi_pattern": {
+                    "$ref": "#/definitions/HemiPattern"
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Field"
+                    }
+                },
+                "original_dataset_title": {
+                    "type": "string"
+                },
+                "original_dataset_short_name": {
+                    "type": "string"
+                },
+                "original_dataset_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "qt-uri-protocols": [
+                        "https"
+                    ]
+                },
+                "original_dataset_reference": {
+                    "type": "string",
+                    "format": "uri",
+                    "qt-uri-protocols": [
+                        "https"
+                    ],
+                    "qt-uri-extensions": [
+                        ".pdf"
+                    ]
+                },
+                "original_dataset_doi": {
+                    "type": "string"
+                },
+                "t_version": {
+                    "type": "number"
+                },
+                "time_bounds_var": {
+                    "type": "string"
+                },
+                "data_res": {
+                    "type": ["number", "string"]
+                },
+                "area_extent_nh": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "area_extent_sh": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "dims_nh": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "dims_sh": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "proj_info_nh": {
+                    "$ref": "#/definitions/ProjInfo"
+                },
+                "proj_info_sh": {
+                    "$ref": "#/definitions/ProjInfo"
+                },
+                "notes": {
+                    "type": "string"
+                },
+                "a_version": {
+                    "type": "number"
+                },
+                "remove_nan_days_from_data": {
+                    "type": "boolean"
+                },
+                "do_monthly_aggregation": {
+                    "type": "boolean"
+                },
+                "skipna_in_mean": {
+                    "type": "boolean"
+                }
+            },
+            "required": [
+                "a_version",
+                "data_res",
+                "data_time_scale",
+                "do_monthly_aggregation",
+                "ds_name",
+                "end",
+                "fields",
+                "filename_date_fmt",
+                "filename_date_regex",
+                "harvester_type",
+                "notes",
+                "original_dataset_doi",
+                "original_dataset_reference",
+                "original_dataset_short_name",
+                "original_dataset_title",
+                "original_dataset_url",
+                "remove_nan_days_from_data",
+                "skipna_in_mean",
+                "start",
+                "t_version"
+            ],
+            "optional": [
+                "area_extent",
+                "area_extent_nh",
+                "area_extent_sh",
+                "ddir",
+                "dims",
+                "dims_nh",
+                "dims_sh",
+                "hemi_pattern",
+                "host",
+                "proj_info",
+                "proj_info_nh",
+                "proj_info_sh",
+                "time_bounds_var",
+                "user"
+            ],
+            "title": "main"
+        },
+        "Field": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "long_name": {
+                    "type": "string"
+                },
+                "standard_name": {
+                    "type": "string"
+                },
+                "units": {
+                    "type": "string"
+                },
+                "pre_transformations": {
+                    "type": "array",
+                    "items": {}
+                },
+                "post_transformations": {
+                    "type": "array",
+                    "items": {}
+                }
+            },
+            "required": [
+                "long_name",
+                "name",
+                "post_transformations",
+                "pre_transformations",
+                "standard_name",
+                "units"
+            ],
+            "title": "Field"
+        },
+        "HemiPattern": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "north": {
+                    "type": "string"
+                },
+                "south": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "north",
+                "south"
+            ],
+            "title": "HemiPattern"
+        },
+        "ProjInfo": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "area_id": {
+                    "type": "string",
+                    "format": "integer"
+                },
+                "area_name": {
+                    "type": "string"
+                },
+                "proj_id": {
+                    "type": "string",
+                    "format": "integer"
+                },
+                "proj4_args": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "area_id",
+                "area_name",
+                "proj4_args",
+                "proj_id"
+            ],
+            "title": "ProjInfo"
+        }
+    }
+}

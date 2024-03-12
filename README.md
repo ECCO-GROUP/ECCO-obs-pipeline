@@ -34,6 +34,12 @@ conda env create -f environment.yml
 conda activate ecco_pipeline
 ```
 
+### Setup global_settings.py
+```
+cp ecco_pipeline/conf/global_settings.py.example ecco_pipeline/conf/global_settings.py
+```
+Fill in variables.
+
 ### Running pipeline
 ```
 python ecco_pipeline/run_pipeline.py

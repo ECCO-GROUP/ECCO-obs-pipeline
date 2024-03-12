@@ -4,13 +4,16 @@ channels:
   - conda-forge
   - default
 dependencies:
-  - python
-  - pyresample
+  - python=3.10.10
+  - pyresample=1.26.1
   - numpy
   - pyyaml
   - netcdf4
   - python-dateutil
+  - python-cmr
   - requests
   - xarray
   - ecco_v4_py
   - jupyter
+  - jsonschema
+  - lxml

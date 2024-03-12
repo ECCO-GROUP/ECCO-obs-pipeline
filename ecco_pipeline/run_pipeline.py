@@ -1,17 +1,16 @@
 import argparse
 import importlib
 import logging
+import os
 from glob import glob
 from multiprocessing import cpu_count
-import os
 from pathlib import Path
 from typing import List
 
 import yaml
-
-from aggregations.aggregate import aggregation
-from transformations import check_transformations
-from utils import init_pipeline
+from aggregations.aggregation_factory import AgJobFactory
+from transformations.transformation_factory import TxJobFactory
+from utils.pipeline_utils import init_pipeline, log_config
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -26,7 +25,8 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument('--multiprocesses', type=int, choices=range(1, cpu_count()+1),
                         default=int(cpu_count()/2), metavar=f'[1, {cpu_count()}]',
                         help=f'sets the number of multiprocesses used during transformation with a \
-                            system max of {cpu_count()} with default set to half of system max')
+                            system max of {cpu_count()} with default set to half of system max \
+                                (aggregation has a stricter cap due to high I/O volume)')
 
     parser.add_argument('--harvested_entry_validation', default=False, action='store_true',
                         help='verifies each Solr granule entry points to a valid file.')
@@ -75,7 +75,7 @@ def show_menu(grids_to_use: List[str], user_cpus: int):
         for ds in datasets:
             run_harvester([ds])
             run_transformation([ds], user_cpus, grids_to_use)
-            run_aggregation([ds], grids_to_use)
+            run_aggregation([ds], user_cpus, grids_to_use)
 
     # Run harvester
     elif chosen_option == '2':
@@ -128,17 +128,17 @@ def show_menu(grids_to_use: List[str], user_cpus: int):
         if 'transform' in wanted_steps:
             run_transformation([wanted_ds], user_cpus, grids_to_use)
         if 'aggregate' in wanted_steps:
-            run_aggregation([wanted_ds], grids_to_use)
+            run_aggregation([wanted_ds], user_cpus, grids_to_use)
         if wanted_steps == 'all':
             run_harvester([wanted_ds])
             run_transformation([wanted_ds], user_cpus, grids_to_use)
-            run_aggregation([wanted_ds], grids_to_use)
+            run_aggregation([wanted_ds], user_cpus, grids_to_use)
 
 
 def run_harvester(datasets: List[str]):
     for ds in datasets:
         try:
-            logging.info(f'Beginning harvesting {ds}')
+            logger.info(f'Beginning harvesting {ds}')
 
             with open(Path(f'conf/ds_configs/{ds}.yaml'), 'r') as stream:
                 config = yaml.load(stream, yaml.Loader)
@@ -146,49 +146,48 @@ def run_harvester(datasets: List[str]):
             try:
                 harvester_type = config['harvester_type']
             except:
-                logging.fatal(f'Harvester type missing from {ds} config. Exiting.')
+                logger.fatal(f'Harvester type missing from {ds} config. Exiting.')
                 exit()
 
             try:
                 harvester = importlib.import_module(f'harvesters.{harvester_type}_harvester')
             except Exception as e:
-                logging.error(e)
+                logger.exception(e)
                 exit()
 
             status = harvester.harvester(config)
-            logging.info(f'{ds} harvesting complete. {status}')
+            logger.info(f'{ds} harvesting complete. {status}')
         except Exception as e:
-            logging.exception(f'{ds} harvesting failed. {e}')
+            logger.exception(f'{ds} harvesting failed. {e}')
 
 
 def run_transformation(datasets: List[str], user_cpus: int, grids_to_use: List[str]):
     for ds in datasets:
         try:
-            logging.info(f'Beginning transformations on {ds}')
+            logger.info(f'Beginning transformations on {ds}')
             with open(Path(f'conf/ds_configs/{ds}.yaml'), 'r') as stream:
                 config = yaml.load(stream, yaml.Loader)
-
-            status = check_transformations.main(config, user_cpus, grids_to_use)
-            logging.info(f'{ds} transformation complete. {status}')
+            status = TxJobFactory(config, user_cpus, grids_to_use).start_factory()
+            logger.info(f'{ds} transformation complete. {status}')
         except:
-            logging.exception(f'{ds} transformation failed.')
+            logger.exception(f'{ds} transformation failed.')
 
 
-def run_aggregation(datasets: List[str], grids_to_use: List[str]):
+def run_aggregation(datasets: List[str], user_cpus: int, grids_to_use: List[str]):
     for ds in datasets:
         try:
-            logging.info(f'Beginning aggregation on {ds}')
+            logger.info(f'Beginning aggregation on {ds}')
             with open(Path(f'conf/ds_configs/{ds}.yaml'), 'r') as stream:
                 config = yaml.load(stream, yaml.Loader)
-
-            status = aggregation(config, grids_to_use)
-            logging.info(f'{ds} aggregation complete. {status}')
+            status = AgJobFactory(config, user_cpus, grids_to_use).start_factory()
+            logger.info(f'{ds} aggregation complete. {status}')
         except Exception as e:
-            logging.exception(f'{ds} aggregation failed: {e}')
+            logger.exception(f'{ds} aggregation failed: {e}')
 
 
 if __name__ == '__main__':
     parser = create_parser()
     args = parser.parse_args()
     grids_to_use, user_cpus = init_pipeline.init_pipeline(args)
+    logger = logging.getLogger('pipeline')
     show_menu(grids_to_use, user_cpus)
