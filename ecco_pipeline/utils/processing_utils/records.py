@@ -8,9 +8,9 @@ import netCDF4 as nc4
 from utils.processing_utils.llc_array_conversion import llc_tiles_to_compact
 
 DTYPE = np.float32
-BINARY_DTYPE = 'f4'
+BINARY_DTYPE = '>f4'
 BINARY_FILL_VALUE = -9999
-NETCDF_FILL_VALUE = nc4.default_fillvals[BINARY_DTYPE]
+NETCDF_FILL_VALUE = nc4.default_fillvals[BINARY_DTYPE.replace('>','')]
 
 def make_empty_record(record_date: str, model_grid: xr.Dataset) -> xr.DataArray:
     '''
