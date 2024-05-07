@@ -8,6 +8,7 @@ import netrc
 import xarray as xr
 from datetime import datetime
 from utils.pipeline_utils import solr_utils, config_validator, log_config, file_utils
+import baseclasses
 
 try:
     import conf.global_settings as global_settings
@@ -206,6 +207,7 @@ def init_pipeline(args: Namespace):
         grids_to_use = args.grids_to_use
     else:
         grids_to_use = GRIDS
+    baseclasses.set_grids(grids_to_use)
 
     if args.grids_to_solr or solr_utils.check_grids():
         try:
@@ -224,6 +226,7 @@ def init_pipeline(args: Namespace):
         wipe_factors()
 
     user_cpus = args.multiprocesses
+    baseclasses.set_cpus(user_cpus)
     logger.debug(f'Using {user_cpus} processes for multiprocess transformations')
 
     return grids_to_use, user_cpus

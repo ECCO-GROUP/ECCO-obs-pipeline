@@ -5,7 +5,7 @@ from multiprocessing import Pool, cpu_count, current_process
 from typing import Iterable
 
 import xarray as xr
-from baseclasses import Dataset
+import baseclasses
 from transformations.grid_transformation import Transformation, transform
 from utils.pipeline_utils import log_config, solr_utils
 
@@ -37,20 +37,20 @@ def multiprocess_transformation(config: dict, granule: dict, tx_jobs: dict, log_
         logger.exception(f'Error transforming {granule_filepath}: {e}')
         
         
-class TxJobFactory(Dataset):
+class TxJobFactory(baseclasses.Dataset):
     
-    def __init__(self, config: dict, user_cpus: int = 1, grids_to_use: Iterable[str]=[]) -> None:
+    def __init__(self, config: dict) -> None:
         super().__init__(config)
         self.config = config
-        self.user_cpus = user_cpus
+        self.user_cpus = baseclasses.Config.user_cpus
         self.harvested_granules = solr_utils.solr_query([f'dataset_s:{self.ds_name}', 'type_s:granule', 'harvest_success_b:true'])
 
-        if not grids_to_use:
+        if not baseclasses.Config.grids_to_use:
             fq = ['type_s:grid']
             docs = solr_utils.solr_query(fq)
             self.grids = [doc['grid_name_s'] for doc in docs]
         else:
-            self.grids = grids_to_use
+            self.grids = baseclasses.Config.grids_to_use
         if 'hemi_pattern' in self.config:
             self.grids = [grid for grid in self.grids if 'TPOSE' not in grid]
         
