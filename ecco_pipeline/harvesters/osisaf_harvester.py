@@ -25,6 +25,10 @@ class OSISAF_Harvester(Harvester):
             if not (self.start <= dt) and (self.end >= dt):
                 continue
             
+            if "icdrft" in filename:
+                logger.debug(f'Skipping fast track file for date')
+                continue
+            
             year = str(dt.year)
 
             local_fp = f'{self.target_dir}{year}/{filename}'
