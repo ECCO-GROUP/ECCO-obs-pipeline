@@ -11,9 +11,14 @@ Documentation is in the process of being overhauled. Legacy documentation can be
 ## Setup
 
 ### Requirements
-- Solr
-- Conda
-- .netrc file containing Earthdata login credentials
+- Solr (metadata server/database)
+- Conda (package management)
+- .netrc file containing valid Earthdata login credentials
+
+### Standup Solr Server
+Follow steps in the Solr deployment guide to download Solr package:
+https://solr.apache.org/guide/solr/latest/deployment-guide/installing-solr.html
+
 
 ### Start Solr and Setup core
 ```
@@ -43,6 +48,11 @@ Fill in variables.
 ### Running pipeline
 ```
 python ecco_pipeline/run_pipeline.py
+```
+This will start the interactive menu where you can select dataset(s) and the steps of the pipeline to run. It will defaul to using the list of grids provided in `ecco_pipeline/conf/global_settings.py`, but can be overridden for a specific list of grids with the `--grids_to_use` argument. ex:
+
+```
+python ecco_pipeline/run_pipeline.py --grids_to_use ECCO_llc90
 ```
 
 The default logging level is set to `info` but is adjustable via the `--log_level` flag when running the pipeline. ex:
