@@ -1,0 +1,57 @@
+ds_name: "" # Name for dataset
+start: "" # yyyymmddThh:mm:ssZ
+end: "" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
+
+# Provider specifications
+harvester_type: ""
+cmr_concept_id: ""
+filename_date_fmt: "" # ex: %Y%m%d
+filename_date_regex: "" # ex: \d{8}
+provider: ""
+
+# Metadata
+data_time_scale: "" # daily or monthly
+fields:
+  - name: "" # Variable name in data
+    long_name: ""
+    standard_name: ""
+    units: ""
+    pre_transformations: [] # List of functions to call on the DataSet before transformation
+    post_transformations: [] # List of functions to call on the DataArrays after transformation
+original_dataset_title: ""
+original_dataset_short_name: ""
+original_dataset_url: ""
+original_dataset_reference: ""
+original_dataset_doi: ""
+
+# Transformation
+t_version: 1.0 # Update this value if any changes are made to this file
+time_bounds_var: "" # Name of time bounds variable in data (optional)
+transpose: False "" # If data should be transposed prior to transformation (optional, defaults to False)
+data_res: "" # Spatial resolution of data in degrees - string representation gets converted to float ex: "1/6"
+
+# Values for non split datasets (for datasets split into nh/sh, append '_nh'/'_sh')
+area_extent_nh: [] # [lon_min, lat_min, lon_max, lat_max]
+area_extent_sh: [] # [lon_min, lat_min, lon_max, lat_max]
+
+dims_nh: [] # [lon, lat]
+dims_sh: [] # [lon, lat]
+
+proj_info_nh:
+  area_id: "3411"
+  area_name: "polar_stereographic"
+  proj_id: "3411"
+  proj4_args: "+init=EPSG:3411"
+proj_info_sh:
+  area_id: "3412"
+  area_name: "polar_stereographic"
+  proj_id: "3412"
+  proj4_args: "+init=EPSG:3412"
+
+notes: "" # String to include in global attributes of output files
+
+# Aggregation
+a_version: 1.0 # Update this value if any changes are made to this file
+remove_nan_days_from_data: True # Remove empty days from data when aggregating
+do_monthly_aggregation: True
+skipna_in_mean: False # Controls skipna when calculating monthly mean
