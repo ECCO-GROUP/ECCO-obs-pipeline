@@ -45,6 +45,7 @@ def create_parser() -> argparse.ArgumentParser:
 
     parser.add_argument('--wipe_logs', default=False, action='store_true', help='removes all prior log files')
     
+    parser.add_argument('--status_report', default=False, action='store_true', help='Generate status report')
     return parser
 
 

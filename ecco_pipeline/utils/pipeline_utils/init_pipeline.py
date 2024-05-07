@@ -7,7 +7,7 @@ import requests
 import netrc
 import xarray as xr
 from datetime import datetime
-from utils.pipeline_utils import solr_utils, config_validator, log_config, file_utils
+from utils.pipeline_utils import solr_utils, config_validator, log_config, file_utils, status_report
 
 try:
     import conf.global_settings as global_settings
@@ -188,6 +188,10 @@ def grids_to_solr(grids_to_use: Iterable[str]=[]):
     return grids_not_in_solr
 
 def init_pipeline(args: Namespace):
+    if args.status_report:
+        status_report.generate_reports()
+        exit()
+    
     logger = setup_logger(args)
     validate_output_dir()
     validate_solr()
