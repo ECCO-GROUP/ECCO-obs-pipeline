@@ -1,6 +1,6 @@
 # Generating a dataset config file
 
-The recommended approach to adding support for a new dataset is to start with an existing config. The best way to obtain the information for these fields is through a combination of looking at a sample data granule and looking at the dataset's documentation. Here we'll walk through the config for `AMSR-2_OSI-408`, looking at the various sections.
+The recommended approach to adding support for a new dataset is to start with an existing config or one of the mostly blank templates in `ecco_pipeline/conf/ds_configs/templates`. The best way to obtain the information for these fields is through a combination of looking at a sample data granule and looking at the dataset's documentation. Here we'll walk through the config for `AMSR-2_OSI-408`, looking at the various sections.
 
 ## Dataset
 
