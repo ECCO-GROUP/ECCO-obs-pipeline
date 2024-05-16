@@ -6,14 +6,15 @@ channels:
 dependencies:
   - python=3.10.10
   - pyresample=1.26.1
-  - numpy
+  - numpy=1.24.3
   - pyyaml
-  - netcdf4
+  - netcdf4=1.6.3
   - python-dateutil
   - python-cmr
   - requests
-  - xarray
+  - xarray=2023.11.0
   - ecco_v4_py
   - jupyter
   - jsonschema
   - lxml
+  - pyproj=3.5.0
