@@ -198,9 +198,10 @@ def start_pipeline(args: argparse.Namespace, grids_to_use: List[str], user_cpus:
     elif args.step == 'aggregate':
         run_aggregation(datasets, user_cpus, grids_to_use)
     else:
-        run_harvester(datasets)
-        run_transformation(datasets, user_cpus, grids_to_use)
-        run_aggregation(datasets, user_cpus, grids_to_use)
+        for dataset in datasets:
+            run_harvester([dataset])
+            run_transformation([dataset], user_cpus, grids_to_use)
+            run_aggregation([dataset], user_cpus, grids_to_use)
 
 if __name__ == '__main__':
     args = create_parser()
