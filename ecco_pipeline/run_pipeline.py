@@ -13,39 +13,47 @@ from transformations.transformation_factory import TxJobFactory
 from utils.pipeline_utils import init_pipeline, log_config
 
 
-def create_parser() -> argparse.ArgumentParser:
+def create_parser() -> argparse.Namespace:
     """
     Creates command line argument parser
     """
     parser = argparse.ArgumentParser()
 
+    parser.add_argument('--menu', default=False,
+                        action='store_true', help='Show interactive menu')
     parser.add_argument('--grids_to_solr', default=False, action='store_true',
                         help='updates Solr with grids in grids_config')
-
-    parser.add_argument('--multiprocesses', type=int, choices=range(1, cpu_count()+1),
-                        default=int(cpu_count()/2), metavar=f'[1, {cpu_count()}]',
-                        help=f'sets the number of multiprocesses used during transformation with a \
-                            system max of {cpu_count()} with default set to half of system max \
-                                (aggregation has a stricter cap due to high I/O volume)')
-
+    parser.add_argument('--multiprocesses', type=int, choices=range(1, cpu_count()+1), default=int(cpu_count()/2),
+                        metavar=f'[1, {cpu_count()}]', help=f'sets the number of multiprocesses used during transformation with a system max of {cpu_count()} \
+                            with default set to half of system max (aggregation has a stricter cap due to high I/O volume)')
     parser.add_argument('--harvested_entry_validation', default=False, action='store_true',
                         help='verifies each Solr granule entry points to a valid file.')
-
     parser.add_argument('--wipe_transformations', default=False, action='store_true',
-                        help='deletes transformations with version number different than what is \
-                            currently in transformation_config')
-
+                        help='deletes transformations with version number different than what is currently in transformation_config')
     parser.add_argument('--grids_to_use', default=False, nargs='*',
                         help='Names of grids to use during the pipeline')
-
     parser.add_argument('--log_level', default='INFO',
                         help='sets the log level')
+    parser.add_argument('--wipe_factors', default=False,
+                        action='store_true', help='removes all stored factors')
+    parser.add_argument('--wipe_logs', default=False,
+                        action='store_true', help='removes all prior log files')
 
-    parser.add_argument('--wipe_factors', default=False, action='store_true', help='removes all stored factors')
+    args, _ = parser.parse_known_args()
 
-    parser.add_argument('--wipe_logs', default=False, action='store_true', help='removes all prior log files')
-    
-    return parser
+    if not args.menu:
+        parser.add_argument('--dataset', help='Specify the dataset option', type=str)
+        parser.add_argument('--step', help='Specify the step option', type=str,
+                            default='all', choices=['harvest', 'transform', 'aggregate', 'all'])
+        args = parser.parse_args()
+
+        if args.dataset:
+            # Check if dataset is valid option
+            valid_datasets = [os.path.splitext(os.path.basename(f))[0] for f in glob('conf/ds_configs/*.yaml')]
+            if args.dataset not in valid_datasets:
+                raise ValueError(
+                    f'{args.dataset} is not valid dataset. Check spelling.')
+    return args
 
 
 def show_menu(grids_to_use: List[str], user_cpus: int):
@@ -139,22 +147,13 @@ def run_harvester(datasets: List[str]):
     for ds in datasets:
         try:
             logger.info(f'Beginning harvesting {ds}')
-
             with open(Path(f'conf/ds_configs/{ds}.yaml'), 'r') as stream:
                 config = yaml.load(stream, yaml.Loader)
-
-            try:
-                harvester_type = config['harvester_type']
-            except:
-                logger.fatal(f'Harvester type missing from {ds} config. Exiting.')
-                exit()
-
-            try:
-                harvester = importlib.import_module(f'harvesters.{harvester_type}_harvester')
-            except Exception as e:
-                logger.exception(e)
-                exit()
-
+            harvester_type = config.get('harvester_type')
+            if not harvester_type:
+                raise ValueError(f'Harvester type missing from {ds} config. Exiting.')
+            
+            harvester = importlib.import_module(f'harvesters.{harvester_type}_harvester')
             status = harvester.harvester(config)
             logger.info(f'{ds} harvesting complete. {status}')
         except Exception as e:
@@ -185,9 +184,29 @@ def run_aggregation(datasets: List[str], user_cpus: int, grids_to_use: List[str]
             logger.exception(f'{ds} aggregation failed: {e}')
 
 
+def start_pipeline(args: argparse.Namespace, grids_to_use: List[str], user_cpus: int):
+    if args.dataset:
+        datasets = [args.dataset]
+    else:
+        # Load all dataset configuration YAML names
+        datasets = sorted([os.path.splitext(os.path.basename(f))[0] for f in glob(f'conf/ds_configs/*.yaml')])
+    
+    if args.step == 'harvest':
+        run_harvester(datasets)
+    elif args.step == 'transform':
+        run_transformation(datasets, user_cpus, grids_to_use)
+    elif args.step == 'aggregate':
+        run_aggregation(datasets, user_cpus, grids_to_use)
+    else:
+        run_harvester(datasets)
+        run_transformation(datasets, user_cpus, grids_to_use)
+        run_aggregation(datasets, user_cpus, grids_to_use)
+
 if __name__ == '__main__':
-    parser = create_parser()
-    args = parser.parse_args()
+    args = create_parser()
     grids_to_use, user_cpus = init_pipeline.init_pipeline(args)
     logger = logging.getLogger('pipeline')
-    show_menu(grids_to_use, user_cpus)
+    if args.menu:
+        show_menu(grids_to_use, user_cpus)
+    else:
+        start_pipeline(args, grids_to_use, user_cpus)
