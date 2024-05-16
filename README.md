@@ -49,7 +49,15 @@ Fill in variables.
 ```
 python ecco_pipeline/run_pipeline.py
 ```
-This will start the interactive menu where you can select dataset(s) and the steps of the pipeline to run. It will defaul to using the list of grids provided in `ecco_pipeline/conf/global_settings.py`, but can be overridden for a specific list of grids with the `--grids_to_use` argument. ex:
+The above command will execute the pipeline by iterating through all currently supported datasets, running the harvesting, transformation, and aggregation steps for each. If you want to run the pipeline on a single dataset or step, you can use the `--dataset` and `--step` flags, respectively. ex:
+
+```
+python ecco_pipeline/run_pipeline.py --dataset G02202_V4 --step harvest
+```
+
+You can also run the pipeline via an interactive menu where you can select from a list of the supported datasets and the steps of the pipeline to run by providing the `--menu` flag. 
+
+In either case, the pipeline will default to using the list of grids provided in `ecco_pipeline/conf/global_settings.py`, but can be overridden for a specific list of grids with the `--grids_to_use` argument. ex:
 
 ```
 python ecco_pipeline/run_pipeline.py --grids_to_use ECCO_llc90
