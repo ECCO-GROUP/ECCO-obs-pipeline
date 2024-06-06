@@ -4,7 +4,7 @@ from multiprocessing import Pool, cpu_count, current_process
 from typing import Iterable
 
 from aggregations.aggregation import Aggregation
-from baseclasses import Dataset
+import baseclasses
 from utils.pipeline_utils import log_config, solr_utils
 
 logger = logging.getLogger('pipeline')
@@ -22,13 +22,13 @@ def multiprocess_aggregate(job: Aggregation, log_level: str, log_dir: str):
         logger.exception(f'JOB FAILED: {e}')
         
         
-class AgJobFactory(Dataset):
+class AgJobFactory(baseclasses.Dataset):
     
-    def __init__(self, config: dict, user_cpus: int=1, grids_to_use: Iterable[str]=[]) -> None:
+    def __init__(self, config: dict) -> None:
         super().__init__(config)
         self.config = config
-        self.user_cpus = user_cpus
-        self.grids = self.get_grids(grids_to_use)
+        self.user_cpus = baseclasses.Config.user_cpus
+        self.grids = self.get_grids(baseclasses.Config.grids_to_use)
         self.agg_jobs = self.get_jobs()
         
     def start_factory(self) -> str:
@@ -115,6 +115,7 @@ class AgJobFactory(Dataset):
         if grids_to_use:
             grids = [grid for grid in grids if grid['grid_name_s'] in grids_to_use]
         if 'hemi_pattern' in self.config:
+            logger.info('Skipping job creation for TPOSE grid on sea ice data.')
             grids = [grid for grid in grids if 'TPOSE' not in grid['grid_name_s']]
         return grids
     

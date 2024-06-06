@@ -56,7 +56,7 @@ def create_parser() -> argparse.Namespace:
     return args
 
 
-def show_menu(grids_to_use: List[str], user_cpus: int):
+def show_menu():
     while True:
         print('\n===== ECCO PREPROCESSING PIPELINE =====')
         print('\n------------- OPTIONS -------------')
@@ -82,8 +82,8 @@ def show_menu(grids_to_use: List[str], user_cpus: int):
     if chosen_option == '1':
         for ds in datasets:
             run_harvester([ds])
-            run_transformation([ds], user_cpus, grids_to_use)
-            run_aggregation([ds], user_cpus, grids_to_use)
+            run_transformation([ds])
+            run_aggregation([ds])
 
     # Run harvester
     elif chosen_option == '2':
@@ -93,7 +93,7 @@ def show_menu(grids_to_use: List[str], user_cpus: int):
     elif chosen_option == '3':
         for ds in datasets:
             run_harvester([ds])
-            run_transformation([ds], user_cpus, grids_to_use)
+            run_transformation([ds])
 
     # Manually enter dataset and pipeline step(s)
     elif chosen_option == '4':
@@ -134,13 +134,13 @@ def show_menu(grids_to_use: List[str], user_cpus: int):
         if 'harvest' in wanted_steps:
             run_harvester([wanted_ds])
         if 'transform' in wanted_steps:
-            run_transformation([wanted_ds], user_cpus, grids_to_use)
+            run_transformation([wanted_ds])
         if 'aggregate' in wanted_steps:
-            run_aggregation([wanted_ds], user_cpus, grids_to_use)
+            run_aggregation([wanted_ds])
         if wanted_steps == 'all':
             run_harvester([wanted_ds])
-            run_transformation([wanted_ds], user_cpus, grids_to_use)
-            run_aggregation([wanted_ds], user_cpus, grids_to_use)
+            run_transformation([wanted_ds])
+            run_aggregation([wanted_ds])
 
 
 def run_harvester(datasets: List[str]):
@@ -160,31 +160,30 @@ def run_harvester(datasets: List[str]):
             logger.exception(f'{ds} harvesting failed. {e}')
 
 
-def run_transformation(datasets: List[str], user_cpus: int, grids_to_use: List[str]):
+def run_transformation(datasets: List[str]):
     for ds in datasets:
         try:
             logger.info(f'Beginning transformations on {ds}')
             with open(Path(f'conf/ds_configs/{ds}.yaml'), 'r') as stream:
                 config = yaml.load(stream, yaml.Loader)
-            status = TxJobFactory(config, user_cpus, grids_to_use).start_factory()
+            status = TxJobFactory(config).start_factory()
             logger.info(f'{ds} transformation complete. {status}')
         except:
             logger.exception(f'{ds} transformation failed.')
 
 
-def run_aggregation(datasets: List[str], user_cpus: int, grids_to_use: List[str]):
+def run_aggregation(datasets: List[str]):
     for ds in datasets:
         try:
             logger.info(f'Beginning aggregation on {ds}')
             with open(Path(f'conf/ds_configs/{ds}.yaml'), 'r') as stream:
                 config = yaml.load(stream, yaml.Loader)
-            status = AgJobFactory(config, user_cpus, grids_to_use).start_factory()
+            status = AgJobFactory(config).start_factory()
             logger.info(f'{ds} aggregation complete. {status}')
         except Exception as e:
             logger.exception(f'{ds} aggregation failed: {e}')
 
-
-def start_pipeline(args: argparse.Namespace, grids_to_use: List[str], user_cpus: int):
+def start_pipeline(args: argparse.Namespace):
     if args.dataset:
         datasets = [args.dataset]
     else:
@@ -194,20 +193,19 @@ def start_pipeline(args: argparse.Namespace, grids_to_use: List[str], user_cpus:
     if args.step == 'harvest':
         run_harvester(datasets)
     elif args.step == 'transform':
-        run_transformation(datasets, user_cpus, grids_to_use)
+        run_transformation(datasets)
     elif args.step == 'aggregate':
-        run_aggregation(datasets, user_cpus, grids_to_use)
+        run_aggregation(datasets)
     else:
-        for dataset in datasets:
-            run_harvester([dataset])
-            run_transformation([dataset], user_cpus, grids_to_use)
-            run_aggregation([dataset], user_cpus, grids_to_use)
+        run_harvester(datasets)
+        run_transformation(datasets)
+        run_aggregation(datasets)
 
 if __name__ == '__main__':
     args = create_parser()
-    grids_to_use, user_cpus = init_pipeline.init_pipeline(args)
+    init_pipeline.init_pipeline(args)
     logger = logging.getLogger('pipeline')
     if args.menu:
-        show_menu(grids_to_use, user_cpus)
+        show_menu()
     else:
-        start_pipeline(args, grids_to_use, user_cpus)
+        start_pipeline(args)

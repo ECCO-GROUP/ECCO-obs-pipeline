@@ -2,6 +2,15 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable
 
+class Config():
+    user_cpus = 1
+    grids_to_use = []
+    
+def set_grids(grids: Iterable[str]):
+    Config.grids_to_use = grids
+
+def set_cpus(cpus: int):
+    Config.user_cpus = cpus
 
 class Dataset():
     '''
