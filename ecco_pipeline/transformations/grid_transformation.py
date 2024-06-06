@@ -125,7 +125,7 @@ class Transformation(Dataset):
             logger.exception(f'Unable to extract grid radius from {grid_ds.name}. Grid not supported')
 
         factors = (transformation_utils.find_mappings_from_source_to_target(source_grid, target_grid, target_grid_radius,
-                                                                      source_grid_min_L, source_grid_max_L))
+                                                                            source_grid_min_L, source_grid_max_L, grid_name=grid_name))
         logger.debug(f'Saving {grid_name} factors')
         os.makedirs(factors_dir, exist_ok=True)
         with open(factors_path, 'wb') as f:
