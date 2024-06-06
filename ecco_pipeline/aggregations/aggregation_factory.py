@@ -115,6 +115,7 @@ class AgJobFactory(baseclasses.Dataset):
         if grids_to_use:
             grids = [grid for grid in grids if grid['grid_name_s'] in grids_to_use]
         if 'hemi_pattern' in self.config:
+            logger.info('Skipping job creation for TPOSE grid on sea ice data.')
             grids = [grid for grid in grids if 'TPOSE' not in grid['grid_name_s']]
         return grids
     

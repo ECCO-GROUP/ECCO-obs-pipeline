@@ -52,6 +52,7 @@ class TxJobFactory(baseclasses.Dataset):
         else:
             self.grids = baseclasses.Config.grids_to_use
         if 'hemi_pattern' in self.config:
+            logger.info('Skipping job creation for TPOSE grid on sea ice data.')
             self.grids = [grid for grid in self.grids if 'TPOSE' not in grid]
         
     def start_factory(self) -> str:
