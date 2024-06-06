@@ -50,12 +50,12 @@ proj_info_nh:
   area_id: "3411"
   area_name: "polar_stereographic"
   proj_id: "3411"
-  proj4_args: "+init=EPSG:3411"
+  proj4_args: "EPSG:3411"
 proj_info_sh:
   area_id: "3412"
   area_name: "polar_stereographic"
   proj_id: "3412"
-  proj4_args: "+init=EPSG:3412"
+  proj4_args: "EPSG:3412"
 
 notes: "All values flagged as pole_hole, lakes, coastal, land_mask, missing_data are replaced with no data (nan) " # String to include in global attributes of output files
 

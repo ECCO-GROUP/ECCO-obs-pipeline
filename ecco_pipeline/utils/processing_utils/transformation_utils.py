@@ -78,7 +78,7 @@ def transform_to_target_grid(source_indices_within_target_radius_i: dict,
 
 def find_mappings_from_source_to_target(source_grid, target_grid, target_grid_radius,
                                         source_grid_min_L, source_grid_max_L,
-                                        neighbours: int = 100, less_output=True):
+                                        neighbours: int = 100, less_output=True, grid_name=''):
     '''
     source grid, target_grid : area or grid defintion objects from pyresample
 
@@ -138,11 +138,12 @@ def find_mappings_from_source_to_target(source_grid, target_grid, target_grid_ra
     # is furthest.
     # for some reason the radius of influence has to be in an int.
 
-    Ax_max_target_grid_r = \
-        pr.kd_tree.get_neighbour_info(source_grid,
-                                      target_grid,
-                                      radius_of_influence=int(max_target_grid_radius),
-                                      neighbours=neighbours)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        Ax_max_target_grid_r = pr.kd_tree.get_neighbour_info(source_grid,
+                                                            target_grid,
+                                                            radius_of_influence=int(max_target_grid_radius),
+                                                            neighbours=neighbours)
 
     # define a dictionary, which will contain the list of SOURCE grid cells
     # that are within the search radius of each TARGET grid cell
@@ -163,10 +164,12 @@ def find_mappings_from_source_to_target(source_grid, target_grid, target_grid_ra
     # fall within the small centers of the TARGET grid.
     # we'll look for the nearest SOURCE grid cell within 'source_grid_max_L'
 
-    Ax_nearest_within_source_grid_max_L = \
-        pr.kd_tree.get_neighbour_info(source_grid, target_grid,
-                                      radius_of_influence=int(source_grid_max_L),
-                                      neighbours=1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        Ax_nearest_within_source_grid_max_L = \
+            pr.kd_tree.get_neighbour_info(source_grid, target_grid,
+                                        radius_of_influence=int(source_grid_max_L),
+                                        neighbours=1)
 
     # define a vector that will store the index of the source grid closest to
     # the target grid within the search radius 'source_grid_max_L'
@@ -232,8 +235,8 @@ def find_mappings_from_source_to_target(source_grid, target_grid, target_grid_ra
 
         # print progress.  always nice
         if i in debug_is:
-            print(str(int(i/len_target_grid*100)) + ' %')
-
+            print(f'Creating {grid_name} mapping factors...{int(i/len_target_grid*100)} %',end='\r')
+    print(f'Creating {grid_name} mapping factors...done.')
     return source_indices_within_target_radius_i,\
         num_source_indices_within_target_radius_i,\
         nearest_source_index_to_target_index_i

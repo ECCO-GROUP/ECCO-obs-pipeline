@@ -41,12 +41,10 @@ data_res: 3 # Resolution of dataset
 area_extent: [0, 90, 360, -90] # [lon_min, lat_min, lon_max, lat_max]
 dims: [720, 360] # [lon, lat]
 proj_info:
-  {
-    "area_id": "longlat",
-    "area_name": "Plate Carree",
-    "proj_id": "EPSG:4326",
-    "proj4_args": "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs",
-  }
+  area_id: "longlat"
+  area_name: "Plate Carree"
+  proj_id: "EPSG:4326"
+  proj4_args: "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
 
 notes: "" # String to include in global attributes of output files
 
