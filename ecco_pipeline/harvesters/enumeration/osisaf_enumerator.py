@@ -48,7 +48,7 @@ def search_osisaf(harvester: Harvester):
                     url = os.path.join('https://thredds.met.no/thredds/fileServer/', granule['urlPath'])
                     mod_time = datetime.strptime(granule.find('date').text, '%Y-%m-%dT%H:%M:%SZ')
                     all_granules.append(OSISAFGranule(url, mod_time))
-    logger.info(f'Found {len(all_granules)} possible granules')
+    logger.info(f'Found {len(all_granules)} possible granules. Checking for updates...')
     return all_granules
     
 

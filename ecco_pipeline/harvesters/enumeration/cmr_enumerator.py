@@ -58,5 +58,5 @@ class CMRQuery():
         except RuntimeError:
             query_results = self.granule_query_with_wait()
         cmr_granules = [CMRGranule(result, self.provider) for result in query_results]
-        logger.info(f'Found {len(cmr_granules)} granule(s) from CMR query')
+        logger.info(f'Found {len(cmr_granules)} granule(s) from CMR query. Checking for updates...')
         return cmr_granules
