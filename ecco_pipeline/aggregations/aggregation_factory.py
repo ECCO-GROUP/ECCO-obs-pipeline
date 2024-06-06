@@ -114,6 +114,8 @@ class AgJobFactory(Dataset):
         grids = [grid for grid in solr_utils.solr_query(fq)]
         if grids_to_use:
             grids = [grid for grid in grids if grid['grid_name_s'] in grids_to_use]
+        if 'hemi_pattern' in self.config:
+            grids = [grid for grid in grids if 'TPOSE' not in grid['grid_name_s']]
         return grids
     
     def get_jobs(self) -> Iterable[Aggregation]:

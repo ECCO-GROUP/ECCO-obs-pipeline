@@ -51,6 +51,8 @@ class TxJobFactory(Dataset):
             self.grids = [doc['grid_name_s'] for doc in docs]
         else:
             self.grids = grids_to_use
+        if 'hemi_pattern' in self.config:
+            self.grids = [grid for grid in self.grids if 'TPOSE' not in grid]
         
     def start_factory(self) -> str:
         if not self.harvested_granules:
@@ -141,26 +143,24 @@ class TxJobFactory(Dataset):
         data_for_factors = []
         nh_added = False
         sh_added = False
+        hemi_pattern = self.config.get('hemi_pattern', '')
         # Find appropriate granule(s) to use for factor calculation
         for granule in self.harvested_granules:
-            if 'hemisphere_s' in granule.keys():
-                hemi = f'_{granule["hemisphere_s"]}_'
-            else:
-                hemi = ''
-            if granule.get('pre_transformation_file_path_s'):
-                if hemi:
-                    # Get one of each
-                    if hemi == self.hemi_pattern['north'] and not nh_added:
-                        data_for_factors.append(granule)
-                        nh_added = True
-                    elif hemi == self.hemi_pattern['south'] and not sh_added:
-                        data_for_factors.append(granule)
-                        sh_added = True
-                    if nh_added and sh_added:
-                        return data_for_factors
-                else:
+            file_path = granule.get('pre_transformation_file_path_s')
+            if file_path and hemi_pattern:
+                # Get one of each
+                if self.hemi_pattern['north'] in file_path and not nh_added:
                     data_for_factors.append(granule)
+                    nh_added = True
+                elif self.hemi_pattern['south'] in file_path and not sh_added:
+                    data_for_factors.append(granule)
+                    sh_added = True
+                if nh_added and sh_added:
                     return data_for_factors
+            elif file_path:
+                data_for_factors.append(granule)
+                return data_for_factors
+        raise RuntimeError(f'Unable to find sufficient data in order to pregenerate mapping factors.')
                 
     def generate_jobs(self):
         logger.info('Generating jobs...')
