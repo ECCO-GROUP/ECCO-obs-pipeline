@@ -66,5 +66,6 @@ def harvester(config: dict) -> str:
 
     harvester = CATDS_Harvester(config)    
     harvester.fetch()
-    harvesting_status = harvester.post_fetch()
+    source = f'https://data.catds.fr/cecos-locean/Ocean_products/{harvester.ddir}'
+    harvesting_status = harvester.post_fetch(source)
     return harvesting_status

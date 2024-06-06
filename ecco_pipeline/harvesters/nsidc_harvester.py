@@ -66,5 +66,6 @@ def harvester(config: dict) -> str:
 
     harvester = NSIDC_Harvester(config)    
     harvester.fetch()
-    harvesting_status = harvester.post_fetch()
+    source = f'https://noaadata.apps.nsidc.org/NOAA/{harvester.ds_name}'
+    harvesting_status = harvester.post_fetch(source)
     return harvesting_status

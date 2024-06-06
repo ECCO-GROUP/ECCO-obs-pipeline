@@ -355,5 +355,6 @@ def harvester(config: dict) -> str:
         harvester.fetch_tolerance_filter()
     else:
         harvester.fetch()
-    harvesting_status = harvester.post_fetch()
+    source = f'https://archive.podaac.earthdata.nasa.gov/podaac-ops-cumulus-protected/{harvester.ds_name}/'
+    harvesting_status = harvester.post_fetch(source)
     return harvesting_status

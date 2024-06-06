@@ -69,5 +69,6 @@ def harvester(config: dict) -> str:
 
     harvester = OSISAF_Harvester(config)    
     harvester.fetch()
-    harvesting_status = harvester.post_fetch()
+    source = f'https://thredds.met.no/thredds/catalog/osisaf/met.no/{harvester.ddir}'
+    harvesting_status = harvester.post_fetch(source)
     return harvesting_status
