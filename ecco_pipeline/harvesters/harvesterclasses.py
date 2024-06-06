@@ -57,7 +57,7 @@ class Granule():
         
     def update_descendant(self, descendants_docs, success):
         # Update Solr entry using id if it exists
-        key = self.descendant_item['date_s']
+        key = self.descendant_item['filename_s']
 
         if key in descendants_docs.keys():
             self.descendant_item['id'] = descendants_docs[key]['id']
@@ -125,11 +125,7 @@ class Harvester(Dataset):
         # descendant doc date : solr entry for that doc
         if len(existing_descendants_docs) > 0:
             for doc in existing_descendants_docs:
-                if 'hemisphere_s' in doc.keys() and doc['hemisphere_s']:
-                    key = (doc['date_s'], doc['hemisphere_s'])
-                else:
-                    key = doc['date_s']
-                descendants_docs[key] = doc
+                descendants_docs[doc['filename_s']] = doc
 
         return docs, descendants_docs
     
@@ -161,7 +157,7 @@ class Harvester(Dataset):
             return True
         return False
     
-    def post_fetch(self) -> str:
+    def post_fetch(self, source: str) -> str:
         check_time = datetime.utcnow().strftime("%Y-%m-%dT00:00:00Z")
         
         if self.updated_solr_docs:
@@ -208,7 +204,6 @@ class Harvester(Dataset):
             # -----------------------------------------------------
             # Create Solr Dataset-level Document if doesn't exist
             # -----------------------------------------------------
-            source = f'https://archive.podaac.earthdata.nasa.gov/podaac-ops-cumulus-protected/{self.ds_name}/'
             ds_meta = self.make_ds_doc(source, check_time)
 
             # Only include start_date and end_date if there was at least one successful download
