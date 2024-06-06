@@ -25,7 +25,7 @@ fields:
     units: " "
     pre_transformations: [] # List of functions to call on the DataSet before transformation
     post_transformations: [] # List of functions to call on the DataArrays after transformation
-original_dataset_title: Near-Real-Time NOAA/NSIDC Climate Data Record of Passive Microwave Sea Ice Concentration, Version 1
+original_dataset_title: Near-Real-Time NOAA/NSIDC Climate Data Record of Passive Microwave Sea Ice Concentration, Version 2
 original_dataset_short_name: G10016_V2
 original_dataset_url: https://nsidc.org/data/G10016
 original_dataset_reference: https://nsidc.org/sites/nsidc.org/files/technical-references/CDRP-ATBD-final.pdf
