@@ -8,7 +8,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-*.log
+ecco_pipeline/logs
 
 *.ipynb_checkpoints/
 
