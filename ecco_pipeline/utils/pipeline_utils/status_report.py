@@ -153,7 +153,7 @@ def to_df(report):
     df = pd.DataFrame(flattened_data).set_index(['dataset', 'grid', 'variable', 'time_resolution'])
     return df
 
-def check_delta(new_report: pd.DataFrame):
+def check_delta(new_report: pd.DataFrame, export_filename: str):
     reports = sorted(glob(os.path.join(OUTPUT_DIR, 'reports', 'comprehensive', '*.json')))
     if len(reports) > 1:
         old_report_path = reports[-2]
@@ -189,7 +189,7 @@ def check_delta(new_report: pd.DataFrame):
     plt.grid()
     plt.legend()
     fig.autofmt_xdate()
-    plt.show()
+    plt.savefig(f'{export_filename.replace("json", "png")}')
     
 
 def generate_reports():
@@ -198,8 +198,4 @@ def generate_reports():
     comprehensive_report = generate_comprehensive(export_filename)
     comprehensive_report_df = to_df(comprehensive_report)
 
-    check_delta(comprehensive_report_df)
-    
-
-if __name__ == '__main__':
-    generate_reports()
+    check_delta(comprehensive_report_df, export_filename)
