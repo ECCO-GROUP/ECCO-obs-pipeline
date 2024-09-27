@@ -9,10 +9,12 @@ import baseclasses
 from transformations.grid_transformation import Transformation, transform
 from utils.pipeline_utils import log_config, solr_utils
 
-logger = logging.getLogger('pipeline')
+logger = logging.getLogger("pipeline")
 
 
-def multiprocess_transformation(config: dict, granule: dict, tx_jobs: dict, log_level: str, log_dir: str):
+def multiprocess_transformation(
+    config: dict, granule: dict, tx_jobs: dict, log_level: str, log_dir: str
+):
     """
     Callable function that performs the actual transformation on a granule.
     """
@@ -21,139 +23,160 @@ def multiprocess_transformation(config: dict, granule: dict, tx_jobs: dict, log_
     except Exception as e:
         print(e)
 
-    granule_filepath = granule.get('pre_transformation_file_path_s')
-    granule_date = granule.get('date_s')
+    granule_filepath = granule.get("pre_transformation_file_path_s")
+    granule_date = granule.get("date_s")
 
     # Skips granules that weren't harvested properly
-    if not granule_filepath or granule.get('file_size_l') < 100:
-        logger.exception(f'Granule {granule_filepath} was not harvested properly. Skipping.')
+    if not granule_filepath or granule.get("file_size_l") < 100:
+        logger.exception(
+            f"Granule {granule_filepath} was not harvested properly. Skipping."
+        )
         return
 
     # Perform remaining transformations
     try:
-        logger.info(f'{sum([len(v) for v in tx_jobs.values()])} remaining transformations for {granule_filepath.split("/")[-1]}')
+        logger.info(
+            f'{sum([len(v) for v in tx_jobs.values()])} remaining transformations for {granule_filepath.split("/")[-1]}'
+        )
         transform(granule_filepath, tx_jobs, config, granule_date)
     except Exception as e:
-        logger.exception(f'Error transforming {granule_filepath}: {e}')
-        
-        
+        logger.exception(f"Error transforming {granule_filepath}: {e}")
+
+
 class TxJobFactory(baseclasses.Dataset):
-    
     def __init__(self, config: dict) -> None:
         super().__init__(config)
         self.config = config
         self.user_cpus = baseclasses.Config.user_cpus
-        self.harvested_granules = solr_utils.solr_query([f'dataset_s:{self.ds_name}', 'type_s:granule', 'harvest_success_b:true'])
+        self.harvested_granules = solr_utils.solr_query(
+            [f"dataset_s:{self.ds_name}", "type_s:granule", "harvest_success_b:true"]
+        )
 
         if not baseclasses.Config.grids_to_use:
-            fq = ['type_s:grid']
+            fq = ["type_s:grid"]
             docs = solr_utils.solr_query(fq)
-            self.grids = [doc['grid_name_s'] for doc in docs]
+            self.grids = [doc["grid_name_s"] for doc in docs]
         else:
             self.grids = baseclasses.Config.grids_to_use
-        if 'hemi_pattern' in self.config:
-            logger.info('Skipping job creation for TPOSE grid on sea ice data.')
-            self.grids = [grid for grid in self.grids if 'TPOSE' not in grid]
-        
+        if "hemi_pattern" in self.config:
+            logger.info("Skipping job creation for TPOSE grid on sea ice data.")
+            self.grids = [grid for grid in self.grids if "TPOSE" not in grid]
+
     def start_factory(self) -> str:
         if not self.harvested_granules:
-            logger.info(f'No harvested granules found in solr for {self.ds_name}')
-            return 'No transformations performed'
+            logger.info(f"No harvested granules found in solr for {self.ds_name}")
+            return "No transformations performed"
         self.initialize_jobs()
         if self.job_params:
             self.execute_jobs()
         else:
-            return 'No transformations performed'
-    
+            return "No transformations performed"
+
         pipeline_status = self.pipeline_cleanup()
         return pipeline_status
-        
+
     def initialize_jobs(self):
         self.pregenerate_factors()
         self.job_params = self.generate_jobs()
-        logger.info(f'{len(self.job_params)} harvested granules with remaining transformations.')
-        
+        logger.info(
+            f"{len(self.job_params)} harvested granules with remaining transformations."
+        )
+
     def execute_jobs(self):
         if self.job_params:
             if self.user_cpus == 1:
-                logger.info('Not using multiprocessing to do transformation')
+                logger.info("Not using multiprocessing to do transformation")
                 for job_param in self.job_params:
                     multiprocess_transformation(*job_param)
             else:
-                user_cpus = min(self.user_cpus, int(cpu_count()/4), len(self.job_params))
-                logger.info(f'Using {user_cpus} CPUs to do {len(self.job_params)} multiprocess transformation jobs')
-                    
+                user_cpus = min(
+                    self.user_cpus, int(cpu_count() / 4), len(self.job_params)
+                )
+                logger.info(
+                    f"Using {user_cpus} CPUs to do {len(self.job_params)} multiprocess transformation jobs"
+                )
+
                 with Pool(processes=user_cpus) as pool:
                     pool.starmap_async(multiprocess_transformation, self.job_params)
                     pool.close()
                     pool.join()
-                    
+
     def pipeline_cleanup(self) -> str:
         # Query Solr for dataset metadata
-        fq = [f'dataset_s:{self.ds_name}', 'type_s:dataset']
+        fq = [f"dataset_s:{self.ds_name}", "type_s:dataset"]
         dataset_metadata = solr_utils.solr_query(fq)[0]
 
         # Query Solr for successful transformation documents
-        fq = [f'dataset_s:{self.ds_name}', 'type_s:transformation', 'success_b:true']
+        fq = [f"dataset_s:{self.ds_name}", "type_s:transformation", "success_b:true"]
         successful_transformations = solr_utils.solr_query(fq)
 
         # Query Solr for failed transformation documents
-        fq = [f'dataset_s:{self.ds_name}', 'type_s:transformation', 'success_b:false']
+        fq = [f"dataset_s:{self.ds_name}", "type_s:transformation", "success_b:false"]
         failed_transformations = solr_utils.solr_query(fq)
 
-        transformation_status = 'All transformations successful'
+        transformation_status = "All transformations successful"
 
         if not successful_transformations and not failed_transformations:
-            transformation_status = 'No transformations performed'
+            transformation_status = "No transformations performed"
         elif not successful_transformations:
-            transformation_status = 'No successful transformations'
+            transformation_status = "No successful transformations"
         elif failed_transformations:
-            transformation_status = f'{len(failed_transformations)} transformations failed'
+            transformation_status = (
+                f"{len(failed_transformations)} transformations failed"
+            )
 
         # Update Solr dataset entry status to transformed
-        update_body = [{
-            "id": dataset_metadata['id'],
-            "transformation_status_s": {"set": transformation_status},
-        }]
+        update_body = [
+            {
+                "id": dataset_metadata["id"],
+                "transformation_status_s": {"set": transformation_status},
+            }
+        ]
 
         r = solr_utils.solr_update(update_body, r=True)
 
         if r.status_code == 200:
-            logger.debug(f'Successfully updated Solr with transformation information for {self.ds_name}')
+            logger.debug(
+                f"Successfully updated Solr with transformation information for {self.ds_name}"
+            )
         else:
-            logger.exception(f'Failed to update Solr with transformation information for {self.ds_name}')
+            logger.exception(
+                f"Failed to update Solr with transformation information for {self.ds_name}"
+            )
 
         return transformation_status
-    
+
     def pregenerate_factors(self):
-        '''
+        """
         Generates mapping factors for all grids used for the given transformation version. Loads them into
         Factors object which is used to reduce I/O.
-        '''
+        """
         for grid in self.grids:
             for granule in self.find_data_for_factors():
-                grid_ds = xr.open_dataset(f'grids/{grid}.nc')
-                T = Transformation(self.config, granule['pre_transformation_file_path_s'], '1972-01-01')
+                grid_ds = xr.open_dataset(f"grids/{grid}.nc")
+                T = Transformation(
+                    self.config, granule["pre_transformation_file_path_s"], "1972-01-01"
+                )
                 T.make_factors(grid_ds)
-                
+
     def find_data_for_factors(self) -> Iterable[dict]:
-        '''
+        """
         Returns Solr granule entry (two in the case of hemispherical data) to be used
         to generate factors
-        '''
+        """
         data_for_factors = []
         nh_added = False
         sh_added = False
-        hemi_pattern = self.config.get('hemi_pattern', '')
+        hemi_pattern = self.config.get("hemi_pattern", "")
         # Find appropriate granule(s) to use for factor calculation
         for granule in self.harvested_granules:
-            file_path = granule.get('pre_transformation_file_path_s')
+            file_path = granule.get("pre_transformation_file_path_s")
             if file_path and hemi_pattern:
                 # Get one of each
-                if self.hemi_pattern['north'] in file_path and not nh_added:
+                if self.hemi_pattern["north"] in file_path and not nh_added:
                     data_for_factors.append(granule)
                     nh_added = True
-                elif self.hemi_pattern['south'] in file_path and not sh_added:
+                elif self.hemi_pattern["south"] in file_path and not sh_added:
                     data_for_factors.append(granule)
                     sh_added = True
                 if nh_added and sh_added:
@@ -161,29 +184,33 @@ class TxJobFactory(baseclasses.Dataset):
             elif file_path:
                 data_for_factors.append(granule)
                 return data_for_factors
-        raise RuntimeError(f'Unable to find sufficient data in order to pregenerate mapping factors.')
-                
+        raise RuntimeError(
+            "Unable to find sufficient data in order to pregenerate mapping factors."
+        )
+
     def generate_jobs(self):
-        logger.info('Generating jobs...')
-        log_level = logging.getLevelName(logging.getLogger('pipeline').level)
-        log_dir = os.path.dirname(logging.getLogger('pipeline').handlers[0].baseFilename)
-        log_dir = os.path.join(log_dir[log_dir.find('logs/'):], f'tx_{self.ds_name}')
-        
+        logger.info("Generating jobs...")
+        log_level = logging.getLevelName(logging.getLogger("pipeline").level)
+        log_dir = os.path.dirname(
+            logging.getLogger("pipeline").handlers[0].baseFilename
+        )
+        log_dir = os.path.join(log_dir[log_dir.find("logs/") :], f"tx_{self.ds_name}")
+
         all_jobs = self.get_tx_jobs()
 
         new_jobs = []
-        for (granule, grid_fields) in all_jobs:
+        for granule, grid_fields in all_jobs:
             job_params = (self.config, granule, grid_fields, log_level, log_dir)
             new_jobs.append(job_params)
         return new_jobs
-    
+
     def get_tx_jobs(self):
-        fq = [f'dataset_s:{self.ds_name}', 'type_s:transformation']
+        fq = [f"dataset_s:{self.ds_name}", "type_s:transformation"]
         solr_txs = solr_utils.solr_query(fq)
         tx_dict = defaultdict(list)
         for tx in solr_txs:
-            tx_dict[tx['pre_transformation_file_path_s'].split('/')[-1]].append(tx)
-        
+            tx_dict[tx["pre_transformation_file_path_s"].split("/")[-1]].append(tx)
+
         all_jobs = []
         for granule in self.harvested_granules:
             grid_fields = {}
@@ -191,8 +218,8 @@ class TxJobFactory(baseclasses.Dataset):
                 fields_for_grid = []
                 for field in self.fields:
                     update = True
-                    for tx in tx_dict[granule['filename_s']]:
-                        if tx['field_s'] == field.name and tx['grid_name_s'] == grid:
+                    for tx in tx_dict[granule["filename_s"]]:
+                        if tx["field_s"] == field.name and tx["grid_name_s"] == grid:
                             update = self.need_to_update(granule, tx)
                             break
                     if update:
@@ -202,15 +229,19 @@ class TxJobFactory(baseclasses.Dataset):
             if grid_fields:
                 all_jobs.append((granule, grid_fields))
         return all_jobs
-    
+
     def need_to_update(self, granule: dict, tx: dict) -> bool:
-        '''
+        """
         Triple if:
         1. do we have a version entry,
         2. compare transformation version number and current transformation version number
         3. compare checksum of harvested file (currently in solr) and checksum
         of the harvested file that was previously transformed (recorded in transformation entry)
-        '''
-        if tx.get('success_b') and tx.get('transformation_version_f') == self.t_version and tx['origin_checksum_s'] == granule['checksum_s']:
+        """
+        if (
+            tx.get("success_b")
+            and tx.get("transformation_version_f") == self.t_version
+            and tx["origin_checksum_s"] == granule["checksum_s"]
+        ):
             return False
         return True
