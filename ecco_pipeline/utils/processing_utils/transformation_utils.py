@@ -8,12 +8,17 @@ import pyresample as pr
 
 logger = logging.getLogger(str(current_process().pid))
 
-def transform_to_target_grid(source_indices_within_target_radius_i: dict,
-                             num_source_indices_within_target_radius_i: list,
-                             nearest_source_index_to_target_index_i: dict,
-                             source_field: np.ndarray, target_grid_shape: tuple, operation: str = 'mean',
-                             allow_nearest_neighbor: bool = True):
-    '''
+
+def transform_to_target_grid(
+    source_indices_within_target_radius_i: dict,
+    num_source_indices_within_target_radius_i: list,
+    nearest_source_index_to_target_index_i: dict,
+    source_field: np.ndarray,
+    target_grid_shape: tuple,
+    operation: str = "mean",
+    allow_nearest_neighbor: bool = True,
+):
+    """
     Transforms source data to target grid
 
     source_indices_within_target_radius_i
@@ -23,7 +28,7 @@ def transform_to_target_grid(source_indices_within_target_radius_i: dict,
     target_grid_shape : shape of target grid array (2D)
     operation : one of ['mean', 'nanmean', 'median', 'nanmedian', 'nearest']
 
-    '''
+    """
 
     source_field_r = source_field.ravel()
 
@@ -35,51 +40,61 @@ def transform_to_target_grid(source_indices_within_target_radius_i: dict,
 
     # loop through every target grid point
     for i in range(len(tmp_r)):
-
         # if the number of source_field points at target grid cell i > 0
         if num_source_indices_within_target_radius_i[i] > 0:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=RuntimeWarning)
-                
+
                 # average these values
-                if operation == 'mean':
-                    tmp_r[i] = \
-                        np.mean(source_field_r[source_indices_within_target_radius_i[i]])
+                if operation == "mean":
+                    tmp_r[i] = np.mean(
+                        source_field_r[source_indices_within_target_radius_i[i]]
+                    )
 
                 # average of non-nan values (can be slow)
-                elif operation == 'nanmean':
-                    tmp_r[i] = \
-                        np.nanmean(source_field_r[source_indices_within_target_radius_i[i]])
+                elif operation == "nanmean":
+                    tmp_r[i] = np.nanmean(
+                        source_field_r[source_indices_within_target_radius_i[i]]
+                    )
 
                 # median of these values
-                elif operation == 'median':
-                    tmp_r[i] = \
-                        np.median(source_field_r[source_indices_within_target_radius_i[i]])
+                elif operation == "median":
+                    tmp_r[i] = np.median(
+                        source_field_r[source_indices_within_target_radius_i[i]]
+                    )
 
                 # median of non-nan values (can be slow)
-                elif operation == 'nanmedian':
-                    tmp_r[i] = \
-                        np.nanmedian(source_field_r[source_indices_within_target_radius_i[i]])
+                elif operation == "nanmedian":
+                    tmp_r[i] = np.nanmedian(
+                        source_field_r[source_indices_within_target_radius_i[i]]
+                    )
 
                 # nearest neighbor is the first element in source_indices
-                elif operation == 'nearest':
+                elif operation == "nearest":
                     tmp = source_indices_within_target_radius_i[i]
                     tmp_r[i] = source_field_r[tmp[0]]
 
         # number source indices within target radius is 0, then we can potentially
         # search for a nearest neighbor.
         elif allow_nearest_neighbor:
-          # there is a nearest neighbor within range
+            # there is a nearest neighbor within range
             if i in nearest_source_index_to_target_index_i.keys():
                 tmp_r[i] = source_field_r[nearest_source_index_to_target_index_i[i]]
 
     return source_on_target_grid
 
 
-def find_mappings_from_source_to_target(source_grid, target_grid, target_grid_radius,
-                                        source_grid_min_L, source_grid_max_L,
-                                        neighbours: int = 100, less_output=True, grid_name=''):
-    '''
+def find_mappings_from_source_to_target(
+    source_grid,
+    target_grid,
+    target_grid_radius,
+    source_grid_min_L,
+    source_grid_max_L,
+    neighbours: int = 100,
+    less_output=True,
+    grid_name="",
+):
+    """
     source grid, target_grid : area or grid defintion objects from pyresample
 
     target_grid_radius       : a vector indicating the radius of each
@@ -92,7 +107,7 @@ def find_mappings_from_source_to_target(source_grid, target_grid, target_grid_ra
                      the neighbour info of a cell using pyresample.
                      Default is 100 to limit memory usage.
                      Value given must be a whole number greater than 0
-    '''
+    """
 
     # # of element of the source and target grids
     len_source_grid = source_grid.size
@@ -106,17 +121,21 @@ def find_mappings_from_source_to_target(source_grid, target_grid, target_grid_ra
     # source grid length. (upper bound)
 
     # the ceiling is used to ensure the result is a whole number > 0
-    neighbours_upper_bound = int((max_target_grid_radius*2/source_grid_min_L)**2)
+    neighbours_upper_bound = int((max_target_grid_radius * 2 / source_grid_min_L) ** 2)
 
     # compare provided and upper_bound value for neighbours.
     # limit neighbours to the upper_bound if the supplied neighbours value is larger
     # since you dont need more neighbours than exists within a cell.
     if neighbours > neighbours_upper_bound:
-        print('using more neighbours than upper bound.  limiting to the upper bound '
-              f'of {int(neighbours_upper_bound)} neighbours')
+        print(
+            "using more neighbours than upper bound.  limiting to the upper bound "
+            f"of {int(neighbours_upper_bound)} neighbours"
+        )
         neighbours = neighbours_upper_bound
     else:
-        print(f'Only using {neighbours} nearest neighbours, but you may need up to {neighbours_upper_bound}')
+        print(
+            f"Only using {neighbours} nearest neighbours, but you may need up to {neighbours_upper_bound}"
+        )
 
     # make sure neighbours is an int for pyresample
     # neighbours_upper_bound is float, and user input can be float
@@ -140,10 +159,12 @@ def find_mappings_from_source_to_target(source_grid, target_grid, target_grid_ra
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        Ax_max_target_grid_r = pr.kd_tree.get_neighbour_info(source_grid,
-                                                            target_grid,
-                                                            radius_of_influence=int(max_target_grid_radius),
-                                                            neighbours=neighbours)
+        Ax_max_target_grid_r = pr.kd_tree.get_neighbour_info(
+            source_grid,
+            target_grid,
+            radius_of_influence=int(max_target_grid_radius),
+            neighbours=neighbours,
+        )
 
     # define a dictionary, which will contain the list of SOURCE grid cells
     # that are within the search radius of each TARGET grid cell
@@ -151,8 +172,7 @@ def find_mappings_from_source_to_target(source_grid, target_grid, target_grid_ra
 
     # define a vector which is a COUNT of the # of SOURCE grid cells
     # that are within the search radius of each TARGET grid cell
-    num_source_indices_within_target_radius_i =\
-        np.zeros((target_grid_radius.shape))
+    num_source_indices_within_target_radius_i = np.zeros((target_grid_radius.shape))
 
     # SECOND FIND THE SINGLE SOURCE GRID CELL THAT IS CLOSEST TO EACH
     # TARGET GRID CELL, BUT ONLY SEARCH AS FAR AS SOURCE_GRID_MAX_L
@@ -166,10 +186,12 @@ def find_mappings_from_source_to_target(source_grid, target_grid, target_grid_ra
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        Ax_nearest_within_source_grid_max_L = \
-            pr.kd_tree.get_neighbour_info(source_grid, target_grid,
-                                        radius_of_influence=int(source_grid_max_L),
-                                        neighbours=1)
+        Ax_nearest_within_source_grid_max_L = pr.kd_tree.get_neighbour_info(
+            source_grid,
+            target_grid,
+            radius_of_influence=int(source_grid_max_L),
+            neighbours=1,
+        )
 
     # define a vector that will store the index of the source grid closest to
     # the target grid within the search radius 'source_grid_max_L'
@@ -186,15 +208,13 @@ def find_mappings_from_source_to_target(source_grid, target_grid, target_grid_ra
     current_valid_target_i = 0
 
     if not less_output:
-        print('length of target grid: ', len_target_grid)
+        print("length of target grid: ", len_target_grid)
 
     for i in range(len_target_grid):
-
         if not less_output:
-            print('looping through all points of target grid: ', i)
+            print("looping through all points of target grid: ", i)
 
-        if Ax_nearest_within_source_grid_max_L[1][i] == True:
-
+        if Ax_nearest_within_source_grid_max_L[1][i]:
             # Ax[2][i,:] are the closest source grid indices
             #            for target grid cell i
             # data_within_search_radius[i,:] is the T/F array for which
@@ -213,12 +233,14 @@ def find_mappings_from_source_to_target(source_grid, target_grid, target_grid_ra
             else:
                 src_indicies_here = Ax_max_target_grid_r[2][current_valid_target_i]
 
-            source_indices_within_target_radius_i[i] = \
-                src_indicies_here[dist_within_target_r == True]
+            source_indices_within_target_radius_i[i] = src_indicies_here[
+                dist_within_target_r is True
+            ]
 
             # count the # source indices here
-            num_source_indices_within_target_radius_i[i] = \
-                int(len(source_indices_within_target_radius_i[i]))
+            num_source_indices_within_target_radius_i[i] = int(
+                len(source_indices_within_target_radius_i[i])
+            )
 
             # NOW RECORD THE NEAREST NEIGHBOR POINT WIHTIN SOURCE_GRID_MAX_L
             # when there is no source index within the search radius then
@@ -227,23 +249,38 @@ def find_mappings_from_source_to_target(source_grid, target_grid, target_grid_ra
             # value that was returned.  If not, then we are good to go.
             # In other words...if the index in Ax_nearest... is the length of source grid, it is invalid
             # We think this should always because of the initial test for Ax[1] == True
-            if Ax_nearest_within_source_grid_max_L[2][current_valid_target_i] < len_source_grid:
-                nearest_source_index_to_target_index_i[i] = Ax_nearest_within_source_grid_max_L[2][current_valid_target_i]
+            if (
+                Ax_nearest_within_source_grid_max_L[2][current_valid_target_i]
+                < len_source_grid
+            ):
+                nearest_source_index_to_target_index_i[i] = (
+                    Ax_nearest_within_source_grid_max_L[2][current_valid_target_i]
+                )
 
             # increment this little bastard
             current_valid_target_i += 1
 
         # print progress.  always nice
         if i in debug_is:
-            print(f'Creating {grid_name} mapping factors...{int(i/len_target_grid*100)} %',end='\r')
-    print(f'Creating {grid_name} mapping factors...done.')
-    return source_indices_within_target_radius_i,\
-        num_source_indices_within_target_radius_i,\
-        nearest_source_index_to_target_index_i
+            print(
+                f"Creating {grid_name} mapping factors...{int(i/len_target_grid*100)} %",
+                end="\r",
+            )
+    print(f"Creating {grid_name} mapping factors...done.")
+    return (
+        source_indices_within_target_radius_i,
+        num_source_indices_within_target_radius_i,
+        nearest_source_index_to_target_index_i,
+    )
 
 
-def generalized_grid_product(data_res: float, area_extent: Iterable[float], dims: Iterable[float], proj_info: dict) -> Iterable[np.ndarray]:
-    '''
+def generalized_grid_product(
+    data_res: float,
+    area_extent: Iterable[float],
+    dims: Iterable[float],
+    proj_info: dict,
+) -> Iterable[np.ndarray]:
+    """
     Generates tuple containing (source_grid_min_L, source_grid_max_L, source_grid)
 
     https://pyresample.readthedocs.io/en/latest/api/pyresample.html#pyresample.area_config.create_area_def
@@ -253,11 +290,10 @@ def generalized_grid_product(data_res: float, area_extent: Iterable[float], dims
     dims: resolution of source grid
     proj_info: projection information
     return (source_grid_min_L, source_grid_max_L, source_grid)
-    '''
+    """
 
-    #area_extent: (lower_left_x, lower_left_y, upper_right_x, upper_right_y)
-    areaExtent = (area_extent[0], area_extent[1],
-                  area_extent[2], area_extent[3])
+    # area_extent: (lower_left_x, lower_left_y, upper_right_x, upper_right_y)
+    areaExtent = (area_extent[0], area_extent[1], area_extent[2], area_extent[3])
 
     # Corresponds to resolution of grid from data
     cols = dims[0]
@@ -267,28 +303,37 @@ def generalized_grid_product(data_res: float, area_extent: Iterable[float], dims
     # -- note we do not have to use pyresample for this, we could
     # have created it manually using the np.meshgrid or some other method
     # if we wanted.
-    tmp_data_grid = pr.area_config.get_area_def(proj_info['area_id'], proj_info['area_name'],
-                                                proj_info['proj_id'], proj_info['proj4_args'],
-                                                cols, rows, areaExtent)
+    tmp_data_grid = pr.area_config.get_area_def(
+        proj_info["area_id"],
+        proj_info["area_name"],
+        proj_info["proj_id"],
+        proj_info["proj4_args"],
+        cols,
+        rows,
+        areaExtent,
+    )
 
     data_grid_lons, data_grid_lats = tmp_data_grid.get_lonlats()
 
     # minimum Length of data product grid cells (km)
-    source_grid_min_L = np.cos(np.deg2rad(np.nanmax(abs(data_grid_lats))))*data_res*112e3
+    source_grid_min_L = (
+        np.cos(np.deg2rad(np.nanmax(abs(data_grid_lats)))) * data_res * 112e3
+    )
 
     # maximum length of data roduct grid cells (km)
     # data product at equator has grid spacing of data_res*112e3 m
-    source_grid_max_L = data_res*112e3
+    source_grid_max_L = data_res * 112e3
 
     # Changes longitude bounds from 0-360 to -180-180, doesnt change if its already -180-180
-    data_grid_lons, data_grid_lats = pr.utils.check_and_wrap(data_grid_lons,
-                                                             data_grid_lats)
+    data_grid_lons, data_grid_lats = pr.utils.check_and_wrap(
+        data_grid_lons, data_grid_lats
+    )
 
     # Define the 'swath' (in the terminology of the pyresample module)
     # as the lats/lon pairs of the source observation grid
     # The routine needs the lats and lons to be one-dimensional vectors.
-    source_grid = pr.geometry.SwathDefinition(lons=data_grid_lons.ravel(),
-                                              lats=data_grid_lats.ravel())
+    source_grid = pr.geometry.SwathDefinition(
+        lons=data_grid_lons.ravel(), lats=data_grid_lats.ravel()
+    )
 
     return (source_grid_min_L, source_grid_max_L, source_grid)
-
