@@ -77,7 +77,6 @@ class DSStatus():
         maxs = ds[var_name].max(dim='time', skipna=True)
         maxs.name = maxs.name + '_max'
         
-        
         global_mins = ds[var_name].min(dim=['tile', 'j', 'i' ], skipna=True)
         global_mins.name = 'global_' + global_mins.name + '_min'
         global_means = ds[var_name].mean(dim=['tile', 'j', 'i' ], skipna=True)
@@ -86,14 +85,44 @@ class DSStatus():
         global_std.name = 'global_' + global_std.name + '_std'
         global_maxs = ds[var_name].max(dim=['tile', 'j', 'i' ], skipna=True)
         global_maxs.name = 'global_' + global_maxs.name + '_max'
+        
+        lat_bins = np.linspace(-90,90,181)
+        lon_bins = np.linspace(-180,180,361)
+        
+        if '90' in grid:
+            grid_name = 'GRID_GEOMETRY_ECCO_V4r5_native_llc0090.nc'
+        grid_ds = xr.open_dataset(f'grids/{grid_name}')
+        
         global_counts = ds[var_name].count(dim=['tile', 'j', 'i' ])
         global_counts.name = f'global_{var_name}_nn_count'
-        global_counts_lat = ds[var_name].count(dim=['tile', 'i' ])
-        global_counts_lat.name = f'global_{var_name}_nn_count_lat'
-        global_counts_lon = ds[var_name].count(dim=['tile', 'j',])
-        global_counts_lon.name = f'global_{var_name}_nn_count_lon'
         
-        stats_ds = xr.merge([mins, means, maxs, global_mins, global_means, global_maxs, global_std, global_counts, global_counts_lat, global_counts_lon])
+        lat_bin_groups = ds[var_name].groupby_bins(ds['YC'], lat_bins)
+        mask_lat_bin_groups = grid_ds['maskC'][0].groupby_bins(ds['YC'], lat_bins)
+        
+        global_counts_lat = lat_bin_groups.count()
+        global_counts_lat.name = f'global_{var_name}_nn_count_lat'
+        global_counts_lat.coords['YC_bins'] = [v.mid for v in global_counts_lat['YC_bins'].values]
+        
+        global_relative_lat_count = lat_bin_groups.count().T / mask_lat_bin_groups.sum()
+
+        
+        global_counts_lon = ds.groupby_bins(ds.XC, lon_bins).count()[var_name]
+        global_counts_lon.name = f'global_{var_name}_nn_count_lon'
+        global_counts_lon.coords['XC_bins'] = [v.mid for v in global_counts_lon['XC_bins'].values]
+        
+        global_sum_mask_lat = grid_ds.maskC[0].groupby_bins(ds.YC, lat_bins).sum()
+        global_sum_mask_lat.name = f'global_mask_sum_lat'
+        global_sum_mask_lat.coords['YC_bins'] = [v.mid for v in global_sum_mask_lat['YC_bins'].values]
+        
+        global_sum_mask_lon = grid_ds.maskC[0].groupby_bins(ds.XC, lon_bins).sum()
+        global_sum_mask_lon.name = f'global_mask_sum_lon'
+        global_sum_mask_lon.coords['XC_bins'] = [v.mid for v in global_sum_mask_lon['XC_bins'].values]
+        
+        stats_ds = xr.merge([mins, means, maxs, 
+                             global_mins, global_means, global_maxs, global_std, 
+                             global_counts, global_counts_lat, global_counts_lon,
+                             global_sum_mask_lat, global_sum_mask_lon])
+        
         logger.info(f'Completed computing stats of agg files')    
 
         coord_encoding = {}
@@ -192,10 +221,13 @@ class DSStatus():
             ax.set_ylabel(self.units)
             plot_i += 1
         
-        for i, stat in enumerate(['_nn_count'], start=plot_i):
+        for i, stat in enumerate(['_nn_count', '_nn_count_lat'], start=plot_i):
             ax = plt.subplot(nrows, 3, i)
             ax.grid()
-            ax.plot(self.stats_ds['time'], self.stats_ds[f'global_{var_name}{stat}'])
+            if 'lat' not in stat and 'lon' not in stat:
+                ax.plot(self.stats_ds['time'], self.stats_ds[f'global_{var_name}{stat}'])
+            else:
+                self.stats_ds[f'global_{var_name}{stat}'].plot(ax=ax)
             ax.set_title(stat.replace('_','').capitalize())
             ax.set_ylabel(self.units)
             plot_i += 1
