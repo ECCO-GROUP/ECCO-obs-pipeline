@@ -168,7 +168,7 @@ class CMR_Harvester(Harvester):
                 self.dl_file(cmr_granule.url, local_fp)
                 downloaded = True
             else:
-                logger.info(f'File up to date. Slicing to ensure entries in Solr...')
+                logger.info('File up to date. Slicing to ensure entries in Solr...')
                 downloaded = False
             
             ds = xr.open_dataset(local_fp, decode_times=True)
@@ -354,7 +354,7 @@ def harvester(config: dict) -> str:
         
     if harvester.ds_name == 'ATL20_V004_daily' or harvester.ds_name == 'ATL21_V003_daily':
         harvester.fetch_atl_daily()
-    elif harvester.ds_name == 'TELLUS_GRAC-GRFO_MASCON_CRI_GRID_RL06.1_V3':
+    elif harvester.ds_name == 'TELLUS_GRAC-GRFO_MASCON_CRI_GRID_RL06.3_V4':
         harvester.fetch_tellus_grac_grfo()
     elif harvester.ds_name == 'RDEFT4':
         harvester.fetch_rdeft4()
