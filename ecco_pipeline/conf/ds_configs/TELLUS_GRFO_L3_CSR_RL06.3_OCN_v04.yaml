@@ -1,0 +1,53 @@
+ds_name: TELLUS_GRFO_L3_CSR_RL06.3_OCN_v04 # Name for dataset
+start: "20180601T00:00:00Z" # yyyymmddThh:mm:ssZ
+end: "20181201T00:00:00Z" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
+
+# Provider specifications
+harvester_type: cmr
+cmr_concept_id: C3193289116-POCLOUD
+filename_date_fmt: "%Y%j"
+filename_date_regex: '\d{7}'
+provider: "archive.podaac"
+
+# Metadata
+data_time_scale: "monthly" # daily or monthly
+fields:
+  - name: lwe_thickness
+    long_name: Liquid_Water_Equivalent_Thickness
+    standard_name: Liquid_Water_Equivalent_Thickness
+    units: cm
+    pre_transformations: [] # List of functions to call on the DataSet before transformation
+    post_transformations: [meters_to_cm] # List of functions to call on the DataArrays after transformation
+  - name: uncertainty
+    long_name: uncertainty
+    standard_name: uncertainty
+    units: cm
+    pre_transformations: [] # List of functions to call on the DataSet before transformation
+    post_transformations: [meters_to_cm] # List of functions to call on the DataArrays after transformation
+original_dataset_title: "CSR TELLUS GRACE-FO Level-3 Monthly Ocean Bottom Pressure Anomaly Release 6.3 version 04"
+original_dataset_short_name: "TELLUS_GRFO_L3_CSR_RL06.3_OCN_v04"
+original_dataset_url: "https://podaac.jpl.nasa.gov/dataset/TELLUS_GRFO_L3_CSR_RL06.3_OCN_v04"
+original_dataset_reference: "https://gracefo.jpl.nasa.gov/"
+original_dataset_doi: "10.5067/GFOCN-3C634"
+
+# Transformation
+t_version: 1.6 # Update this value if any changes are made to this portion
+time_bounds_var: time_bounds
+data_res: 3 # Resolution of dataset
+
+# Values for non split datasets (for datasets split into nh/sh, append '_nh'/'_sh')
+area_extent: [0, 90, 360, -90] # [lon_min, lat_min, lon_max, lat_max]
+dims: [360, 180] # [lon, lat]
+proj_info:
+  area_id: "longlat"
+  area_name: "Plate Carree"
+  proj_id: "EPSG:4326"
+  proj4_args: "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+
+notes: "" # String to include in global attributes of output files
+
+# Aggregation
+a_version: 1.0 # Update this value if any changes are made to this portion
+remove_nan_days_from_data: False # Remove empty days from data when aggregating
+do_monthly_aggregation: True
+skipna_in_mean: True # Controls skipna when calculating monthly mean
