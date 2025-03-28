@@ -1,6 +1,6 @@
 ds_name: TELLUS_GRFO_L3_CSR_RL06.3_OCN_v04 # Name for dataset
-start: "20180601T00:00:00Z" # yyyymmddThh:mm:ssZ
-end: "20181201T00:00:00Z" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
+start: "19800101T00:00:00Z" # yyyymmddThh:mm:ssZ
+end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 
 # Provider specifications
 harvester_type: cmr
