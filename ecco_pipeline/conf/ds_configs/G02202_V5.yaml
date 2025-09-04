@@ -10,8 +10,8 @@ filename_date_regex: '\d{8}'
 # Metadata
 data_time_scale: "daily" # daily or monthly
 hemi_pattern:
-  north: "_nh_"
-  south: "_sh_"
+  north: "_psn25_"
+  south: "_pss25_"
 fields:
   - name: cdr_seaice_conc
     long_name: NOAA/NSIDC Climate Data Record of Passive Microwave Sea Ice Concentration
