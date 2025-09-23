@@ -17,19 +17,19 @@ fields:
     long_name: NOAA/NSIDC Climate Data Record of Passive Microwave Sea Ice Concentration
     standard_name: sea_ice_area_fraction
     units: "1"
-    pre_transformations: [G02202_mask_flagged_conc] # List of functions to call on the DataSet before transformation
+    pre_transformations: [G02202v4_mask_flagged_conc] # List of functions to call on the DataSet before transformation
     post_transformations: [] # List of functions to call on the DataArrays after transformation
   - name: stdev_of_cdr_seaice_conc
     long_name: Passive Microwave Sea Ice Concentration Source Estimated Standard Deviation
     standard_name: " "
     units: "1"
-    pre_transformations: [G02202_mask_flagged_conc] # List of functions to call on the DataSet before transformation
+    pre_transformations: [G02202v4_mask_flagged_conc] # List of functions to call on the DataSet before transformation
     post_transformations: [] # List of functions to call on the DataArrays after transformation
   - name: nsidc_nt_seaice_conc
     long_name: Passive Microwave Sea Ice Concentration by NASA team algorithm processed by NSIDC
     standard_name: sea_ice_area_fraction
     units: "1"
-    pre_transformations: [G02202_mask_flagged_conc] # List of functions to call on the DataSet before transformation
+    pre_transformations: [G02202v4_mask_flagged_conc] # List of functions to call on the DataSet before transformation
     post_transformations: [] # List of functions to call on the DataArrays after transformation
 original_dataset_title: NOAA/NSIDC Climate Data Record of Passive Microwave Sea Ice Concentration, Version 4
 original_dataset_short_name: G02202_V4
