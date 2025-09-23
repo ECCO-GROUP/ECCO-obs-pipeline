@@ -128,6 +128,150 @@ class PretransformationFuncs:
         )
 
         return ds
+    
+
+    def G02202v5_mask_flagged_conc(self, ds: xr.Dataset, debug_plotting=False) -> xr.Dataset:
+        """
+        2025-09-15 rewrite based on v5 version of G02202
+        https://nsidc.org/data/g02202/versions/5
+
+        This subroutine masks out some sea ice concentration values from the 
+        'cdr_seaice_conc' field in G02202 v5 datasets, based on
+        their quality assurance (QA) flags in the 'cdr_seaice_conc_qa_flag' field.
+
+        Specifically, we set sea ice concentration values to NaN where any of the following are true:
+        spatial interpolation, temporal interpolation, no observations
+        
+        where there are no obs, the data producers sometimes fill the gaps
+        via interpolation. we're not going to use their interpolated values
+        where there are no obs or interpolation, we mask to nan.
+
+        For detailed description of QA flags see 
+        https://nsidc.org/sites/default/files/documents/user-guide/g02202-v005-userguide.pdf
+
+        QA Flag Meanings
+
+        flag_meanings = [
+            "BT_weather_filter_applied",        # 2**0 = 1
+            "NT_weather_filter_applied",        # 2**1 = 2
+            "land_spillover_applied",           # 2**2 = 4
+            "no_input_data",                    # 2**3 = 8     
+            "invalid_ice_mask_applied",         # 2**4 = 16
+            "spatial_interpolation_applied",    # 2**5 = 32
+            "temporal_interpolation_applied",   # 2**6 = 64
+            "melt_start_detected"               # 2**7 = 128
+        ] 
+
+        The BT and NT weather filters and land spillover filters set the sea ice concentration to zero (open ocean)
+        so we do not mask out those values
+        The invalid ice mask is where ice is never present, so we do not mask those values (they are already zero)
+        The melt start detected flag indicates melting ice, which is not a dealbreaker for us
+        but we could have a higher uncertainty there.   
+
+        Parameters
+        ----------
+        ds : xr.Dataset
+            Input dataset containing 'cdr_seaice_conc' and 'cdr_seaice_conc_qa_flag' variables.
+        debug_plotting : bool, optional
+            If True, generates debug plots before and after QA flag application, by default False.      
+        Returns
+        -------
+        xr.Dataset
+            Dataset with 'cdr_seaice_conc' values masked to NaN based on QA flags.
+        """
+
+        # the NASA cdr sea ice concentration data array
+        cdr_seaice_conc = ds["cdr_seaice_conc"]
+        
+        # log the sum of all conc values > 1 before any masking      
+        logger.debug(
+            f'G2202 masking flagged CDR pre : {np.sum(cdr_seaice_conc.values.ravel() > 1)}'
+        )
+        
+        # Create a QA Flag DataArray
+        # ---------------------------------
+        # make a new data array object of dimension [n_flags, y, x]
+        # where n_flags = 8, the number of different qa flags 
+
+        # the cdf qa flags
+        qa_flags = ds['cdr_seaice_conc_qa_flag']
+        
+        # first find the bit values
+        # 8 flags, 2^0, 2^1, ..., 2^7
+        n = 8
+        field = qa_flags.values.astype(np.uint64)     # ensure integer dtype
+        bits  = (1 << np.arange(n, dtype=np.uint64))  # [1,2,4,...,2**(n-1)]
+
+        # flags has shape (n, *field.shape); flags[k] is 1 where bit 2**k is set
+        # .. thank you chatgpt, I don't know how this works
+
+        flags = ((field[None, ...] & bits[:, None, *([None]*qa_flags.ndim)]) != 0).astype(np.uint8)
+
+        # then make a list of data array objects, one for each flag of dimension [y,x]
+        flag_das = []
+        for n in range(8):
+            print(f'flag key is 2^{n} = {2**n}')
+            flag_da_tmp = xr.DataArray(flags[n,0,0], dims=['y','x'], coords={'flag':2**n})
+            flag_da_tmp.name=f'qa_flag{n}'
+            flag_das.append(flag_da_tmp)
+
+        # then concat the qa flag arrays along the 'flag' dimension
+        flag_das = xr.concat(flag_das,dim='flag')
+        flag_das.attrs['flag_meanings'] = flag_meanings
+
+        # finally, set to NaN any qa flag values > 0 (indicating the qa flag is set)
+        flag_das.values = np.where(flag_das.values > 0, np.nan, 1)
+
+        # Apply QA flags
+        # -------------------------      
+        # apply some QA flags, specifically 
+        flags_to_nan = [3, 5, 6] # 2^3=8, 2^5=32, 2^6=64
+        
+        # flag 2^3 = 8  : No input data
+        # flag 2^5 = 32 : spatial interpolation applied
+        # flag 2^6 = 64 : temporal interpolation applied
+
+        # do not nan out flags 2^0, 2^1, 2^2 : BT and NT weather filter applied
+        #    and land spillover applied.  these indicate that the sea ice conc was
+        #    set to zero (open ocean). without these filters, spurious nonzero sea ice 
+        #    concentrations could be present due to weather effects or land spillover
+        # 
+        # do not nan out flag 16 (2**4) "invalid ice mask" (ice is never present there)
+        # 
+        # do not nan out flag 128 (2**7) "melt start detected" (ice is melting)
+        #                                 melting ice doesn't mean bad data not a dealbreaker
+        #                                 although we could have a higher uncertainty
+
+        # make a copy of the original conc field to apply the QA flags to
+        cdr_seaice_conc_post_qa = cdr_seaice_conc.copy(deep=True)
+
+        # loop through the flags_to_nan, and multiply the conc field with the 
+        # corresponding 'flag_das' field, which is labelled on the 'flag' dimension 
+        # as 2**n 
+        for n in flags_to_nan:
+            print(f'nanning out flag={2**n}  {flag_das.attrs["flag_meanings"][n]}')
+            cdr_seaice_conc_post_qa = cdr_seaice_conc_post_qa * flag_das.sel(flag=2**n)
+    
+        if debug_plotting:
+            f,axs = plt.subplots(1,2, figsize=[10,5]);
+            axs=axs.ravel()
+            cdr_seaice_conc.plot(ax=axs[0])
+            cdr_seaice_conc_post_qa.plot(ax=axs[1])
+        
+        # replace the original conc field with the post-QA field
+        ds['cdr_seaice_conc'].values[:] = cdr_seaice_conc_post_qa.values[:]
+
+        logger.debug(
+            f"G2202 masking flagged CDR post: {np.sum(ds['cdr_seaice_conc'].values.ravel())}"
+        )
+        # finally, drop the qa flag fields and other unneeded fields
+        ds = ds.drop_vars(['cdr_seaice_conc_interp_spatial_flag',
+                           'cdr_seaice_conc_qa_flag',
+                           'cdr_seaice_conc_interp_temporal_flag',
+                           'cdr_seaice_conc_stdev'])
+        return ds
+    
+
 
     def GRACE_MASCON(self, ds: xr.Dataset) -> xr.Dataset:
         """
