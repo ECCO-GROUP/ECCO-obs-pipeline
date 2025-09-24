@@ -230,15 +230,7 @@ class PretransformationFuncs:
         ds["cdr_seaice_conc"].values[:] = cdr_seaice_conc_post_qa.values[:]
 
         logger.debug(f"G2202 masking flagged CDR post: {np.sum(ds['cdr_seaice_conc'].values.ravel())}")
-        # finally, drop the qa flag fields and other unneeded fields
-        ds = ds.drop_vars(
-            [
-                "cdr_seaice_conc_interp_spatial_flag",
-                "cdr_seaice_conc_qa_flag",
-                "cdr_seaice_conc_interp_temporal_flag",
-                "cdr_seaice_conc_stdev",
-            ]
-        )
+
         return ds
 
     def GRACE_MASCON(self, ds: xr.Dataset) -> xr.Dataset:
