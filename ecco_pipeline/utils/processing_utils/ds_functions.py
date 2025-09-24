@@ -169,11 +169,8 @@ class PretransformationFuncs:
             Dataset with 'cdr_seaice_conc' values masked to NaN based on QA flags.
         """
 
-        # the NASA cdr sea ice concentration data array
-        cdr_seaice_conc = ds["cdr_seaice_conc"]
-
         # log the sum of all conc values > 1 before any masking
-        logger.debug(f"G2202 masking flagged CDR pre : {np.sum(cdr_seaice_conc.values.ravel() > 1)}")
+        logger.debug(f"G2202 masking flagged CDR pre: {np.nansum(ds['cdr_seaice_conc_stdev'].values.ravel())}")
 
         # Create a QA Flag DataArray
         # ---------------------------------
@@ -228,18 +225,21 @@ class PretransformationFuncs:
         #                                 although we could have a higher uncertainty
 
         # make a copy of the original conc field to apply the QA flags to
-        cdr_seaice_conc_post_qa = cdr_seaice_conc.copy(deep=True)
+        cdr_seaice_conc_post_qa = ds["cdr_seaice_conc"].copy(deep=True)
+        cdr_seaice_conc_stdev_post_qa = ds["cdr_seaice_conc_stdev"].copy(deep=True)
 
         # loop through the flags_to_nan, and multiply the conc field with the
         # corresponding 'flag_das' field, which is labelled on the 'flag' dimension
         # as 2**n
         for n in flags_to_nan:
             cdr_seaice_conc_post_qa = cdr_seaice_conc_post_qa * flag_das.sel(flag=2**n)
+            cdr_seaice_conc_stdev_post_qa = cdr_seaice_conc_stdev_post_qa * flag_das.sel(flag=2**n)            
 
         # replace the original conc field with the post-QA field
         ds["cdr_seaice_conc"].values[:] = cdr_seaice_conc_post_qa.values[:]
-
-        logger.debug(f"G2202 masking flagged CDR post: {np.sum(ds['cdr_seaice_conc'].values.ravel())}")
+        ds["cdr_seaice_conc_stdev"].values[:] = cdr_seaice_conc_stdev_post_qa.values[:]
+        
+        logger.debug(f"G2202 masking flagged CDR post: {np.nansum(ds['cdr_seaice_conc_stdev'].values.ravel())}")
 
         return ds
 
