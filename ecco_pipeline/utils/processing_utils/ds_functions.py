@@ -41,6 +41,16 @@ class PreprocessingFuncs:
         merged_ds = xr.merge([ds, var_ds])
         return merged_ds
 
+    def G02202_V5_nt_extraction(self, file_path: str, fields: Iterable[Field]) -> xr.Dataset:
+        """
+        Exctracts raw_nt_seaice_conc field from cdr_supplementary/raw_nt_seaice_conc
+        and merges into base dataset object
+        """
+        base_ds = xr.open_dataset(file_path, decode_times=True)
+        group_ds = xr.open_dataset(file_path, group="cdr_supplementary")["raw_nt_seaice_conc"]
+        merged_ds = xr.merge([base_ds, group_ds])
+        return merged_ds
+
 
 class PretransformationFuncs:
     """
@@ -180,7 +190,7 @@ class PretransformationFuncs:
         bits = 1 << np.arange(n, dtype=np.uint64)  # [1,2,4,...,2**(n-1)]
 
         # flags has shape (n, *field.shape); flags[k] is 1 where bit 2**k is set
-        # .. thank you chatgpt, I don't know how this works        
+        # .. thank you chatgpt, I don't know how this works
         index = (slice(None), None) + (None,) * qa_flags.ndim
         flags = ((field[None, ...] & bits[index]) != 0).astype(np.uint8)
 
