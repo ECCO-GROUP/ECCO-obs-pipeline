@@ -1,3 +1,4 @@
+import backoff
 import logging
 import os
 from datetime import datetime
@@ -22,7 +23,7 @@ class OSISAF_Harvester(Harvester):
             # Get date from filename and convert to dt object
             date = get_date(self.filename_date_regex, filename)
             dt = datetime.strptime(date, self.filename_date_fmt)
-            if not (self.start <= dt) and (self.end >= dt):
+            if not ((self.start <= dt) and (self.end >= dt)):
                 continue
 
             if "icdrft" in filename:
@@ -58,10 +59,12 @@ class OSISAF_Harvester(Harvester):
                 self.updated_solr_docs.extend(granule.get_solr_docs())
         logger.info(f"Downloading {self.ds_name} complete")
 
+    @backoff.on_exception(backoff.expo, (requests.ConnectionError, requests.Timeout, requests.HTTPError), max_tries=5)
     def dl_file(self, src: str, dst: str):
         r = requests.get(src)
         r.raise_for_status()
-        open(dst, "wb").write(r.content)
+        with open(dst, "wb") as f:
+            f.write(r.content)
 
 
 def harvester(config: dict) -> str:
