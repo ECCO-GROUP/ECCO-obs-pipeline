@@ -1,257 +1,104 @@
 import argparse
 import importlib
 import logging
-import os
-from glob import glob
+import sys
 from multiprocessing import cpu_count
 from pathlib import Path
-from typing import List
+from typing import Any, Callable
 
 import yaml
+
 from aggregations.aggregation_factory import AgJobFactory
 from transformations.transformation_factory import TxJobFactory
 from utils.pipeline_utils import init_pipeline
 
 
+CONFIG_DIR = Path("conf/ds_configs")
+
+
+def list_datasets(config_dir: Path = CONFIG_DIR) -> list[str]:
+    """Return sorted list of dataset names (stems of YAML files)."""
+    return sorted(p.stem for p in config_dir.glob("*.yaml"))
+
+
+def load_config(dataset: str, config_dir: Path = CONFIG_DIR) -> dict[str, Any]:
+    """Load a single dataset YAML config."""
+    with (config_dir / f"{dataset}.yaml").open() as f:
+        return yaml.safe_load(f)
+
+
 def create_parser() -> argparse.Namespace:
-    """
-    Creates command line argument parser
-    """
+    """Create and parse command-line arguments."""
     parser = argparse.ArgumentParser()
 
-    parser.add_argument(
-        "--menu", default=False, action="store_true", help="Show interactive menu"
-    )
-    parser.add_argument(
-        "--grids_to_solr",
-        default=False,
-        action="store_true",
-        help="updates Solr with grids in grids_config",
-    )
+    parser.add_argument("--menu", action="store_true", help="Show interactive menu")
+    parser.add_argument("--grids_to_solr", action="store_true", help="Update Solr with grids in grids_config")
     parser.add_argument(
         "--multiprocesses",
         type=int,
         choices=range(1, cpu_count() + 1),
-        default=int(cpu_count() / 2),
-        metavar=f"[1, {cpu_count()}]",
-        help=f"sets the number of multiprocesses used during transformation with a system max of {cpu_count()} \
-                            with default set to half of system max (aggregation has a stricter cap due to high I/O volume)",
+        default=max(1, cpu_count() // 2),
+        metavar=f"[1,{cpu_count()}]",
+        help="Number of processes for transformations",
     )
     parser.add_argument(
         "--harvested_entry_validation",
-        default=False,
         action="store_true",
-        help="verifies each Solr granule entry points to a valid file.",
+        help="Verify each Solr granule entry points to a valid file",
     )
     parser.add_argument(
-        "--wipe_transformations",
-        default=False,
-        action="store_true",
-        help="deletes transformations with version number different than what is currently in transformation_config",
+        "--wipe_transformations", action="store_true", help="Delete transformations with out-of-sync version numbers"
     )
-    parser.add_argument(
-        "--grids_to_use",
-        default=False,
-        nargs="*",
-        help="Names of grids to use during the pipeline",
-    )
-    parser.add_argument("--log_level", default="INFO", help="sets the log level")
-    parser.add_argument(
-        "--wipe_factors",
-        default=False,
-        action="store_true",
-        help="removes all stored factors",
-    )
-    parser.add_argument(
-        "--wipe_logs",
-        default=False,
-        action="store_true",
-        help="removes all prior log files",
-    )
+    parser.add_argument("--grids_to_use", nargs="*", default=False, help="Names of grids to use during the pipeline")
+    parser.add_argument("--log_level", default="INFO", help="Set the log level")
+    parser.add_argument("--wipe_factors", action="store_true", help="Remove all stored factors")
+    parser.add_argument("--wipe_logs", action="store_true", help="Remove all prior log files")
 
+    # dataset/step options only needed when not in menu mode
     args, _ = parser.parse_known_args()
-
     if not args.menu:
-        parser.add_argument("--dataset", help="Specify the dataset option", type=str)
+        parser.add_argument("--dataset", help="Dataset to process")
         parser.add_argument(
-            "--step",
-            help="Specify the step option",
-            type=str,
-            default="all",
-            choices=["harvest", "transform", "aggregate", "all"],
+            "--step", choices=["harvest", "transform", "aggregate", "all"], default="all", help="Pipeline step to run"
         )
         args = parser.parse_args()
 
-        if args.dataset:
-            # Check if dataset is valid option
-            valid_datasets = [
-                os.path.splitext(os.path.basename(f))[0]
-                for f in glob("conf/ds_configs/*.yaml")
-            ]
-            if args.dataset not in valid_datasets:
-                raise ValueError(
-                    f"{args.dataset} is not valid dataset. Check spelling."
-                )
+        if args.dataset and args.dataset not in list_datasets():
+            raise ValueError(f"{args.dataset!r} is not a valid dataset name.")
     return args
 
 
-def show_menu():
-    while True:
-        print("\n===== ECCO PREPROCESSING PIPELINE =====")
-        print("\n------------- OPTIONS -------------")
-        print("1) Run all")
-        print("2) Harvesters only")
-        print("3) Up to aggregation")
-        print("4) Dataset input")
-        try:
-            chosen_option = input("Enter option number: ")
-        except KeyboardInterrupt:
-            exit()
-
-        if chosen_option in ["1", "2", "3", "4"]:
-            break
-        else:
-            print(
-                f'Unknown option entered, "{chosen_option}", please enter a valid option\n'
-            )
-
-    # Load all dataset configuration YAML names
-    datasets = [
-        os.path.splitext(os.path.basename(f))[0] for f in glob("conf/ds_configs/*.yaml")
-    ]
-    datasets.sort()
-
-    # Run all
-    if chosen_option == "1":
-        for ds in datasets:
-            run_harvester([ds])
-            run_transformation([ds])
-            run_aggregation([ds])
-
-    # Run harvester
-    elif chosen_option == "2":
-        run_harvester(datasets)
-
-    # Run up through transformation
-    elif chosen_option == "3":
-        for ds in datasets:
-            run_harvester([ds])
-            run_transformation([ds])
-
-    # Manually enter dataset and pipeline step(s)
-    elif chosen_option == "4":
-        ds_dict = {i: ds for i, ds in enumerate(datasets, start=1)}
-        while True:
-            print("\nAvailable datasets:\n")
-            for i, dataset in ds_dict.items():
-                print(f"{i}) {dataset}")
-            try:
-                ds_index = input("\nEnter dataset number: ")
-            except KeyboardInterrupt:
-                exit()
-
-            if not ds_index.isdigit() or int(ds_index) not in range(
-                1, len(datasets) + 1
-            ):
-                print(f'Invalid dataset, "{ds_index}", please enter a valid selection')
-            else:
-                break
-
-        wanted_ds = ds_dict[int(ds_index)]
-        print(f"\nUsing {wanted_ds} dataset")
-
-        steps = [
-            "harvest",
-            "transform",
-            "aggregate",
-            "harvest and transform",
-            "transform and aggregate",
-            "all",
-        ]
-        steps_dict = {i: step for i, step in enumerate(steps, start=1)}
-        while True:
-            print("\nAvailable steps:\n")
-            for i, step in steps_dict.items():
-                print(f"{i}) {step}")
-            steps_index = input("\nEnter pipeline step(s) number: ")
-
-            if not steps_index.isdigit() or int(steps_index) not in range(
-                1, len(steps) + 1
-            ):
-                print(
-                    f'Invalid step(s), "{steps_index}", please enter a valid selection'
-                )
-            else:
-                break
-
-        wanted_steps = steps_dict[int(steps_index)]
-
-        if "harvest" in wanted_steps:
-            run_harvester([wanted_ds])
-        if "transform" in wanted_steps:
-            run_transformation([wanted_ds])
-        if "aggregate" in wanted_steps:
-            run_aggregation([wanted_ds])
-        if wanted_steps == "all":
-            run_harvester([wanted_ds])
-            run_transformation([wanted_ds])
-            run_aggregation([wanted_ds])
-
-
-def run_harvester(datasets: List[str]):
+def execute_step(name: str, datasets: list[str], action: Callable[[dict[str, Any]], Any]) -> None:
+    """Run a named step (harvest/transform/aggregate) across datasets."""
     for ds in datasets:
         try:
-            logger.info(f"Beginning harvesting {ds}")
-            with open(Path(f"conf/ds_configs/{ds}.yaml"), "r") as stream:
-                config = yaml.load(stream, yaml.Loader)
-            harvester_type = config.get("harvester_type")
-            if not harvester_type:
-                raise ValueError(f"Harvester type missing from {ds} config. Exiting.")
-
-            harvester = importlib.import_module(
-                f"harvesters.{harvester_type}_harvester"
-            )
-            status = harvester.harvester(config)
-            logger.info(f"{ds} harvesting complete. {status}")
-        except Exception as e:
-            logger.exception(f"{ds} harvesting failed. {e}")
-
-
-def run_transformation(datasets: List[str]):
-    for ds in datasets:
-        try:
-            logger.info(f"Beginning transformations on {ds}")
-            with open(Path(f"conf/ds_configs/{ds}.yaml"), "r") as stream:
-                config = yaml.load(stream, yaml.Loader)
-            status = TxJobFactory(config).start_factory()
-            logger.info(f"{ds} transformation complete. {status}")
+            logger.info("Starting %s for %s", name, ds)
+            cfg = load_config(ds)
+            result = action(cfg)
+            logger.info("%s %s complete. %s", ds, name, result)
         except Exception:
-            logger.exception(f"{ds} transformation failed.")
+            logger.exception("%s %s failed", ds, name)
 
 
-def run_aggregation(datasets: List[str]):
-    for ds in datasets:
-        try:
-            logger.info(f"Beginning aggregation on {ds}")
-            with open(Path(f"conf/ds_configs/{ds}.yaml"), "r") as stream:
-                config = yaml.load(stream, yaml.Loader)
-            status = AgJobFactory(config).start_factory()
-            logger.info(f"{ds} aggregation complete. {status}")
-        except Exception as e:
-            logger.exception(f"{ds} aggregation failed: {e}")
+def run_harvester(datasets: list[str]) -> None:
+    execute_step(
+        "harvesting",
+        datasets,
+        lambda c: importlib.import_module(f"harvesters.{c['harvester_type']}_harvester").harvester(c),
+    )
 
 
-def start_pipeline(args: argparse.Namespace):
-    if args.dataset:
-        datasets = [args.dataset]
-    else:
-        # Load all dataset configuration YAML names
-        datasets = sorted(
-            [
-                os.path.splitext(os.path.basename(f))[0]
-                for f in glob("conf/ds_configs/*.yaml")
-            ]
-        )
+def run_transformation(datasets: list[str]) -> None:
+    execute_step("transformation", datasets, lambda c: TxJobFactory(c).start_factory())
+
+
+def run_aggregation(datasets: list[str]) -> None:
+    execute_step("aggregation", datasets, lambda c: AgJobFactory(c).start_factory())
+
+
+def start_pipeline(args: argparse.Namespace) -> None:
+    """Run pipeline in non-interactive mode."""
+    datasets = [args.dataset] if args.dataset else list_datasets()
 
     if args.step == "harvest":
         run_harvester(datasets)
@@ -265,11 +112,65 @@ def start_pipeline(args: argparse.Namespace):
         run_aggregation(datasets)
 
 
-if __name__ == "__main__":
-    args = create_parser()
-    init_pipeline.init_pipeline(args)
-    logger = logging.getLogger("pipeline")
+def choose_from_menu(prompt: str, options: list[str]) -> str:
+    """Utility to prompt user until a valid numbered choice is made."""
+    while True:
+        print(f"\n{prompt}\n")
+        for i, opt in enumerate(options, 1):
+            print(f"{i}) {opt}")
+        sel = input("\nEnter number: ").strip()
+        if sel.isdigit() and 1 <= int(sel) <= len(options):
+            return options[int(sel) - 1]
+        print(f'Invalid selection "{sel}", please try again.')
+
+
+def show_menu() -> None:
+    """Interactive menu mode."""
+    print("\n===== ECCO PREPROCESSING PIPELINE =====")
+    main_choice = choose_from_menu(
+        "Main options",
+        ["Run all", "Harvesters only", "Through transformation", "Dataset input"],
+    )
+
+    datasets = list_datasets()
+
+    if main_choice == "Run all":
+        run_harvester(datasets)
+        run_transformation(datasets)
+        run_aggregation(datasets)
+    elif main_choice == "Harvesters only":
+        run_harvester(datasets)
+    elif main_choice == "Through transformation":
+        run_harvester(datasets)
+        run_transformation(datasets)
+    else:
+        dataset = choose_from_menu("Available datasets", datasets)
+        step_choice = choose_from_menu(
+            "Pipeline steps",
+            ["harvest", "transform", "aggregate", "harvest, transform, aggregate"],
+        )
+        if "harvest" in step_choice:
+            run_harvester([dataset])
+        if "transform" in step_choice:
+            run_transformation([dataset])
+        if "aggregate" in step_choice:
+            run_aggregation([dataset])
+
+
+def main(args: argparse.Namespace) -> None:
     if args.menu:
         show_menu()
     else:
         start_pipeline(args)
+
+
+if __name__ == "__main__":
+    args = create_parser()
+
+    # Perform pipeline-wide initialization
+    init_pipeline.init_pipeline(args)
+    logger = logging.getLogger("pipeline")
+    try:
+        main(args)
+    except KeyboardInterrupt:
+        sys.exit("\nInterrupted by user.")

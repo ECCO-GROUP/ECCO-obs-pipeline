@@ -18,6 +18,10 @@ except ImportError:
     )
 
 
+class PipelineInitError(RuntimeError):
+    pass
+
+
 def setup_logger(args):
     logger = log_config.mp_logging("pipeline", args.log_level)
     # Set package logging level to WARNING
@@ -30,8 +34,8 @@ def validate_output_dir():
     logger = logging.getLogger("pipeline")
     # Verify output directory is valid
     if not os.path.isdir(OUTPUT_DIR):
-        logger.fatal("Missing output directory. Please fill in. Exiting.")
-        exit()
+        logger.critical("Missing output directory. Please fill in. Exiting.")
+        raise PipelineInitError("Missing output directory")
     logger.debug(f"Using output directory: {OUTPUT_DIR}")
 
 
@@ -44,14 +48,14 @@ def validate_solr():
     try:
         solr_utils.ping_solr()
     except requests.ConnectionError:
-        logger.fatal("Solr is not currently running! Start Solr and try again.")
-        exit()
+        logger.critical("Solr is not currently running! Start Solr and try again.")
+        raise PipelineInitError("Solr is not currently running")
 
     if not solr_utils.core_check():
-        logger.fatal(
+        logger.critical(
             f'Solr core {SOLR_COLLECTION} does not exist. Add a core using "bin/solr create -c {{collection_name}}".'
         )
-        exit()
+        raise PipelineInitError(f"Solr core {SOLR_COLLECTION} does not exist.")
 
 
 def wipe_factors():
@@ -73,13 +77,11 @@ def validate_netrc():
     try:
         nrc = netrc.netrc()
         if "urs.earthdata.nasa.gov" not in nrc.hosts.keys():
-            logger.fatal("Earthdata login required in netrc file.")
-            exit()
+            logger.critical("Earthdata login required in netrc file.")
+            raise PipelineInitError("Earthdata login required in netrc file.")
     except FileNotFoundError:
-        logger.fatal(
-            "No netrc found. Please create one and add Earthdata login credentials."
-        )
-        exit()
+        logger.critical("No netrc found. Please create one and add Earthdata login credentials.")
+        raise PipelineInitError("No netrc found")
 
 
 def update_solr_grid(grid_name: str, grid_type: str, grid_file_path: str):
@@ -116,36 +118,22 @@ def update_solr_grid(grid_name: str, grid_type: str, grid_file_path: str):
 
         if current_checksum != solr_checksum:
             # Delete previous grid's transformations from Solr
-            update_body = {
-                "delete": {
-                    "query": f"type_s:transformation AND grid_name_s:{grid_name}"
-                }
-            }
+            update_body = {"delete": {"query": f"type_s:transformation AND grid_name_s:{grid_name}"}}
 
             r = solr_utils.solr_update(update_body, r=True)
             if r.status_code == 200:
-                logger.debug(
-                    f"Successfully deleted Solr transformation documents for {grid_name}"
-                )
+                logger.debug(f"Successfully deleted Solr transformation documents for {grid_name}")
             else:
-                logger.exception(
-                    f"Failed to delete Solr transformation documents for {grid_name}"
-                )
+                logger.exception(f"Failed to delete Solr transformation documents for {grid_name}")
 
             # Delete previous grid's aggregations from Solr
-            update_body = {
-                "delete": {"query": f"type_s:aggregation AND grid_name_s:{grid_name}"}
-            }
+            update_body = {"delete": {"query": f"type_s:aggregation AND grid_name_s:{grid_name}"}}
 
             r = solr_utils.solr_update(update_body, r=True)
             if r.status_code == 200:
-                logger.debug(
-                    f"Successfully deleted Solr aggregation documents for {grid_name}"
-                )
+                logger.debug(f"Successfully deleted Solr aggregation documents for {grid_name}")
             else:
-                logger.exception(
-                    f"Failed to delete Solr aggregation documents for {grid_name}"
-                )
+                logger.exception(f"Failed to delete Solr aggregation documents for {grid_name}")
 
             # Update grid on Solr
             fq = [f"grid_name_s:{grid_name}", "type_s:grid"]
@@ -157,9 +145,7 @@ def update_solr_grid(grid_name: str, grid_type: str, grid_file_path: str):
                     "grid_type_s": {"set": grid_type},
                     "grid_name_s": {"set": grid_name},
                     "grid_checksum_s": {"set": current_checksum},
-                    "date_added_dt": {
-                        "set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-                    },
+                    "date_added_dt": {"set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")},
                 }
             ]
         else:
@@ -177,19 +163,11 @@ def grids_to_solr(grids_to_use: Iterable[str] = []):
 
     grid_files = glob("grids/*.nc")
 
-    grids = []
     for grid_file_path in grid_files:
-        grid_file_name = os.path.basename(grid_file_path)
         ds = xr.open_dataset(grid_file_path)
         # Assumes grids conform to metadata standard (see documentation)
         grid_name = ds.attrs["name"]
         grid_type = ds.attrs["type"]
-        grids.append((grid_name, grid_type, grid_file_name))
-        logger.debug(f"Loaded {grid_name} {grid_type} {grid_file_name}")
-
-    # Create Solr grid-type document for each missing grid type
-    for grid_name, grid_type, grid_file_name in grids:
-        logger.debug(f"Uploading solr grid {grid_name} {grid_type} {grid_file_name}")
         update_solr_grid(grid_name, grid_type, grid_file_path)
 
     # Verify grid names supplied exist on Solr
@@ -204,8 +182,9 @@ def grids_to_solr(grids_to_use: Iterable[str] = []):
     return grids_not_in_solr
 
 
-def init_pipeline(args: Namespace):
+def init_pipeline(args: Namespace) -> logging.Logger:
     logger = setup_logger(args)
+    logger.info("Initializing pipeline components.")
     validate_output_dir()
     validate_solr()
     config_validator.validate_configs()
@@ -215,11 +194,8 @@ def init_pipeline(args: Namespace):
         solr_utils.validate_granules()
 
     if args.wipe_transformations:
-        logger.info(
-            "Removing transformations with out of sync version numbers from Solr and disk"
-        )
+        logger.info("Removing transformations with out of sync version numbers from Solr and disk")
         solr_utils.delete_mismatch_transformations()
-        pass
 
     if isinstance(args.grids_to_use, list):
         grids_to_use = args.grids_to_use
@@ -236,7 +212,7 @@ def init_pipeline(args: Namespace):
                     logger.exception(
                         f'Grid "{name}" not in Solr. Ensure it\'s file name is present in grids_config.yaml and run pipeline with the --grids_to_solr argument'
                     )
-                exit()
+                PipelineInitError(f'Grid "{name}" not in Solr.')
             logger.info("Successfully updated grids on Solr.")
         except Exception as e:
             logger.exception(e)
@@ -248,4 +224,4 @@ def init_pipeline(args: Namespace):
     baseclasses.set_cpus(user_cpus)
     logger.debug(f"Using {user_cpus} processes for multiprocess transformations")
 
-    return grids_to_use, user_cpus
+    return logger
