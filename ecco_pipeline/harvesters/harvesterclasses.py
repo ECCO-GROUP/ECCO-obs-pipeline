@@ -1,6 +1,7 @@
 import logging
 import os
 from datetime import datetime
+from abc import ABC, abstractmethod
 
 from baseclasses import Dataset
 from conf.global_settings import OUTPUT_DIR
@@ -40,9 +41,7 @@ class Granule:
     def gen_descendant_doc(self):
         descendant_item = {}
         descendant_item["type_s"] = "descendants"
-        descendant_item["date_s"] = datetime.strftime(
-            self.datetime, "%Y-%m-%dT00:00:00Z"
-        )
+        descendant_item["date_s"] = datetime.strftime(self.datetime, "%Y-%m-%dT00:00:00Z")
         descendant_item["dataset_s"] = self.ds_name
         descendant_item["filename_s"] = self.filename
         descendant_item["source_s"] = self.url
@@ -62,9 +61,7 @@ class Granule:
             self.solr_item["harvest_success_b"] = False
             self.solr_item["pre_transformation_file_path_s"] = ""
             self.solr_item["file_size_l"] = 0
-        self.solr_item["download_time_dt"] = datetime.utcnow().strftime(
-            "%Y-%m-%dT00:00:00Z"
-        )
+        self.solr_item["download_time_dt"] = datetime.utcnow().strftime("%Y-%m-%dT00:00:00Z")
 
     def update_descendant(self, descendants_docs, success):
         # Update Solr entry using id if it exists
@@ -74,23 +71,19 @@ class Granule:
             self.descendant_item["id"] = descendants_docs[key]["id"]
 
         self.descendant_item["harvest_success_b"] = success
-        self.descendant_item["pre_transformation_file_path_s"] = self.solr_item.get(
-            "pre_transformation_file_path_s"
-        )
+        self.descendant_item["pre_transformation_file_path_s"] = self.solr_item.get("pre_transformation_file_path_s")
 
     def get_solr_docs(self):
         return [self.solr_item, self.descendant_item]
 
 
-class Harvester(Dataset):
+class Harvester(Dataset, ABC):
     solr_format: str = "%Y-%m-%dT%H:%M:%SZ"
 
     def __init__(self, config: dict):
         super().__init__(config)
         self._harvester_parsing(config)
-        self.target_dir: str = os.path.join(
-            OUTPUT_DIR, self.ds_name, "harvested_granules"
-        )
+        self.target_dir: str = os.path.join(OUTPUT_DIR, self.ds_name, "harvested_granules")
         self.updated_solr_docs: list = []
 
         self.ensure_target_dir()
@@ -106,14 +99,15 @@ class Harvester(Dataset):
         else:
             self.ddir = config.get("ddir")
 
+    @abstractmethod
     def fetch(self):
-        raise NotImplementedError
+        """Child classes must implement fetching logic."""
+        pass
 
-    def get_mod_time(self):
-        raise NotImplementedError
-
+    @abstractmethod
     def dl_file(self):
-        raise NotImplementedError
+        """Child classes must implement how to download a single granule."""
+        pass
 
     def ensure_target_dir(self):
         os.makedirs(self.target_dir, exist_ok=True)
@@ -152,16 +146,10 @@ class Harvester(Dataset):
         ds_meta["source_s"] = source
         ds_meta["data_time_scale_s"] = self.data_time_scale
         ds_meta["last_checked_dt"] = chk_time
-        ds_meta["original_dataset_title_s"] = self.og_ds_metadata[
-            "original_dataset_title"
-        ]
-        ds_meta["original_dataset_short_name_s"] = self.og_ds_metadata[
-            "original_dataset_short_name"
-        ]
+        ds_meta["original_dataset_title_s"] = self.og_ds_metadata["original_dataset_title"]
+        ds_meta["original_dataset_short_name_s"] = self.og_ds_metadata["original_dataset_short_name"]
         ds_meta["original_dataset_url_s"] = self.og_ds_metadata["original_dataset_url"]
-        ds_meta["original_dataset_reference_s"] = self.og_ds_metadata[
-            "original_dataset_reference"
-        ]
+        ds_meta["original_dataset_reference_s"] = self.og_ds_metadata["original_dataset_reference"]
         ds_meta["original_dataset_doi_s"] = self.og_ds_metadata["original_dataset_doi"]
         return ds_meta
 
@@ -176,10 +164,7 @@ class Harvester(Dataset):
         if not os.path.exists(granule.local_fp):
             return True
         # If file exists locally, but is out of date, download it
-        elif (
-            datetime.fromtimestamp(os.path.getmtime(granule.local_fp))
-            <= granule.modified_time
-        ):
+        elif datetime.fromtimestamp(os.path.getmtime(granule.local_fp)) <= granule.modified_time:
             return True
         return False
 
@@ -226,14 +211,8 @@ class Harvester(Dataset):
 
             if self.updated_solr_docs:
                 ds_meta["harvest_status_s"] = {"set": harvesting_status}
-                dl_solr_docs = [
-                    doc
-                    for doc in self.updated_solr_docs
-                    if "download_time_dt" in doc.keys()
-                ]
-                last_dl_item = sorted(
-                    dl_solr_docs, key=lambda d: d["download_time_dt"]
-                )[-1]
+                dl_solr_docs = [doc for doc in self.updated_solr_docs if "download_time_dt" in doc.keys()]
+                last_dl_item = sorted(dl_solr_docs, key=lambda d: d["download_time_dt"])[-1]
                 ds_meta["last_download_dt"] = {"set": last_dl_item["download_time_dt"]}
         else:
             # -----------------------------------------------------
@@ -244,17 +223,13 @@ class Harvester(Dataset):
             # Only include start_date and end_date if there was at least one successful download
             if self.updated_solr_docs:
                 ds_meta["harvest_status_s"] = {"set": harvesting_status}
-                dl_solr_docs = [
-                    doc
-                    for doc in self.updated_solr_docs
-                    if "download_time_dt" in doc.keys()
-                ]
+                dl_solr_docs = [doc for doc in self.updated_solr_docs if "download_time_dt" in doc.keys()]
                 dl_items = sorted(dl_solr_docs, key=lambda d: d["date_s"])
                 ds_meta["start_date_dt"] = dl_items[0]["date_s"]
                 ds_meta["end_date_dt"] = dl_items[-1]["date_s"]
-                ds_meta["last_download_dt"] = sorted(
-                    dl_solr_docs, key=lambda d: d["download_time_dt"]
-                )[-1]["download_time_dt"]
+                ds_meta["last_download_dt"] = sorted(dl_solr_docs, key=lambda d: d["download_time_dt"])[-1][
+                    "download_time_dt"
+                ]
 
             ds_meta["harvest_status_s"] = harvesting_status
 
@@ -279,9 +254,7 @@ class Harvester(Dataset):
         harvest_status = "All granules successfully harvested"
 
         if not successful_harvesting:
-            harvest_status = (
-                "No usable granules harvested (either all failed or no data collected)"
-            )
+            harvest_status = "No usable granules harvested (either all failed or no data collected)"
         elif failed_harvesting:
             harvest_status = f"{len(failed_harvesting)} harvested granules failed"
 
