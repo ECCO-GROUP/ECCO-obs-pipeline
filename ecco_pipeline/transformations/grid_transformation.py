@@ -78,9 +78,7 @@ class Transformation(Dataset):
                 data_object = callable_func(data_object)
                 logger.debug(f"{func_to_run} successfully ran on {self.file_name}")
             except Exception as e:
-                logger.exception(
-                    f"{func_to_run} failed to run on {self.file_name}: {e}"
-                )
+                logger.exception(f"{func_to_run} failed to run on {self.file_name}: {e}")
                 raise Exception(f"{func_to_run} failed to run on {self.file_name}")
         return data_object
 
@@ -98,9 +96,7 @@ class Transformation(Dataset):
 
         grid_name = grid_ds.name
         factors_file = f"{grid_name}{self.hemi}_v{self.transformation_version}_factors"
-        factors_path = os.path.join(
-            OUTPUT_DIR, self.ds_name, "transformed_products", factors_file
-        )
+        factors_path = os.path.join(OUTPUT_DIR, self.ds_name, "transformed_products", factors_file)
         os.makedirs(os.path.dirname(factors_path), exist_ok=True)
 
         if os.path.exists(factors_path):
@@ -112,16 +108,12 @@ class Transformation(Dataset):
             logger.info(f"Creating {grid_name} factors for {self.ds_name}")
 
         # Use hemisphere specific variables if data is hemisphere specific
-        source_grid_min_L, source_grid_max_L, source_grid = (
-            transformation_utils.generalized_grid_product(
-                self.data_res, self.area_extent, self.dims, self.proj_info
-            )
+        source_grid_min_L, source_grid_max_L, source_grid = transformation_utils.generalized_grid_product(
+            self.data_res, self.area_extent, self.dims, self.proj_info
         )
 
         # Define the 'swath' as the lats/lon pairs of the model grid
-        target_grid = pr.geometry.SwathDefinition(
-            lons=grid_ds.XC.values.ravel(), lats=grid_ds.YC.values.ravel()
-        )
+        target_grid = pr.geometry.SwathDefinition(lons=grid_ds.XC.values.ravel(), lats=grid_ds.YC.values.ravel())
 
         # Retrieve target_grid_radius from model_grid file
         if "effective_grid_radius" in grid_ds:
@@ -133,9 +125,7 @@ class Transformation(Dataset):
         elif "rA" in grid_ds:
             target_grid_radius = 0.5 * np.sqrt(grid_ds.rA.values.ravel())
         else:
-            logger.exception(
-                f"Unable to extract grid radius from {grid_ds.name}. Grid not supported"
-            )
+            logger.exception(f"Unable to extract grid radius from {grid_ds.name}. Grid not supported")
 
         factors = transformation_utils.find_mappings_from_source_to_target(
             source_grid,
@@ -151,9 +141,7 @@ class Transformation(Dataset):
             pickle.dump(factors, f)
         return factors
 
-    def perform_mapping(
-        self, ds: xr.Dataset, factors: Tuple, field: Field, model_grid: xr.Dataset
-    ) -> xr.DataArray:
+    def perform_mapping(self, ds: xr.Dataset, factors: Tuple, field: Field, model_grid: xr.Dataset) -> xr.DataArray:
         """
         Maps source data to target grid and applies metadata
         """
@@ -191,14 +179,10 @@ class Transformation(Dataset):
             # put the new data values into the data_DA array.
             # --where the mapped data are not nan, replace the original values
             # --where they are nan, just leave the original values alone
-            data_DA.values = np.where(
-                ~np.isnan(data_model_projection), data_model_projection, data_DA.values
-            )
+            data_DA.values = np.where(~np.isnan(data_model_projection), data_model_projection, data_DA.values)
             record_notes = ""
         else:
-            logger.debug(
-                f"Empty granule for {self.file_name} (no data to transform to grid {model_grid.name})"
-            )
+            logger.debug(f"Empty granule for {self.file_name} (no data to transform to grid {model_grid.name})")
             record_notes = " -- empty record -- "
 
         if self.time_bounds_var:
@@ -238,18 +222,14 @@ class Transformation(Dataset):
 
         return data_DA
 
-    def transform(
-        self, model_grid: xr.Dataset, factors: Tuple, ds: xr.Dataset
-    ) -> Iterable[Tuple[xr.Dataset, bool]]:
+    def transform(self, model_grid: xr.Dataset, factors: Tuple, ds: xr.Dataset) -> Iterable[Tuple[xr.Dataset, bool]]:
         """
         Function that actually performs the transformations. Returns a list of transformed
         xarray datasets, one dataset for each field being transformed for the given grid.
         """
         logger = logging.getLogger(str(current_process().pid))
 
-        logger.info(
-            f"Transforming {len(self.fields)} fields on {self.date} to {model_grid.name}"
-        )
+        logger.info(f"Transforming {len(self.fields)} fields on {self.date} to {model_grid.name}")
 
         record_date = self.date.replace("Z", "")
 
@@ -288,9 +268,7 @@ class Transformation(Dataset):
                 field_DA.attrs["long_name"] = field.long_name
                 field_DA.attrs["standard_name"] = field.standard_name
                 field_DA.attrs["units"] = field.units
-                field_DA.attrs["empty_record_note"] = (
-                    f"{field.name} missing from source data"
-                )
+                field_DA.attrs["empty_record_note"] = f"{field.name} missing from source data"
                 mapping_success = True
 
             # =====================================================
@@ -299,9 +277,7 @@ class Transformation(Dataset):
             if mapping_success:
                 try:
                     func_machine = PosttransformationFuncs()
-                    field_DA = func_machine.call_functions(
-                        field.post_transformations, field_DA
-                    )
+                    field_DA = func_machine.call_functions(field.post_transformations, field_DA)
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore", category=RuntimeWarning)
                         field_DA.attrs["valid_min"] = np.nanmin(field_DA.values)
@@ -312,14 +288,10 @@ class Transformation(Dataset):
                     field_DA.attrs["long_name"] = field.long_name
                     field_DA.attrs["standard_name"] = field.standard_name
                     field_DA.attrs["units"] = field.units
-                    field_DA.attrs["empty_record_note"] = (
-                        "Post transformation(s) failed"
-                    )
+                    field_DA.attrs["empty_record_note"] = "Post transformation(s) failed"
                     mapping_success = False
 
-            field_DA.values = np.where(
-                np.isnan(field_DA.values), NETCDF_FILL_VALUE, field_DA.values
-            )
+            field_DA.values = np.where(np.isnan(field_DA.values), NETCDF_FILL_VALUE, field_DA.values)
 
             # Make dataarray into dataset
             field_DS = field_DA.to_dataset()
@@ -328,16 +300,10 @@ class Transformation(Dataset):
             ds_meta = {
                 "interpolated_grid": model_grid.name,
                 "model_grid_type": model_grid.type,
-                "original_dataset_title": self.og_ds_metadata.get(
-                    "original_dataset_title"
-                ),
-                "original_dataset_short_name": self.og_ds_metadata.get(
-                    "original_dataset_short_name"
-                ),
+                "original_dataset_title": self.og_ds_metadata.get("original_dataset_title"),
+                "original_dataset_short_name": self.og_ds_metadata.get("original_dataset_short_name"),
                 "original_dataset_url": self.og_ds_metadata.get("original_dataset_url"),
-                "original_dataset_reference": self.og_ds_metadata.get(
-                    "original_dataset_reference"
-                ),
+                "original_dataset_reference": self.og_ds_metadata.get("original_dataset_reference"),
                 "original_dataset_doi": self.og_ds_metadata.get("original_dataset_doi"),
                 "interpolated_grid_id": model_grid.name,
                 "transformation_version": self.transformation_version,
@@ -353,9 +319,7 @@ class Transformation(Dataset):
 
             time_bnds = np.array([start_time, end_time], dtype="datetime64")
             time_bnds = time_bnds.T
-            field_DS = field_DS.assign_coords(
-                {"time_bnds": (["time", "nv"], time_bnds)}
-            )
+            field_DS = field_DS.assign_coords({"time_bnds": (["time", "nv"], time_bnds)})
 
             field_DS.time.attrs.update(bounds="time_bnds")
 
@@ -370,9 +334,7 @@ class Transformation(Dataset):
                 cur_month = int(self.date[5:7])
 
                 if cur_month < 12:
-                    rec_end = np.datetime64(
-                        f"{cur_year}-{str(cur_month+1).zfill(2)}-01", "ns"
-                    )
+                    rec_end = np.datetime64(f"{cur_year}-{str(cur_month+1).zfill(2)}-01", "ns")
                 else:
                     rec_end = np.datetime64(f"{cur_year+1}-01-01", "ns")
 
@@ -393,9 +355,7 @@ class Transformation(Dataset):
     def load_file(self, source_file_path: str) -> xr.Dataset:
         if self.preprocessing_function:
             func_machine = PreprocessingFuncs()
-            ds = func_machine.call_function(
-                self.preprocessing_function, source_file_path, self.fields
-            )
+            ds = func_machine.call_function(self.preprocessing_function, source_file_path, self.fields)
         else:
             ds = xr.open_dataset(source_file_path, decode_times=True)
         ds.attrs["original_file_name"] = self.file_name
@@ -452,9 +412,7 @@ class Transformation(Dataset):
         try:
             r.raise_for_status()
         except HTTPError:
-            logger.exception(
-                f"Failed to update Solr transformation status for {self.ds_name} on {self.date}"
-            )
+            logger.exception(f"Failed to update Solr transformation status for {self.ds_name} on {self.date}")
             raise HTTPError
 
 
@@ -472,10 +430,7 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
     logger.debug(f"Loading {T.file_name} data")
     ds = T.load_file(source_file_path)
 
-    grid_fields = [
-        [f"({grid_name}, {field})" for field in tx_jobs[grid_name]]
-        for grid_name in tx_jobs.keys()
-    ]
+    grid_fields = [[f"({grid_name}, {field})" for field in tx_jobs[grid_name]] for grid_name in tx_jobs.keys()]
     logger.debug(f"{T.file_name} needs to transform: {grid_fields} ")
 
     # Iterate through grids in remaining_transformations
@@ -529,9 +484,7 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
             doc_id = solr_utils.solr_query(query_fq)[0]["id"]
 
             transformation_successes = transformation_successes and success
-            transformation_file_paths[
-                f"{grid_name}_{field.name}_transformation_file_path_s"
-            ] = transformed_location
+            transformation_file_paths[f"{grid_name}_{field.name}_transformation_file_path_s"] = transformed_location
 
             # Update Solr transformation entry with file paths and status
             update_body = [
@@ -539,14 +492,10 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
                     "id": doc_id,
                     "filename_s": {"set": output_filename},
                     "transformation_file_path_s": {"set": transformed_location},
-                    "transformation_completed_dt": {
-                        "set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-                    },
+                    "transformation_completed_dt": {"set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")},
                     "transformation_in_progress_b": {"set": False},
                     "success_b": {"set": success},
-                    "transformation_checksum_s": {
-                        "set": file_utils.md5(transformed_location)
-                    },
+                    "transformation_checksum_s": {"set": file_utils.md5(transformed_location)},
                     "transformation_version_f": {"set": T.transformation_version},
                 }
             ]
@@ -566,6 +515,4 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
             if success and grid_name not in grids_updated:
                 grids_updated.append(grid_name)
 
-        logger.debug(
-            f"CPU id {os.getpid()} saving {T.file_name} output file for grid {grid_name}"
-        )
+        logger.debug(f"CPU id {os.getpid()} saving {T.file_name} output file for grid {grid_name}")
