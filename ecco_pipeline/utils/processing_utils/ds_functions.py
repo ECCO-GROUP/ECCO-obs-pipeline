@@ -41,7 +41,7 @@ class PreprocessingFuncs:
         merged_ds = xr.merge([ds, var_ds])
         return merged_ds
 
-    def G02202_V5_nt_extraction(self, file_path: str, fields: Iterable[Field]) -> xr.Dataset:
+    def nsidc_seaice_nt_extraction(self, file_path: str, fields: Iterable[Field]) -> xr.Dataset:
         """
         Exctracts raw_nt_seaice_conc field from cdr_supplementary/raw_nt_seaice_conc
         and merges into base dataset object
@@ -118,6 +118,80 @@ class PretransformationFuncs:
         logger.debug(f"G02202 masking flagged NDR, CDR post: {np.sum(tmpNT), np.sum(tmpCDR)}")
 
         return ds
+
+    def mask_nsidc_seaice(ds: xr.Dataset) -> xr.Dataset:
+        """
+        Mask sea-ice concentration and stdev values in an NSIDC seaice dataset
+        (G02202 v5 or G10016 v3, currently) where certain QA flags are set.
+
+        Specifically, we set sea ice concentration values to NaN where any of the following are true:
+        spatial interpolation, temporal interpolation, no observations
+
+        Where there are no obs, the data producers sometimes fill the gaps via interpolation. 
+        We're not going to use their interpolated values where there are no obs or interpolation, we mask to nan.
+
+        The BT and NT weather filters and land spillover filters set the sea ice concentration to zero (open ocean)
+        so we do not mask out those values. The invalid ice mask is where ice is never present, so we do not mask 
+        those values (they are already zero). The melt start detected flag indicates melting ice, which is not a 
+        dealbreaker for us but we could have a higher uncertainty there.
+
+        For detailed description of QA flags see
+        https://nsidc.org/sites/default/files/documents/user-guide/g02202-v005-userguide.pdf
+        
+        QA Flag Meanings
+
+        flag_meanings = [
+            "BT_weather_filter_applied",        # 2**0 = 1
+            "NT_weather_filter_applied",        # 2**1 = 2
+            "land_spillover_applied",           # 2**2 = 4
+            "no_input_data",                    # 2**3 = 8
+            "invalid_ice_mask_applied",         # 2**4 = 16
+            "spatial_interpolation_applied",    # 2**5 = 32
+            "temporal_interpolation_applied",   # 2**6 = 64
+            "melt_start_detected"               # 2**7 = 128
+        ]
+
+        Flags masked:
+            * no_input_data (2**3 = 8)
+            * spatial_interpolation_applied (2**5 = 32)
+            * temporal_interpolation_applied (2**6 = 64)
+
+        Other flags (weather filters, land spillover, invalid ice mask, melt start)
+        are retained.
+        
+        Also masks out points with values > 1.
+
+        Parameters
+        ----------
+        ds : xr.Dataset
+            Must contain 'cdr_seaice_conc', 'cdr_seaice_conc_stdev',
+            and 'cdr_seaice_conc_qa_flag'.
+
+        Returns
+        -------
+        xr.Dataset
+            Copy of the input dataset with the two concentration fields masked
+            (values set to NaN) where any of the selected QA flags are present.
+        """
+        
+        conc = ds["cdr_seaice_conc"]
+        stdev = ds["cdr_seaice_conc_stdev"]
+        qa = ds["cdr_seaice_conc_qa_flag"].astype(np.uint64)
+
+        # Bitmask for the QA flags we want to reject (8 | 32 | 64 = 104)
+        qa_mask = (qa & ((1 << 3) | (1 << 5) | (1 << 6))) != 0
+
+        # Values physically out of range (>1)
+        range_mask = conc > 1
+
+        # Combined mask
+        bad = qa_mask | range_mask
+
+        ds_out = ds.copy(deep=True)
+        ds_out["cdr_seaice_conc"] = conc.where(~bad)
+        ds_out["cdr_seaice_conc_stdev"] = stdev.where(~bad)
+
+        return ds_out
 
     def G02202v5_mask_flagged_conc(self, ds: xr.Dataset) -> xr.Dataset:
         """
@@ -233,12 +307,12 @@ class PretransformationFuncs:
         # as 2**n
         for n in flags_to_nan:
             cdr_seaice_conc_post_qa = cdr_seaice_conc_post_qa * flag_das.sel(flag=2**n)
-            cdr_seaice_conc_stdev_post_qa = cdr_seaice_conc_stdev_post_qa * flag_das.sel(flag=2**n)            
+            cdr_seaice_conc_stdev_post_qa = cdr_seaice_conc_stdev_post_qa * flag_das.sel(flag=2**n)
 
         # replace the original conc field with the post-QA field
         ds["cdr_seaice_conc"].values[:] = cdr_seaice_conc_post_qa.values[:]
         ds["cdr_seaice_conc_stdev"].values[:] = cdr_seaice_conc_stdev_post_qa.values[:]
-        
+
         logger.debug(f"G2202 masking flagged CDR post: {np.nansum(ds['cdr_seaice_conc_stdev'].values.ravel())}")
 
         return ds
