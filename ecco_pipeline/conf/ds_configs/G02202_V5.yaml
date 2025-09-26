@@ -9,7 +9,7 @@ filename_date_regex: '\d{8}'
 
 # Metadata
 data_time_scale: "daily" # daily or monthly
-preprocessing: G02202_V5_nt_extraction
+preprocessing: nsidc_seaice_nt_extraction
 hemi_pattern:
   north: "_psn25_"
   south: "_pss25_"
@@ -18,13 +18,13 @@ fields:
     long_name: NOAA/NSIDC Climate Data Record of Passive Microwave Sea Ice Concentration
     standard_name: sea_ice_area_fraction
     units: "1"
-    pre_transformations: [G02202v5_mask_flagged_conc] # List of functions to call on the DataSet before transformation
+    pre_transformations: [mask_nsidc_seaice] # List of functions to call on the DataSet before transformation
     post_transformations: [] # List of functions to call on the DataArrays after transformation
   - name: cdr_seaice_conc_stdev
     long_name: Passive Microwave Sea Ice Concentration Source Estimated Standard Deviation
     standard_name: " "
     units: "1"
-    pre_transformations: [G02202v5_mask_flagged_conc] # List of functions to call on the DataSet before transformation
+    pre_transformations: [mask_nsidc_seaice] # List of functions to call on the DataSet before transformation
     post_transformations: [] # List of functions to call on the DataArrays after transformation
 original_dataset_title: NOAA/NSIDC Climate Data Record of Passive Microwave Sea Ice Concentration, Version 5
 original_dataset_short_name: G02202_V5
