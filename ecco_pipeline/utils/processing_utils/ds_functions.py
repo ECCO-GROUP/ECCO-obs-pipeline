@@ -119,7 +119,7 @@ class PretransformationFuncs:
 
         return ds
 
-    def mask_nsidc_seaice(ds: xr.Dataset) -> xr.Dataset:
+    def mask_nsidc_seaice(self, ds: xr.Dataset) -> xr.Dataset:
         """
         Mask sea-ice concentration and stdev values in an NSIDC seaice dataset
         (G02202 v5 or G10016 v3, currently) where certain QA flags are set.
