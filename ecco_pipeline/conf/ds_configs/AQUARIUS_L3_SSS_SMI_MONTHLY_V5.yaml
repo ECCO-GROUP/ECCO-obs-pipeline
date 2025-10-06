@@ -33,6 +33,7 @@ original_dataset_doi: "10.5067/AQR50-3SMCS"
 # Transformation
 t_version: 1.0 # Update this value if any changes are made to this file
 data_res: 1.0 # Resolution of dataset
+data_type: gridded
 
 # Values for non split datasets (for datasets split into nh/sh, append '_nh'/'_sh')
 area_extent: [-180, -90, 180, 90] # [lon_min, lat_min, lon_max, lat_max]

@@ -1,0 +1,45 @@
+ds_name: NASA_SSH_REF_ALONGTRACK_V1 # Name for dataset
+start: "20250101T00:00:00Z" # yyyymmddThh:mm:ssZ
+end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
+
+# Provider specifications
+harvester_type: cmr
+cmr_concept_id: C3309450672-POCLOUD
+filename_date_fmt: "%Y%m%d"
+filename_date_regex: '\d{8}'
+provider: "archive.podaac"
+
+# Metadata
+data_time_scale: "daily" # daily or monthly
+fields:
+  - name: ssha_smoothed
+    long_name: Smoothed sea surface height anomaly relative to mean_sea_surface
+    standard_name: sea_surface_height_above_sea_level
+    units: m
+    pre_transformations: [] # List of functions to call on the DataSet before transformation
+    post_transformations: ["MEaSUREs_fix_time"] # List of functions to call on the DataArrays after transformation
+  - name: dac
+    long_name: dynamic atmospheric correction
+    standard_name: " "
+    units: m
+    pre_transformations: [] # List of functions to call on the DataSet before transformation
+    post_transformations: ["MEaSUREs_fix_time"] # List of functions to call on the DataArrays after transformation
+original_dataset_title: NASA-SSH Along-Track Sea Surface Height from Standardized Reference Missions Version 1
+original_dataset_short_name: NASA_SSH_REF_ALONGTRACK_V1
+original_dataset_url: https://podaac.jpl.nasa.gov/dataset/NASA_SSH_REF_ALONGTRACK_V1
+original_dataset_reference: https://podaac.jpl.nasa.gov/NASA-SSH
+original_dataset_doi: 10.5067/NSREF-AT0V1
+
+# Transformation
+t_version: 1 # Update this value if any changes are made to this file
+transpose: False
+data_res: 1
+data_type: along_track
+
+notes: "" # String to include in global attributes of output files
+
+# Aggregation
+a_version: 1.0 # Update this value if any changes are made to this file
+remove_nan_days_from_data: True # Remove empty days from data when aggregating
+do_monthly_aggregation: True
+skipna_in_mean: False # Controls skipna when calculating monthly mean

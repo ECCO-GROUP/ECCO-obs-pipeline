@@ -6,6 +6,13 @@
             "type": "object",
             "additionalProperties": true,
             "properties": {
+                "data_type": {
+                    "type": "string",
+                    "enum": [
+                        "along_track",
+                        "gridded"
+                    ]
+                },
                 "ds_name": {
                     "type": "string"
                 },
@@ -53,20 +60,11 @@
                 },
                 "original_dataset_url": {
                     "type": "string",
-                    "format": "uri",
-                    "qt-uri-protocols": [
-                        "https"
-                    ]
+                    "format": "uri"
                 },
                 "original_dataset_reference": {
                     "type": "string",
-                    "format": "uri",
-                    "qt-uri-protocols": [
-                        "https"
-                    ],
-                    "qt-uri-extensions": [
-                        ".pdf"
-                    ]
+                    "format": "uri"
                 },
                 "original_dataset_doi": {
                     "type": "string"
@@ -78,18 +76,36 @@
                     "type": "string"
                 },
                 "data_res": {
-                    "type": ["number", "string"]
+                    "type": [
+                        "number",
+                        "string"
+                    ]
                 },
-                "area_extent_nh": {
+                "area_extent": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "dims": {
                     "type": "array",
                     "items": {
                         "type": "integer"
                     }
                 },
+                "proj_info": {
+                    "$ref": "#/definitions/ProjInfo"
+                },
+                "area_extent_nh": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
                 "area_extent_sh": {
                     "type": "array",
                     "items": {
-                        "type": "integer"
+                        "type": "number"
                     }
                 },
                 "dims_nh": {
@@ -127,6 +143,7 @@
                 }
             },
             "required": [
+                "data_type",
                 "a_version",
                 "data_res",
                 "data_time_scale",
@@ -163,6 +180,45 @@
                 "proj_info_sh",
                 "time_bounds_var",
                 "user"
+            ],
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {
+                            "data_type": {
+                                "const": "gridded"
+                            }
+                        }
+                    },
+                    "then": {
+                        "required": [
+                            "area_extent",
+                            "dims",
+                            "proj_info"
+                        ]
+                    },
+                    "else": {
+                        "not": {
+                            "anyOf": [
+                                {
+                                    "required": [
+                                        "area_extent"
+                                    ]
+                                },
+                                {
+                                    "required": [
+                                        "dims"
+                                    ]
+                                },
+                                {
+                                    "required": [
+                                        "proj_info"
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                }
             ],
             "title": "main"
         },
@@ -223,15 +279,13 @@
             "additionalProperties": false,
             "properties": {
                 "area_id": {
-                    "type": "string",
-                    "format": "integer"
+                    "type": "string"
                 },
                 "area_name": {
                     "type": "string"
                 },
                 "proj_id": {
-                    "type": "string",
-                    "format": "integer"
+                    "type": "string"
                 },
                 "proj4_args": {
                     "type": "string"
@@ -240,8 +294,8 @@
             "required": [
                 "area_id",
                 "area_name",
-                "proj4_args",
-                "proj_id"
+                "proj_id",
+                "proj4_args"
             ],
             "title": "ProjInfo"
         }

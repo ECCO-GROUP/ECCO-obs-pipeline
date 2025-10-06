@@ -41,6 +41,7 @@ original_dataset_doi: "OSI-408"
 # Transformation
 t_version: 2.0 # Update this value if any changes are made to this file
 data_res: 10/111 # Resolution of dataset
+data_type: gridded
 
 # Values for non split datasets (for datasets split into nh/sh, append '_nh'/'_sh')
 area_extent_nh: [-3845000, -5345000, 3745000, 5845000]

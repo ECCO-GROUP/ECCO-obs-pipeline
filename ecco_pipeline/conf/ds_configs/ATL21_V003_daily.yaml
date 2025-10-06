@@ -55,6 +55,7 @@ original_dataset_doi: 10.5067/ATLAS/ATL21.003
 # Transformation
 t_version: 1.3 # Update this value if any changes are made to this file
 data_res: 25/111 # Resolution of dataset
+data_type: gridded
 
 # Values for non split datasets (for datasets split into nh/sh, append '_nh'/'_sh')
 area_extent_nh: [-3850000.0, -5350000.0, 3750000.0, 5850000.0]

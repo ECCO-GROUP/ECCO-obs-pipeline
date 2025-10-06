@@ -30,6 +30,7 @@ original_dataset_doi: "10.15770/EUM_SAF_OSI_0014"
 t_version: 1.7 # Update this value if any changes are made to this file
 time_bounds_var: time_bnds
 data_res: 25/111 # Resolution of dataset
+data_type: gridded
 
 # Values for non split datasets (for datasets split into nh/sh, append '_nh'/'_sh')
 area_extent_nh: [-5400000, -5400000, 5400000, 5400000]
