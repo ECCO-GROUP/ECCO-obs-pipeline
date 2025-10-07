@@ -20,12 +20,6 @@ fields:
     units: " "
     pre_transformations: []
     post_transformations: ["seaice_concentration_to_fraction"]
-  - name: confidence_level
-    long_name: confidence level
-    standard_name: " "
-    units: " "
-    pre_transformations: []
-    post_transformations: []
   - name: total_uncertainty
     long_name: estimate of the total uncertainty for the sea ice concentration retrieved by the OSI SAF algorithm
     standard_name: " "
