@@ -1,12 +1,17 @@
 import logging
 from multiprocessing import current_process
-from typing import Iterable
+from typing import Tuple
 import warnings
 
 import numpy as np
-import pyresample as pr
+from pyresample.area_config import get_area_def
+from pyresample.geometry import SwathDefinition
+from pyresample.kd_tree import get_neighbour_info, resample_custom, resample_nearest
+from pyresample.utils import check_and_wrap
 
 logger = logging.getLogger(str(current_process().pid))
+
+GridProduct = Tuple[np.ndarray, float, SwathDefinition]
 
 
 def transform_to_target_grid(
@@ -45,29 +50,13 @@ def transform_to_target_grid(
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=RuntimeWarning)
 
-                # average these values
-                if operation == "mean":
-                    tmp_r[i] = np.mean(
-                        source_field_r[source_indices_within_target_radius_i[i]]
-                    )
+                source_field_slice = source_field_r[source_indices_within_target_radius_i[i]]
 
-                # average of non-nan values (can be slow)
-                elif operation == "nanmean":
-                    tmp_r[i] = np.nanmean(
-                        source_field_r[source_indices_within_target_radius_i[i]]
-                    )
+                function_map = {"mean": np.mean, "nanmean": np.nanmean, "median": np.median, "nanmedian": np.nanmedian}
 
-                # median of these values
-                elif operation == "median":
-                    tmp_r[i] = np.median(
-                        source_field_r[source_indices_within_target_radius_i[i]]
-                    )
-
-                # median of non-nan values (can be slow)
-                elif operation == "nanmedian":
-                    tmp_r[i] = np.nanmedian(
-                        source_field_r[source_indices_within_target_radius_i[i]]
-                    )
+                if operation in function_map:
+                    func = function_map.get(operation)
+                    tmp_r[i] = func(source_field_slice)
 
                 # nearest neighbor is the first element in source_indices
                 elif operation == "nearest":
@@ -84,15 +73,50 @@ def transform_to_target_grid(
     return source_on_target_grid
 
 
+def transform_along_track_to_grid(
+    source_data: np.ndarray, source_def: SwathDefinition, target_def: SwathDefinition, lon_shape
+):
+    """ """
+
+    def ones_weight(distances):
+        return np.ones_like(distances, dtype=float)
+
+    def gaussian_weight(distances, sigma=50000):  # sigma in meters
+        return np.exp(-(distances**2) / (2 * sigma**2))
+
+    ROI = 100000
+
+    # Apply resampling
+    source_resampled = resample_custom(
+        source_def,
+        source_data,
+        target_def,
+        radius_of_influence=ROI,
+        neighbours=16,
+        weight_funcs=ones_weight,
+        fill_value=np.nan,
+        reduce_data=False,
+    )
+
+    # Reshape back to tile structure
+    source_on_target_grid = source_resampled.reshape(lon_shape)
+
+    # Mask cells with no points within roi
+    counts_flat = resample_nearest(
+        source_def, np.ones_like(source_data), target_def, radius_of_influence=ROI, fill_value=0
+    )
+    counts = counts_flat.reshape(lon_shape)
+    min_points = 1
+    source_on_target_grid = np.where(counts >= min_points, source_on_target_grid, np.nan)
+    return source_on_target_grid
+
+
 def find_mappings_from_source_to_target(
-    source_grid,
-    target_grid,
-    target_grid_radius,
-    source_grid_min_L,
-    source_grid_max_L,
+    target_grid: SwathDefinition,
+    target_grid_radius: np.ndarray,
+    grid_product: GridProduct,
     neighbours: int = 100,
-    less_output=True,
-    grid_name="",
+    grid_name: str = "",
 ):
     """
     source grid, target_grid : area or grid defintion objects from pyresample
@@ -108,6 +132,7 @@ def find_mappings_from_source_to_target(
                      Default is 100 to limit memory usage.
                      Value given must be a whole number greater than 0
     """
+    source_grid, source_grid_min_L, source_grid_max_L = grid_product
 
     # # of element of the source and target grids
     len_source_grid = source_grid.size
@@ -133,9 +158,7 @@ def find_mappings_from_source_to_target(
         )
         neighbours = neighbours_upper_bound
     else:
-        print(
-            f"Only using {neighbours} nearest neighbours, but you may need up to {neighbours_upper_bound}"
-        )
+        print(f"Only using {neighbours} nearest neighbours, but you may need up to {neighbours_upper_bound}")
 
     # make sure neighbours is an int for pyresample
     # neighbours_upper_bound is float, and user input can be float
@@ -159,7 +182,7 @@ def find_mappings_from_source_to_target(
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        Ax_max_target_grid_r = pr.kd_tree.get_neighbour_info(
+        Ax_max_target_grid_r = get_neighbour_info(
             source_grid,
             target_grid,
             radius_of_influence=int(max_target_grid_radius),
@@ -186,7 +209,7 @@ def find_mappings_from_source_to_target(
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        Ax_nearest_within_source_grid_max_L = pr.kd_tree.get_neighbour_info(
+        Ax_nearest_within_source_grid_max_L = get_neighbour_info(
             source_grid,
             target_grid,
             radius_of_influence=int(source_grid_max_L),
@@ -207,13 +230,7 @@ def find_mappings_from_source_to_target(
 
     current_valid_target_i = 0
 
-    if not less_output:
-        print("length of target grid: ", len_target_grid)
-
     for i in range(len_target_grid):
-        if not less_output:
-            print("looping through all points of target grid: ", i)
-
         if Ax_nearest_within_source_grid_max_L[1][i]:
             # Ax[2][i,:] are the closest source grid indices
             #            for target grid cell i
@@ -233,14 +250,10 @@ def find_mappings_from_source_to_target(
             else:
                 src_indicies_here = Ax_max_target_grid_r[2][current_valid_target_i]
 
-            source_indices_within_target_radius_i[i] = src_indicies_here[
-                dist_within_target_r is True
-            ]
+            source_indices_within_target_radius_i[i] = src_indicies_here[dist_within_target_r is True]
 
             # count the # source indices here
-            num_source_indices_within_target_radius_i[i] = int(
-                len(source_indices_within_target_radius_i[i])
-            )
+            num_source_indices_within_target_radius_i[i] = int(len(source_indices_within_target_radius_i[i]))
 
             # NOW RECORD THE NEAREST NEIGHBOR POINT WIHTIN SOURCE_GRID_MAX_L
             # when there is no source index within the search radius then
@@ -249,13 +262,10 @@ def find_mappings_from_source_to_target(
             # value that was returned.  If not, then we are good to go.
             # In other words...if the index in Ax_nearest... is the length of source grid, it is invalid
             # We think this should always because of the initial test for Ax[1] == True
-            if (
-                Ax_nearest_within_source_grid_max_L[2][current_valid_target_i]
-                < len_source_grid
-            ):
-                nearest_source_index_to_target_index_i[i] = (
-                    Ax_nearest_within_source_grid_max_L[2][current_valid_target_i]
-                )
+            if Ax_nearest_within_source_grid_max_L[2][current_valid_target_i] < len_source_grid:
+                nearest_source_index_to_target_index_i[i] = Ax_nearest_within_source_grid_max_L[2][
+                    current_valid_target_i
+                ]
 
             # increment this little bastard
             current_valid_target_i += 1
@@ -263,7 +273,7 @@ def find_mappings_from_source_to_target(
         # print progress.  always nice
         if i in debug_is:
             print(
-                f"Creating {grid_name} mapping factors...{int(i/len_target_grid*100)} %",
+                f"Creating {grid_name} mapping factors...{int(i / len_target_grid * 100)} %",
                 end="\r",
             )
     print(f"Creating {grid_name} mapping factors...done.")
@@ -275,11 +285,8 @@ def find_mappings_from_source_to_target(
 
 
 def generalized_grid_product(
-    data_res: float,
-    area_extent: Iterable[float],
-    dims: Iterable[float],
-    proj_info: dict,
-) -> Iterable[np.ndarray]:
+    data_res: float, area_extent: list[float], dims: list[float], proj_info: dict
+) -> GridProduct:
     """
     Generates tuple containing (source_grid_min_L, source_grid_max_L, source_grid)
 
@@ -303,7 +310,7 @@ def generalized_grid_product(
     # -- note we do not have to use pyresample for this, we could
     # have created it manually using the np.meshgrid or some other method
     # if we wanted.
-    tmp_data_grid = pr.area_config.get_area_def(
+    tmp_data_grid = get_area_def(
         proj_info["area_id"],
         proj_info["area_name"],
         proj_info["proj_id"],
@@ -316,24 +323,18 @@ def generalized_grid_product(
     data_grid_lons, data_grid_lats = tmp_data_grid.get_lonlats()
 
     # minimum Length of data product grid cells (km)
-    source_grid_min_L = (
-        np.cos(np.deg2rad(np.nanmax(abs(data_grid_lats)))) * data_res * 112e3
-    )
+    source_grid_min_L = np.cos(np.deg2rad(np.nanmax(abs(data_grid_lats)))) * data_res * 112e3
 
     # maximum length of data roduct grid cells (km)
     # data product at equator has grid spacing of data_res*112e3 m
     source_grid_max_L = data_res * 112e3
 
     # Changes longitude bounds from 0-360 to -180-180, doesnt change if its already -180-180
-    data_grid_lons, data_grid_lats = pr.utils.check_and_wrap(
-        data_grid_lons, data_grid_lats
-    )
+    data_grid_lons, data_grid_lats = check_and_wrap(data_grid_lons, data_grid_lats)
 
     # Define the 'swath' (in the terminology of the pyresample module)
     # as the lats/lon pairs of the source observation grid
     # The routine needs the lats and lons to be one-dimensional vectors.
-    source_grid = pr.geometry.SwathDefinition(
-        lons=data_grid_lons.ravel(), lats=data_grid_lats.ravel()
-    )
+    source_grid = SwathDefinition(lons=data_grid_lons.ravel(), lats=data_grid_lats.ravel())
 
     return (source_grid_min_L, source_grid_max_L, source_grid)

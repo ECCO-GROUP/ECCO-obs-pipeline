@@ -8,10 +8,11 @@ from typing import Iterable
 import numpy as np
 import requests
 import xarray as xr
-from harvesters.enumeration.cmr_enumerator import CMRGranule, CMRQuery
-from harvesters.harvesterclasses import Granule, Harvester
-from utils.pipeline_utils.file_utils import get_date
-from utils.processing_utils.records import TimeBound
+
+from ecco_pipeline.harvesters.enumeration.cmr_enumerator import CMRGranule, CMRQuery
+from ecco_pipeline.harvesters.harvesterclasses import Granule, Harvester
+from ecco_pipeline.utils.pipeline_utils.file_utils import get_date
+from ecco_pipeline.utils.processing_utils.records import TimeBound
 
 logger = logging.getLogger("pipeline")
 

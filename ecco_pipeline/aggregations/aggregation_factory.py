@@ -3,9 +3,9 @@ import os
 from multiprocessing import Pool, cpu_count, current_process
 from typing import Iterable
 
-from aggregations.aggregation import Aggregation
-import baseclasses
-from utils.pipeline_utils import log_config, solr_utils
+from ecco_pipeline.aggregations.aggregation import Aggregation
+from ecco_pipeline.baseclasses import Config, Dataset
+from ecco_pipeline.utils.pipeline_utils import log_config, solr_utils
 
 logger = logging.getLogger("pipeline")
 
@@ -24,12 +24,12 @@ def multiprocess_aggregate(job: Aggregation, log_level: str, log_dir: str):
         logger.exception(f"JOB FAILED: {e}")
 
 
-class AgJobFactory(baseclasses.Dataset):
+class AgJobFactory(Dataset):
     def __init__(self, config: dict) -> None:
         super().__init__(config)
         self.config = config
-        self.user_cpus = baseclasses.Config.user_cpus
-        self.grids = self.get_grids(baseclasses.Config.grids_to_use)
+        self.user_cpus = Config.user_cpus
+        self.grids = self.get_grids(Config.grids_to_use)
         self.agg_jobs = self.get_jobs()
 
     def start_factory(self) -> str:
@@ -56,6 +56,7 @@ class AgJobFactory(baseclasses.Dataset):
             for agg_job in self.agg_jobs:
                 multiprocess_aggregate(agg_job, log_level, log_dir)
         else:
+            assert False
             user_cpus = min(self.user_cpus, int(cpu_count() / 2), 8, len(self.agg_jobs))
             logger.info(f"Using {user_cpus} CPUs to do multiprocess aggregation")
             with Pool(processes=user_cpus) as pool:

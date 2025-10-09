@@ -4,7 +4,8 @@ from datetime import datetime
 from typing import Iterable
 
 from cmr import GranuleQuery
-from harvesters.harvesterclasses import Harvester
+
+from ecco_pipeline.harvesters.harvesterclasses import Harvester
 
 logger = logging.getLogger("pipeline")
 

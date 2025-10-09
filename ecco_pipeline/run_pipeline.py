@@ -8,9 +8,10 @@ from pathlib import Path
 from typing import List
 
 import yaml
-from aggregations.aggregation_factory import AgJobFactory
-from transformations.transformation_factory import TxJobFactory
-from utils.pipeline_utils import init_pipeline
+
+from ecco_pipeline.aggregations.aggregation_factory import AgJobFactory
+from ecco_pipeline.transformations.transformation_factory import TxJobFactory
+from ecco_pipeline.utils.pipeline_utils import init_pipeline
 
 
 def create_parser() -> argparse.Namespace:
@@ -19,9 +20,7 @@ def create_parser() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser()
 
-    parser.add_argument(
-        "--menu", default=False, action="store_true", help="Show interactive menu"
-    )
+    parser.add_argument("--menu", default=False, action="store_true", help="Show interactive menu")
     parser.add_argument(
         "--grids_to_solr",
         default=False,
@@ -84,14 +83,9 @@ def create_parser() -> argparse.Namespace:
 
         if args.dataset:
             # Check if dataset is valid option
-            valid_datasets = [
-                os.path.splitext(os.path.basename(f))[0]
-                for f in glob("conf/ds_configs/*.yaml")
-            ]
+            valid_datasets = [os.path.splitext(os.path.basename(f))[0] for f in glob("conf/ds_configs/*.yaml")]
             if args.dataset not in valid_datasets:
-                raise ValueError(
-                    f"{args.dataset} is not valid dataset. Check spelling."
-                )
+                raise ValueError(f"{args.dataset} is not valid dataset. Check spelling.")
     return args
 
 
@@ -111,14 +105,10 @@ def show_menu():
         if chosen_option in ["1", "2", "3", "4"]:
             break
         else:
-            print(
-                f'Unknown option entered, "{chosen_option}", please enter a valid option\n'
-            )
+            print(f'Unknown option entered, "{chosen_option}", please enter a valid option\n')
 
     # Load all dataset configuration YAML names
-    datasets = [
-        os.path.splitext(os.path.basename(f))[0] for f in glob("conf/ds_configs/*.yaml")
-    ]
+    datasets = [os.path.splitext(os.path.basename(f))[0] for f in glob("conf/ds_configs/*.yaml")]
     datasets.sort()
 
     # Run all
@@ -150,9 +140,7 @@ def show_menu():
             except KeyboardInterrupt:
                 exit()
 
-            if not ds_index.isdigit() or int(ds_index) not in range(
-                1, len(datasets) + 1
-            ):
+            if not ds_index.isdigit() or int(ds_index) not in range(1, len(datasets) + 1):
                 print(f'Invalid dataset, "{ds_index}", please enter a valid selection')
             else:
                 break
@@ -175,12 +163,8 @@ def show_menu():
                 print(f"{i}) {step}")
             steps_index = input("\nEnter pipeline step(s) number: ")
 
-            if not steps_index.isdigit() or int(steps_index) not in range(
-                1, len(steps) + 1
-            ):
-                print(
-                    f'Invalid step(s), "{steps_index}", please enter a valid selection'
-                )
+            if not steps_index.isdigit() or int(steps_index) not in range(1, len(steps) + 1):
+                print(f'Invalid step(s), "{steps_index}", please enter a valid selection')
             else:
                 break
 
@@ -208,9 +192,7 @@ def run_harvester(datasets: List[str]):
             if not harvester_type:
                 raise ValueError(f"Harvester type missing from {ds} config. Exiting.")
 
-            harvester = importlib.import_module(
-                f"harvesters.{harvester_type}_harvester"
-            )
+            harvester = importlib.import_module(f"harvesters.{harvester_type}_harvester")
             status = harvester.harvester(config)
             logger.info(f"{ds} harvesting complete. {status}")
         except Exception as e:
@@ -246,12 +228,7 @@ def start_pipeline(args: argparse.Namespace):
         datasets = [args.dataset]
     else:
         # Load all dataset configuration YAML names
-        datasets = sorted(
-            [
-                os.path.splitext(os.path.basename(f))[0]
-                for f in glob("conf/ds_configs/*.yaml")
-            ]
-        )
+        datasets = sorted([os.path.splitext(os.path.basename(f))[0] for f in glob("conf/ds_configs/*.yaml")])
 
     if args.step == "harvest":
         run_harvester(datasets)

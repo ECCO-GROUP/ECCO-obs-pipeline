@@ -21,37 +21,42 @@ https://solr.apache.org/guide/solr/latest/deployment-guide/installing-solr.html
 
 
 ### Start Solr and Setup core
-```
+```bash
 cd <path/to/solr/directory>
 bin/solr start
 bin/solr create -c ecco_datasets
 ```
 
 ### Clone repo
-```
+```bash
 git clone https://github.com/ECCO-GROUP/ECCO-obs-pipeline.git
 ```
 
 ### Install dependencies via Conda envrionment 
-```
+```bash
 cd <path/to/cloned/repo>
 conda env create -f environment.yml
 conda activate ecco_pipeline
 ```
 
 ### Setup global_settings.py
-```
+```bash
 cp ecco_pipeline/conf/global_settings.py.example ecco_pipeline/conf/global_settings.py
 ```
 Fill in variables.
 
-### Running pipeline
+### Build package 
+```bash
+pip install -e .
 ```
+
+### Running pipeline
+```bash
 python ecco_pipeline/run_pipeline.py
 ```
 The above command will execute the pipeline by iterating through all currently supported datasets, running the harvesting, transformation, and aggregation steps for each. If you want to run the pipeline on a single dataset or step, you can use the `--dataset` and `--step` flags, respectively. ex:
 
-```
+```bash
 python ecco_pipeline/run_pipeline.py --dataset G02202_V4 --step harvest
 ```
 
@@ -59,11 +64,11 @@ You can also run the pipeline via an interactive menu where you can select from 
 
 In either case, the pipeline will default to using the list of grids provided in `ecco_pipeline/conf/global_settings.py`, but can be overridden for a specific list of grids with the `--grids_to_use` argument. ex:
 
-```
+```bash
 python ecco_pipeline/run_pipeline.py --grids_to_use ECCO_llc90
 ```
 
 The default logging level is set to `info` but is adjustable via the `--log_level` flag when running the pipeline. ex:
-```
+```bash
 python ecco_pipeline/run_pipeline.py --log_level DEBUG
 ```

@@ -6,7 +6,8 @@ from typing import Iterable
 
 import requests
 import yaml
-from conf.global_settings import SOLR_COLLECTION, SOLR_HOST
+
+from ecco_pipeline.conf.global_settings import SOLR_COLLECTION, SOLR_HOST
 
 
 def solr_query(fq: Iterable[str], fl: str = "") -> Iterable[dict]:

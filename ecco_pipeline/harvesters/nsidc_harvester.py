@@ -4,9 +4,10 @@ from datetime import datetime
 from typing import Iterable
 
 import requests
-from harvesters.enumeration.nsidc_enumerator import NSIDCGranule, search_nsidc
-from harvesters.harvesterclasses import Granule, Harvester
-from utils.pipeline_utils.file_utils import get_date
+
+from ecco_pipeline.harvesters.enumeration.nsidc_enumerator import NSIDCGranule, search_nsidc
+from ecco_pipeline.harvesters.harvesterclasses import Granule, Harvester
+from ecco_pipeline.utils.pipeline_utils.file_utils import get_date
 
 logger = logging.getLogger("pipeline")
 

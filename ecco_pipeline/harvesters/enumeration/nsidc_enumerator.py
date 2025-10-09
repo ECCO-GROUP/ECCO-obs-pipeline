@@ -5,7 +5,8 @@ from datetime import datetime
 
 import requests
 from bs4 import BeautifulSoup
-from harvesters.harvesterclasses import Harvester
+
+from ecco_pipeline.harvesters.harvesterclasses import Harvester
 
 logger = logging.getLogger("pipeline")
 

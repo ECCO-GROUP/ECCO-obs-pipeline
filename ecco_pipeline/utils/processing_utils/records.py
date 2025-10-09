@@ -5,7 +5,8 @@ from typing import Iterable
 from dateutil.relativedelta import relativedelta
 from datetime import datetime
 import netCDF4 as nc4
-from utils.processing_utils.llc_array_conversion import llc_tiles_to_compact
+
+from ecco_pipeline.utils.processing_utils.llc_array_conversion import llc_tiles_to_compact
 
 DTYPE = np.float32
 BINARY_DTYPE = ">f4"

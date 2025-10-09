@@ -4,27 +4,37 @@ import pickle
 import warnings
 from datetime import datetime
 from multiprocessing import current_process
-from typing import Iterable, Tuple
+from typing import Optional, Tuple
 
 import netCDF4 as nc4
 import numpy as np
-import pyresample as pr
-import xarray as xr
-from baseclasses import Dataset, Field
-from conf.global_settings import OUTPUT_DIR
+from pyresample.geometry import SwathDefinition
 from requests import HTTPError
-from utils.pipeline_utils import file_utils, solr_utils
-from utils.processing_utils import ds_functions, records, transformation_utils
-from utils.processing_utils.ds_functions import (
+import xarray as xr
+
+from ecco_pipeline.baseclasses import Dataset, Field, Grid
+from ecco_pipeline.conf.global_settings import OUTPUT_DIR
+from ecco_pipeline.utils.pipeline_utils import file_utils, solr_utils
+from ecco_pipeline.utils.processing_utils.ds_functions import (
     PosttransformationFuncs,
     PreprocessingFuncs,
     PretransformationFuncs,
 )
+from ecco_pipeline.utils.processing_utils.records import make_empty_record, save_netcdf, TimeBound
+from ecco_pipeline.utils.processing_utils.transformation_utils import (
+    find_mappings_from_source_to_target,
+    generalized_grid_product,
+    transform_to_target_grid,
+    transform_along_track_to_grid,
+)
+
 
 logger = logging.getLogger(str(current_process().pid))
 
 BINARY_DTYPE = "f4"
 NETCDF_FILL_VALUE = nc4.default_fillvals[BINARY_DTYPE]
+
+Factors = Tuple[dict[int, list[int]], np.ndarray, dict[int, int]]
 
 
 class Transformation(Dataset):
@@ -34,11 +44,12 @@ class Transformation(Dataset):
         self.transformation_version: float = config.get("t_version")
         self.date: str = granule_date
         self.hemi: str = self._get_hemi(config)
+        self.data_type: str = config.get("data_type")
 
         # Projection information
         self.data_res: float = self._compute_data_res(config)
-        self.area_extent: Iterable = config.get(f"area_extent{self.hemi}")
-        self.dims: Iterable = config.get(f"dims{self.hemi}")
+        self.area_extent: list = config.get(f"area_extent{self.hemi}")
+        self.dims: list = config.get(f"dims{self.hemi}")
         self.proj_info: dict = config.get(f"proj_info{self.hemi}")
 
         # Processing information
@@ -47,7 +58,7 @@ class Transformation(Dataset):
 
         self.mapping_operation: str = config.get("mapping_operation", "mean")
 
-    def _compute_data_res(self, config):
+    def _compute_data_res(self, config: dict) -> float:
         """ """
         res = config.get("data_res")
         if type(res) is str:
@@ -58,7 +69,7 @@ class Transformation(Dataset):
                 res = float(res)
         return res
 
-    def _get_hemi(self, config):
+    def _get_hemi(self, config: dict) -> str:
         """
         Extracts hemisphere from filename. One of either 'nh' or 'sh'
         """
@@ -69,20 +80,21 @@ class Transformation(Dataset):
                 return "_sh"
         return ""
 
-    def apply_funcs(self, data_object, funcs: Iterable):
-        logger = logging.getLogger(str(current_process().pid))
-        for func_to_run in funcs:
-            logger.debug(f"Applying {func_to_run} to {self.file_name} data")
-            try:
-                callable_func = getattr(ds_functions, func_to_run)
-                data_object = callable_func(data_object)
-                logger.debug(f"{func_to_run} successfully ran on {self.file_name}")
-            except Exception as e:
-                logger.exception(f"{func_to_run} failed to run on {self.file_name}: {e}")
-                raise Exception(f"{func_to_run} failed to run on {self.file_name}")
-        return data_object
+    def _make_empty_field_record(
+        self, date: str, target_grid: xr.Dataset, field: Field, note: str = ""
+    ) -> xr.DataArray:
+        da = make_empty_record(date, target_grid)
+        da.attrs.update(
+            {
+                "long_name": field.long_name,
+                "standard_name": field.standard_name,
+                "units": field.units,
+                "empty_record_note": note,
+            }
+        )
+        return da
 
-    def make_factors(self, grid_ds: xr.Dataset) -> Tuple[dict, np.ndarray, dict]:
+    def make_factors(self, target_grid: Grid) -> Factors:
         """
         Generate mappings from source to target grid
 
@@ -94,60 +106,47 @@ class Transformation(Dataset):
         """
         logger = logging.getLogger(str(current_process().pid))
 
-        grid_name = grid_ds.name
-        factors_file = f"{grid_name}{self.hemi}_v{self.transformation_version}_factors"
+        factors_file = f"{target_grid.name}{self.hemi}_v{self.transformation_version}_factors"
         factors_path = os.path.join(OUTPUT_DIR, self.ds_name, "transformed_products", factors_file)
         os.makedirs(os.path.dirname(factors_path), exist_ok=True)
 
         if os.path.exists(factors_path):
-            logger.debug(f"Loading {grid_name} factors")
+            logger.debug(f"Loading {target_grid.name} factors")
             with open(factors_path, "rb") as f:
                 factors = pickle.load(f)
                 return factors
         else:
-            logger.info(f"Creating {grid_name} factors for {self.ds_name}")
+            logger.info(f"Creating {target_grid.name} factors for {self.ds_name}")
 
         # Use hemisphere specific variables if data is hemisphere specific
-        source_grid_min_L, source_grid_max_L, source_grid = transformation_utils.generalized_grid_product(
-            self.data_res, self.area_extent, self.dims, self.proj_info
-        )
+        grid_product = generalized_grid_product(self.data_res, self.area_extent, self.dims, self.proj_info)
 
         # Define the 'swath' as the lats/lon pairs of the model grid
-        target_grid = pr.geometry.SwathDefinition(lons=grid_ds.XC.values.ravel(), lats=grid_ds.YC.values.ravel())
-
-        # Retrieve target_grid_radius from model_grid file
-        if "effective_grid_radius" in grid_ds:
-            target_grid_radius = grid_ds.effective_grid_radius.values.ravel()
-        elif "effective_radius" in grid_ds:
-            target_grid_radius = grid_ds.effective_radius.values.ravel()
-        elif "RAD" in grid_ds:
-            target_grid_radius = grid_ds.RAD.values.ravel()
-        elif "rA" in grid_ds:
-            target_grid_radius = 0.5 * np.sqrt(grid_ds.rA.values.ravel())
-        else:
-            logger.exception(f"Unable to extract grid radius from {grid_ds.name}. Grid not supported")
-
-        factors = transformation_utils.find_mappings_from_source_to_target(
-            source_grid,
-            target_grid,
-            target_grid_radius,
-            source_grid_min_L,
-            source_grid_max_L,
-            grid_name=grid_name,
+        target_grid_def = SwathDefinition(
+            lons=target_grid.ds["XC"].values.ravel(), lats=target_grid.ds["YC"].values.ravel()
         )
-        logger.debug(f"Saving {grid_name} factors")
+
+        factors = find_mappings_from_source_to_target(
+            target_grid_def,
+            target_grid.radius,
+            grid_product,
+            grid_name=target_grid.name,
+        )
+        logger.debug(f"Saving {target_grid.name} factors")
 
         with open(factors_path, "wb") as f:
             pickle.dump(factors, f)
         return factors
 
-    def perform_mapping(self, ds: xr.Dataset, factors: Tuple, field: Field, model_grid: xr.Dataset) -> xr.DataArray:
+    def perform_mapping(
+        self, ds: xr.Dataset, factors: Optional[Factors], field: Field, model_grid: xr.Dataset
+    ) -> xr.DataArray:
         """
         Maps source data to target grid and applies metadata
         """
         logger = logging.getLogger(str(current_process().pid))
 
-        data_DA = records.make_empty_record(self.date, model_grid)
+        data_DA = make_empty_record(self.date, model_grid)
 
         data_DA.attrs["long_name"] = field.long_name
         data_DA.attrs["standard_name"] = field.standard_name
@@ -158,7 +157,7 @@ class Transformation(Dataset):
         data_DA.attrs["interpolation_code"] = "pyresample"
         data_DA.attrs["interpolation_date"] = str(np.datetime64(datetime.now(), "D"))
 
-        data_DA.time.attrs["long_name"] = "center time of averaging period"
+        data_DA["time"].attrs["long_name"] = "center time of averaging period"
 
         data_DA.name = f"{field.name}_interpolated_to_{model_grid.name}"
 
@@ -169,12 +168,22 @@ class Transformation(Dataset):
 
         # see if we have any valid data
         if np.sum(~np.isnan(orig_data)) > 0:
-            data_model_projection = transformation_utils.transform_to_target_grid(
-                *factors,
-                orig_data,
-                model_grid.XC.shape,
-                operation=self.mapping_operation,
-            )
+            if factors:
+                data_model_projection = transform_to_target_grid(
+                    *factors,
+                    orig_data,
+                    model_grid.XC.shape,
+                    operation=self.mapping_operation,
+                )
+            else:
+                # No factors means along track source data
+                lons = np.mod(ds["longitude"].values + 180, 360) - 180
+                lats = ds["latitude"].values
+                source_def = SwathDefinition(lons=lons, lats=lats)
+                lon_shape = model_grid.XC.values.shape
+                target_def = SwathDefinition(lons=model_grid.XC.values.ravel(), lats=model_grid.YC.values.ravel())
+
+                data_model_projection = transform_along_track_to_grid(orig_data, source_def, target_def, lon_shape)
 
             # put the new data values into the data_DA array.
             # --where the mapped data are not nan, replace the original values
@@ -190,8 +199,10 @@ class Transformation(Dataset):
                 time_start = str(ds[self.time_bounds_var].values.ravel()[0])
                 time_end = str(ds[self.time_bounds_var].values.ravel()[0])
             else:
-                logger.info(f"time_bounds_var {self.time_bounds_var} does not exist in file but is defined in config. \
-                    Using other method for obtaining start/end times.")
+                logger.info(
+                    f"time_bounds_var {self.time_bounds_var} does not exist in file but is defined in config. \
+                    Using other method for obtaining start/end times."
+                )
 
         else:
             time_start = self.date
@@ -209,27 +220,27 @@ class Transformation(Dataset):
         data_DA.time_end.values[0] = time_end.replace("Z", "")
 
         if "time" in ds:
-            data_DA.time.values[0] = ds["time"].values.ravel()[0]
+            data_DA["time"].values[0] = ds["time"].values.ravel()[0]
         elif "Time" in ds:
-            data_DA.time.values[0] = ds["Time"].values.ravel()[0]
+            data_DA["time"].values[0] = ds["Time"].values.ravel()[0]
         else:
-            data_DA.time.values[0] = self.date
+            data_DA["time"].values[0] = self.date
 
         data_DA.attrs["notes"] = record_notes
-        data_DA.attrs["original_time"] = str(data_DA.time.values[0])
-        data_DA.attrs["original_time_start"] = str(data_DA.time_start.values[0])
-        data_DA.attrs["original_time_end"] = str(data_DA.time_end.values[0])
+        data_DA.attrs["original_time"] = str(data_DA["time"].values[0])
+        data_DA.attrs["original_time_start"] = str(data_DA["time_start"].values[0])
+        data_DA.attrs["original_time_end"] = str(data_DA["time_end"].values[0])
 
         return data_DA
 
-    def transform(self, model_grid: xr.Dataset, factors: Tuple, ds: xr.Dataset) -> Iterable[Tuple[xr.Dataset, bool]]:
+    def transform(self, target_grid: Grid, factors: Optional[Tuple], ds: xr.Dataset) -> list[Tuple[xr.Dataset, bool]]:
         """
         Function that actually performs the transformations. Returns a list of transformed
         xarray datasets, one dataset for each field being transformed for the given grid.
         """
         logger = logging.getLogger(str(current_process().pid))
 
-        logger.info(f"Transforming {len(self.fields)} fields on {self.date} to {model_grid.name}")
+        logger.info(f"Transforming {len(self.fields)} fields on {self.date} to {target_grid.name}")
 
         record_date = self.date.replace("Z", "")
 
@@ -250,25 +261,19 @@ class Transformation(Dataset):
 
             if field.name in ds.data_vars:
                 try:
-                    field_DA = self.perform_mapping(ds, factors, field, model_grid)
+                    field_DA = self.perform_mapping(ds, factors, field, target_grid.ds)
                     mapping_success = True
                 except Exception as e:
                     logger.exception(f"Transformation failed: {e}")
-                    field_DA = records.make_empty_record(record_date, model_grid)
-                    field_DA.attrs["long_name"] = field.long_name
-                    field_DA.attrs["standard_name"] = field.standard_name
-                    field_DA.attrs["units"] = field.units
-                    field_DA.attrs["empty_record_note"] = "Transformation failed"
+                    self._make_empty_field_record(record_date, target_grid.ds, field, "Transformation failed")
                     mapping_success = False
             else:
                 logger.error(
                     f"Transformation failed: key {field.name} is missing from source data. Making empty record."
                 )
-                field_DA = records.make_empty_record(record_date, model_grid)
-                field_DA.attrs["long_name"] = field.long_name
-                field_DA.attrs["standard_name"] = field.standard_name
-                field_DA.attrs["units"] = field.units
-                field_DA.attrs["empty_record_note"] = f"{field.name} missing from source data"
+                self._make_empty_field_record(
+                    record_date, target_grid.ds, field, f"{field.name} missing from source data"
+                )
                 mapping_success = True
 
             # =====================================================
@@ -284,11 +289,7 @@ class Transformation(Dataset):
                         field_DA.attrs["valid_max"] = np.nanmax(field_DA.values)
                 except Exception as e:
                     logger.exception(f"Post-transformation failed: {e}")
-                    field_DA = records.make_empty_record(record_date, model_grid)
-                    field_DA.attrs["long_name"] = field.long_name
-                    field_DA.attrs["standard_name"] = field.standard_name
-                    field_DA.attrs["units"] = field.units
-                    field_DA.attrs["empty_record_note"] = "Post transformation(s) failed"
+                    self._make_empty_field_record(record_date, target_grid.ds, field, "Post transformation(s) failed")
                     mapping_success = False
 
             field_DA.values = np.where(np.isnan(field_DA.values), NETCDF_FILL_VALUE, field_DA.values)
@@ -298,14 +299,14 @@ class Transformation(Dataset):
 
             # Dataset metadata
             ds_meta = {
-                "interpolated_grid": model_grid.name,
-                "model_grid_type": model_grid.type,
+                "interpolated_grid": target_grid.name,
+                "model_grid_type": target_grid.type,
                 "original_dataset_title": self.og_ds_metadata.get("original_dataset_title"),
                 "original_dataset_short_name": self.og_ds_metadata.get("original_dataset_short_name"),
                 "original_dataset_url": self.og_ds_metadata.get("original_dataset_url"),
                 "original_dataset_reference": self.og_ds_metadata.get("original_dataset_reference"),
                 "original_dataset_doi": self.og_ds_metadata.get("original_dataset_doi"),
-                "interpolated_grid_id": model_grid.name,
+                "interpolated_grid_id": target_grid.name,
                 "transformation_version": self.transformation_version,
                 "notes": self.note,
             }
@@ -314,37 +315,37 @@ class Transformation(Dataset):
 
             # add time_bnds coordinate
             # [start_time, end_time] dimensions
-            start_time = field_DS.time_start.values
-            end_time = field_DS.time_end.values
+            start_time = field_DS["time_start"].values
+            end_time = field_DS["time_end"].values
 
             time_bnds = np.array([start_time, end_time], dtype="datetime64")
             time_bnds = time_bnds.T
             field_DS = field_DS.assign_coords({"time_bnds": (["time", "nv"], time_bnds)})
 
-            field_DS.time.attrs.update(bounds="time_bnds")
+            field_DS["time"].attrs.update(bounds="time_bnds")
 
             # time stuff
             data_time_scale = self.data_time_scale
             if data_time_scale == "daily":
                 period = "AVG_DAY"
-                rec_end = field_DS.time_bnds.values[0][1]
+                rec_end = field_DS["time_bnds"].values[0][1]
             elif data_time_scale == "monthly":
                 period = "AVG_MON"
                 cur_year = int(self.date[:4])
                 cur_month = int(self.date[5:7])
 
                 if cur_month < 12:
-                    rec_end = np.datetime64(f"{cur_year}-{str(cur_month+1).zfill(2)}-01", "ns")
+                    rec_end = np.datetime64(f"{cur_year}-{str(cur_month + 1).zfill(2)}-01", "ns")
                 else:
-                    rec_end = np.datetime64(f"{cur_year+1}-01-01", "ns")
+                    rec_end = np.datetime64(f"{cur_year + 1}-01-01", "ns")
 
             if "DEBIAS_LOCEAN" in self.ds_name:
                 rec_end = field_DS.time.values[0] + np.timedelta64(1, "D")
 
-            tb = records.TimeBound(rec_avg_end=rec_end, period=period)
-            field_DS.time.values[0] = tb.center
-            field_DS.time_bnds.values[0][0] = tb.bounds[0]
-            field_DS.time_bnds.values[0][1] = tb.bounds[1]
+            tb = TimeBound(rec_avg_end=rec_end, period=period)
+            field_DS["time"].values[0] = tb.center
+            field_DS["time_bnds"].values[0][0] = tb.bounds[0]
+            field_DS["time_bnds"].values[0][1] = tb.bounds[1]
 
             field_DS = field_DS.drop("time_start")
             field_DS = field_DS.drop("time_end")
@@ -434,12 +435,12 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
     logger.debug(f"{T.file_name} needs to transform: {grid_fields} ")
 
     # Iterate through grids in remaining_transformations
-    for grid_name in tx_jobs.keys():
-        fields: Iterable[Field] = tx_jobs[grid_name]
-
+    for grid_name, fields in tx_jobs.items():
         logger.debug(f"Loading {grid_name} model grid")
         grid_ds = xr.open_dataset(f"grids/{grid_name}.nc").reset_coords()
-        factors = T.make_factors(grid_ds)
+        target_grid = Grid(grid_ds)
+
+        # Populate entries in Solr to track job status
         T.prepopulate_solr(source_file_path, grid_name)
 
         # =====================================================
@@ -447,8 +448,13 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
         # =====================================================
         logger.debug(f"Running transformations for {T.file_name}")
 
+        if T.data_type != "along_track":
+            factors = T.make_factors(target_grid)
+        else:
+            factors = None
+
         # Returns list of transformed DSs, one for each field in fields
-        field_DSs = T.transform(grid_ds, factors, ds)
+        field_DSs = T.transform(target_grid, factors, ds)
 
         # =====================================================
         # Save the output in netCDF format
@@ -470,7 +476,7 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
             transformed_location = os.path.join(output_path, output_filename)
 
             # save field_DS
-            records.save_netcdf(field_DS, output_filename, output_path)
+            save_netcdf(field_DS, output_filename, output_path)
 
             # Query Solr for transformation entry
             query_fq = [
@@ -509,7 +515,7 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
 
             if r.status_code != 200:
                 logger.exception(
-                    f'Failed to update Solr transformation entry for {field["name"]} in {T.ds_name} on {T.date}'
+                    f"Failed to update Solr transformation entry for {field['name']} in {T.ds_name} on {T.date}"
                 )
 
             if success and grid_name not in grids_updated:

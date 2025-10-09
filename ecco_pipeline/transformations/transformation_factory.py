@@ -5,16 +5,15 @@ from multiprocessing import Pool, cpu_count, current_process
 from typing import Iterable
 
 import xarray as xr
-import baseclasses
-from transformations.grid_transformation import Transformation, transform
-from utils.pipeline_utils import log_config, solr_utils
+
+from ecco_pipeline.baseclasses import Config, Dataset
+from ecco_pipeline.transformations.grid_transformation import Transformation, transform
+from ecco_pipeline.utils.pipeline_utils import log_config, solr_utils
 
 logger = logging.getLogger("pipeline")
 
 
-def multiprocess_transformation(
-    config: dict, granule: dict, tx_jobs: dict, log_level: str, log_dir: str
-):
+def multiprocess_transformation(config: dict, granule: dict, tx_jobs: dict, log_level: str, log_dir: str):
     """
     Callable function that performs the actual transformation on a granule.
     """
@@ -28,36 +27,34 @@ def multiprocess_transformation(
 
     # Skips granules that weren't harvested properly
     if not granule_filepath or granule.get("file_size_l") < 100:
-        logger.exception(
-            f"Granule {granule_filepath} was not harvested properly. Skipping."
-        )
+        logger.exception(f"Granule {granule_filepath} was not harvested properly. Skipping.")
         return
 
     # Perform remaining transformations
     try:
         logger.info(
-            f'{sum([len(v) for v in tx_jobs.values()])} remaining transformations for {granule_filepath.split("/")[-1]}'
+            f"{sum([len(v) for v in tx_jobs.values()])} remaining transformations for {granule_filepath.split('/')[-1]}"
         )
         transform(granule_filepath, tx_jobs, config, granule_date)
     except Exception as e:
         logger.exception(f"Error transforming {granule_filepath}: {e}")
 
 
-class TxJobFactory(baseclasses.Dataset):
+class TxJobFactory(Dataset):
     def __init__(self, config: dict) -> None:
         super().__init__(config)
         self.config = config
-        self.user_cpus = baseclasses.Config.user_cpus
+        self.user_cpus = Config.user_cpus
         self.harvested_granules = solr_utils.solr_query(
             [f"dataset_s:{self.ds_name}", "type_s:granule", "harvest_success_b:true"]
         )
 
-        if not baseclasses.Config.grids_to_use:
+        if not Config.grids_to_use:
             fq = ["type_s:grid"]
             docs = solr_utils.solr_query(fq)
             self.grids = [doc["grid_name_s"] for doc in docs]
         else:
-            self.grids = baseclasses.Config.grids_to_use
+            self.grids = Config.grids_to_use
         if "hemi_pattern" in self.config:
             logger.info("Skipping job creation for TPOSE grid on sea ice data.")
             self.grids = [grid for grid in self.grids if "TPOSE" not in grid]
@@ -76,11 +73,10 @@ class TxJobFactory(baseclasses.Dataset):
         return pipeline_status
 
     def initialize_jobs(self):
-        self.pregenerate_factors()
+        if self.config["data_type"] != "along_track":
+            self.pregenerate_factors()
         self.job_params = self.generate_jobs()
-        logger.info(
-            f"{len(self.job_params)} harvested granules with remaining transformations."
-        )
+        logger.info(f"{len(self.job_params)} harvested granules with remaining transformations.")
 
     def execute_jobs(self):
         if self.job_params:
@@ -89,12 +85,8 @@ class TxJobFactory(baseclasses.Dataset):
                 for job_param in self.job_params:
                     multiprocess_transformation(*job_param)
             else:
-                user_cpus = min(
-                    self.user_cpus, int(cpu_count() / 4), len(self.job_params)
-                )
-                logger.info(
-                    f"Using {user_cpus} CPUs to do {len(self.job_params)} multiprocess transformation jobs"
-                )
+                user_cpus = min(self.user_cpus, int(cpu_count() / 4), len(self.job_params))
+                logger.info(f"Using {user_cpus} CPUs to do {len(self.job_params)} multiprocess transformation jobs")
 
                 with Pool(processes=user_cpus) as pool:
                     pool.starmap_async(multiprocess_transformation, self.job_params)
@@ -121,9 +113,7 @@ class TxJobFactory(baseclasses.Dataset):
         elif not successful_transformations:
             transformation_status = "No successful transformations"
         elif failed_transformations:
-            transformation_status = (
-                f"{len(failed_transformations)} transformations failed"
-            )
+            transformation_status = f"{len(failed_transformations)} transformations failed"
 
         # Update Solr dataset entry status to transformed
         update_body = [
@@ -136,13 +126,9 @@ class TxJobFactory(baseclasses.Dataset):
         r = solr_utils.solr_update(update_body, r=True)
 
         if r.status_code == 200:
-            logger.debug(
-                f"Successfully updated Solr with transformation information for {self.ds_name}"
-            )
+            logger.debug(f"Successfully updated Solr with transformation information for {self.ds_name}")
         else:
-            logger.exception(
-                f"Failed to update Solr with transformation information for {self.ds_name}"
-            )
+            logger.exception(f"Failed to update Solr with transformation information for {self.ds_name}")
 
         return transformation_status
 
@@ -154,9 +140,7 @@ class TxJobFactory(baseclasses.Dataset):
         for grid in self.grids:
             for granule in self.find_data_for_factors():
                 grid_ds = xr.open_dataset(f"grids/{grid}.nc")
-                T = Transformation(
-                    self.config, granule["pre_transformation_file_path_s"], "1972-01-01"
-                )
+                T = Transformation(self.config, granule["pre_transformation_file_path_s"], "1972-01-01")
                 T.make_factors(grid_ds)
 
     def find_data_for_factors(self) -> Iterable[dict]:
@@ -168,6 +152,7 @@ class TxJobFactory(baseclasses.Dataset):
         nh_added = False
         sh_added = False
         hemi_pattern = self.config.get("hemi_pattern", "")
+
         # Find appropriate granule(s) to use for factor calculation
         for granule in self.harvested_granules:
             file_path = granule.get("pre_transformation_file_path_s")
@@ -184,16 +169,12 @@ class TxJobFactory(baseclasses.Dataset):
             elif file_path:
                 data_for_factors.append(granule)
                 return data_for_factors
-        raise RuntimeError(
-            "Unable to find sufficient data in order to pregenerate mapping factors."
-        )
+        raise RuntimeError("Unable to find sufficient data in order to pregenerate mapping factors.")
 
     def generate_jobs(self):
         logger.info("Generating jobs...")
         log_level = logging.getLevelName(logging.getLogger("pipeline").level)
-        log_dir = os.path.dirname(
-            logging.getLogger("pipeline").handlers[0].baseFilename
-        )
+        log_dir = os.path.dirname(logging.getLogger("pipeline").handlers[0].baseFilename)
         log_dir = os.path.join(log_dir[log_dir.find("logs/") :], f"tx_{self.ds_name}")
 
         all_jobs = self.get_tx_jobs()

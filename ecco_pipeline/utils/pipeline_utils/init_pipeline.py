@@ -7,11 +7,12 @@ import requests
 import netrc
 import xarray as xr
 from datetime import datetime
-from utils.pipeline_utils import solr_utils, config_validator, log_config, file_utils
-import baseclasses
+
+from ecco_pipeline.utils.pipeline_utils import solr_utils, config_validator, log_config, file_utils
+from ecco_pipeline.baseclasses import set_cpus, set_grids
 
 try:
-    from conf.global_settings import OUTPUT_DIR, SOLR_COLLECTION, GRIDS
+    from ecco_pipeline.conf.global_settings import OUTPUT_DIR, SOLR_COLLECTION, GRIDS
 except ImportError:
     raise ImportError(
         "Missing global_settings.py file. See ecco_pipeline/conf/global_settings.py.example for more info."
@@ -225,7 +226,7 @@ def init_pipeline(args: Namespace):
         grids_to_use = args.grids_to_use
     else:
         grids_to_use = GRIDS
-    baseclasses.set_grids(grids_to_use)
+    set_grids(grids_to_use)
 
     if args.grids_to_solr or solr_utils.check_grids():
         try:
@@ -245,7 +246,7 @@ def init_pipeline(args: Namespace):
         wipe_factors()
 
     user_cpus = args.multiprocesses
-    baseclasses.set_cpus(user_cpus)
+    set_cpus(user_cpus)
     logger.debug(f"Using {user_cpus} processes for multiprocess transformations")
 
     return grids_to_use, user_cpus

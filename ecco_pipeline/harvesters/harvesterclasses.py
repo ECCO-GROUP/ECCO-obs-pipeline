@@ -2,9 +2,9 @@ import logging
 import os
 from datetime import datetime
 
-from baseclasses import Dataset
-from conf.global_settings import OUTPUT_DIR
-from utils.pipeline_utils import file_utils, solr_utils
+from ecco_pipeline.baseclasses import Dataset
+from ecco_pipeline.conf.global_settings import OUTPUT_DIR
+from ecco_pipeline.utils.pipeline_utils import file_utils, solr_utils
 
 logger = logging.getLogger("pipeline")
 

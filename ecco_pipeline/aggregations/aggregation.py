@@ -6,15 +6,17 @@ import warnings
 from collections import defaultdict
 from datetime import datetime, timedelta
 from multiprocessing import current_process
-from typing import Iterable
+from typing import Iterable, Optional
+import time
 
 import netCDF4 as nc4
 import numpy as np
 import xarray as xr
-from baseclasses import Dataset, Field
-from conf.global_settings import OUTPUT_DIR
-from utils.pipeline_utils import solr_utils
-from utils.processing_utils import records
+
+from ecco_pipeline.baseclasses import Dataset, Field, Grid
+from ecco_pipeline.conf.global_settings import OUTPUT_DIR
+from ecco_pipeline.utils.pipeline_utils import solr_utils
+from ecco_pipeline.utils.processing_utils import records
 
 logger = logging.getLogger(str(current_process().pid))
 
@@ -31,9 +33,7 @@ class Aggregation(Dataset):
         super().__init__(config)
         self.version: str = str(config.get("a_version", ""))
         self.do_monthly_aggregation: bool = config.get("do_monthly_aggregation", False)
-        self.remove_nan_days_from_data: bool = config.get(
-            "remove_nan_days_from_data", True
-        )
+        self.remove_nan_days_from_data: bool = config.get("remove_nan_days_from_data", True)
         self.skipna_in_mean: bool = config.get("skipna_in_mean", False)
         self.transformations: Iterable[dict] = defaultdict(list)
         self._set_ds_meta()
@@ -52,14 +52,12 @@ class Aggregation(Dataset):
             raise Exception("No transformed granules to aggregate.")
         self.ds_meta = ds_meta
 
-    def make_empty_date(
-        self, date: str, model_grid_ds: xr.Dataset, grid: dict
-    ) -> xr.Dataset:
+    def make_empty_date(self, date: str, grid_ds: xr.Dataset, grid: dict) -> xr.Dataset:
         """
         Creates "empty record" and fills in relevant metadata
         """
-        data_da = records.make_empty_record(date, model_grid_ds)
-        data_da.name = f'{self.field.name}_interpolated_to_{grid.get("grid_name_s")}'
+        data_da = records.make_empty_record(date, grid_ds)
+        data_da.name = f"{self.field.name}_interpolated_to_{grid.get('grid_name_s')}"
         data_ds = data_da.to_dataset()
 
         # add time_bnds coordinate
@@ -76,9 +74,7 @@ class Aggregation(Dataset):
         data_ds = data_ds.drop(["time_start", "time_end"])
         return data_ds
 
-    def generate_provenance(
-        self, grid_name, solr_output_filepaths, aggregation_successes
-    ):
+    def generate_provenance(self, grid_name, solr_output_filepaths, aggregation_successes):
         # Query for descendants entries from this year
         fq = ["type_s:descendants", f"dataset_s:{self.ds_name}", f"date_s:{self.year}*"]
         existing_descendants_docs = solr_utils.solr_query(fq)
@@ -96,9 +92,7 @@ class Aggregation(Dataset):
 
                 # Add aggregation file path fields to descendants entry
                 for key, value in solr_output_filepaths.items():
-                    temp_doc[
-                        f"{grid_name}_{self.field.name}_aggregated_{key}_path_s"
-                    ] = {"set": value}
+                    temp_doc[f"{grid_name}_{self.field.name}_aggregated_{key}_path_s"] = {"set": value}
                 update_body.append(temp_doc)
 
             r = solr_utils.solr_update(update_body, r=True)
@@ -118,17 +112,13 @@ class Aggregation(Dataset):
         docs = solr_utils.solr_query(fq)
 
         # Export annual descendants JSON file for each aggregation created
-        logger.debug(
-            f"Exporting {self.year} descendants for grid {grid_name} and field {self.field.name}"
-        )
+        logger.debug(f"Exporting {self.year} descendants for grid {grid_name} and field {self.field.name}")
         json_output = {}
         json_output["dataset"] = self.ds_meta
         json_output["aggregation"] = docs
         json_output["transformations"] = self.transformations[self.field.name]
 
-        json_filename = (
-            f"{self.ds_name}_{self.field.name}_{grid_name}_{self.year}_descendants.json"
-        )
+        json_filename = f"{self.ds_name}_{self.field.name}_{grid_name}_{self.year}_descendants.json"
         json_output_path = os.path.join(
             OUTPUT_DIR,
             self.ds_name,
@@ -147,7 +137,7 @@ class Aggregation(Dataset):
             f"dataset_s:{self.ds_name}",
             "type_s:transformation",
             "success_b:True",
-            f'grid_name_s:{self.grid["grid_name_s"]}',
+            f"grid_name_s:{self.grid['grid_name_s']}",
             f"field_s:{self.field.name}",
             f"date_s:{self.year}*",
         ]
@@ -168,32 +158,47 @@ class Aggregation(Dataset):
             transformation_metadata["harvested"] = harvested_metadata
             self.transformations[self.field.name].append(transformation_metadata)
         return filepaths
+    
+    def process_date(self, date, paths):
+        if len(paths) == 1:
+            return xr.open_dataset(paths[0])
+        elif len(paths) == 2:
+            assert False
+            ds1 = xr.open_dataset(paths[0])
+            ds2 = xr.open_dataset(paths[1])
+            var = list(ds1.data_vars)[0]
+            merged_var = xr.where(ds1[var].notnull(), ds1[var], ds2[var])
+            ds = ds1.copy()
+            ds[var] = merged_var
+            ds1.close()
+            ds2.close()
+            return ds  # still lazy, no data loaded yet
 
-    def open_and_concat(self, filepaths: dict):
-        opened_files = []
-        dates = sorted(list(filepaths.keys()))
-        for date in dates:
-            files = filepaths[date]
-            if len(files) == 1:
-                opened_files.append(xr.open_dataset(files[0]))
-            else:
-                f1 = xr.open_dataset(files[0])
-                f2 = xr.open_dataset(files[1])
-                var = list(f1.keys())[0]
-                if np.isnan(f1[var].values).all():
-                    if np.isnan(f2[var].values).all():
-                        opened_files.append(f1)
-                    else:
-                        f2[var].values = np.where(
-                            np.isnan(f2[var].values), f1[var].values, f2[var].values
-                        )
-                        opened_files.append(f2)
-                else:
-                    f1[var].values = np.where(
-                        np.isnan(f1[var].values), f2[var].values, f1[var].values
-                    )
-                    opened_files.append(f1)
-        ds = xr.concat(opened_files, dim="time")
+    def open_and_concat(self, filepaths: dict, hemi_pattern: Optional[dict[str, str]]):
+        
+        if hemi_pattern:
+            north_files = []
+            south_files = []
+            for date, fp_list in filepaths.items():
+                for fp in fp_list:
+                    if hemi_pattern["north"] in fp:
+                        north_files.append(fp)
+                    elif hemi_pattern["south"] in fp:
+                        south_files.append(fp)
+            sorted_paths = sorted(north_files)
+            north_ds = xr.open_mfdataset(sorted_paths, engine="h5netcdf")
+            sorted_paths = sorted(south_files)
+            south_ds = xr.open_mfdataset(sorted_paths, engine="h5netcdf")
+            var = list(north_ds.data_vars)[0]
+            merged_var = xr.where(north_ds[var].notnull(), north_ds[var], south_ds[var])
+            ds = north_ds.copy()
+            ds[var] = merged_var
+            north_ds.close()
+            south_ds.close()  
+        else:
+            sorted_paths = sorted([x[0] for x in filepaths.values()])
+            ds = xr.open_mfdataset(sorted_paths, engine="h5netcdf")
+            ds.load()
         return ds
 
     def get_missing_dates(self) -> Iterable[str]:
@@ -201,7 +206,7 @@ class Aggregation(Dataset):
             f"dataset_s:{self.ds_name}",
             "type_s:transformation",
             "success_b:True",
-            f'grid_name_s:{self.grid["grid_name_s"]}',
+            f"grid_name_s:{self.grid['grid_name_s']}",
             f"field_s:{self.field.name}",
             f"date_s:{self.year}*",
         ]
@@ -212,13 +217,11 @@ class Aggregation(Dataset):
 
         if data_time_scale == "daily":
             dates_in_year = np.arange(
-                f"{self.year}-01-01", f"{int(self.year)+1}-01-01", dtype="datetime64[D]"
+                f"{self.year}-01-01", f"{int(self.year) + 1}-01-01", dtype="datetime64[D]"
             ).astype(str)
             missing_dates = sorted(list(set(dates_in_year) - set(doc_dates)))
         elif data_time_scale == "monthly":
-            dates_in_year = [
-                f"{self.year}-{str(month).zfill(2)}-01" for month in range(1, 13)
-            ]
+            dates_in_year = [f"{self.year}-{str(month).zfill(2)}-01" for month in range(1, 13)]
             missing_dates = []
             for date in dates_in_year:
                 if date in doc_dates:
@@ -250,11 +253,9 @@ class Aggregation(Dataset):
             # if Jan-Nov, then we'll go forward one month to Feb-Dec
             # for december we go up one year, and set month to january
             if month < 12:
-                cur_mon_year = np.datetime64(
-                    f"{self.year}-{str(month+1).zfill(2)}-01", "ns"
-                )
+                cur_mon_year = np.datetime64(f"{self.year}-{str(month + 1).zfill(2)}-01", "ns")
             else:
-                cur_mon_year = np.datetime64(f"{int(self.year)+1}-01-01", "ns")
+                cur_mon_year = np.datetime64(f"{int(self.year) + 1}-01-01", "ns")
 
             mon_str = str(self.year) + "-" + str(month).zfill(2)
             cur_mon = ds[var].sel(time=mon_str)
@@ -289,9 +290,7 @@ class Aggregation(Dataset):
 
             mon_DS_year.append(mon_DS)
 
-        mon_DS_year_merged = xr.concat(
-            (mon_DS_year), dim="time", combine_attrs="no_conflicts"
-        )
+        mon_DS_year_merged = xr.concat((mon_DS_year), dim="time", combine_attrs="no_conflicts")
 
         attrs["time_coverage_duration"] = "P1M"
         attrs["time_coverage_resolution"] = "P1M"
@@ -311,16 +310,17 @@ class Aggregation(Dataset):
         grid_name = self.grid["grid_name_s"]
         grid_type = self.grid["grid_type_s"]
 
-        model_grid_ds = xr.open_dataset(grid_path, decode_times=True)
+        grid_ds = xr.open_dataset(grid_path, decode_times=True)
+        target_grid = Grid(grid_ds)
 
         logger.info(f"Aggregating {str(self.year)}_{grid_name}_{self.field.name}")
 
         logger.info("Collecting filepaths from Solr")
         transformation_fps = self.get_filepaths()
-        logger.info(
-            f"Opening and concatenating {len(transformation_fps)} transformation files..."
-        )
-        daily_annual_ds = self.open_and_concat(transformation_fps)
+        
+        logger.info(f"Opening and concatenating {len(transformation_fps)} transformation files...")
+
+        daily_annual_ds = self.open_and_concat(transformation_fps, self.hemi_pattern)
 
         logger.info(
             "Polling for missing dates, creating ds of empty records, and combining with concatenated transformation files..."
@@ -328,10 +328,7 @@ class Aggregation(Dataset):
         missing_dates = self.get_missing_dates()
         logger.debug(f"Making empty records for {missing_dates}")
         if missing_dates:
-            empty_records = [
-                self.make_empty_date(date, model_grid_ds, self.grid)
-                for date in sorted(missing_dates)
-            ]
+            empty_records = [self.make_empty_date(date, target_grid.ds, self.grid) for date in sorted(missing_dates)]
             missing_dates_ds = xr.concat(empty_records, dim="time")
             daily_annual_ds = xr.concat([daily_annual_ds, missing_dates_ds], dim="time")
         daily_annual_ds = daily_annual_ds.sortby(daily_annual_ds.time)
@@ -342,17 +339,11 @@ class Aggregation(Dataset):
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
-            daily_annual_ds[data_var].attrs["valid_min"] = np.nanmin(
-                daily_annual_ds[data_var].values
-            )
-            daily_annual_ds[data_var].attrs["valid_max"] = np.nanmax(
-                daily_annual_ds[data_var].values
-            )
+            daily_annual_ds[data_var].attrs["valid_min"] = np.nanmin(daily_annual_ds[data_var].values)
+            daily_annual_ds[data_var].attrs["valid_max"] = np.nanmax(daily_annual_ds[data_var].values)
 
         remove_keys = [
-            k
-            for k in daily_annual_ds[data_var].attrs.keys()
-            if "original" in k and k != "original_field_name"
+            k for k in daily_annual_ds[data_var].attrs.keys() if "original" in k and k != "original_field_name"
         ]
         for key in remove_keys:
             del daily_annual_ds[data_var].attrs[key]
@@ -362,9 +353,7 @@ class Aggregation(Dataset):
         # Create filenames based on date time scale
         # If data time scale is monthly, shortest_filename is monthly
         shortest_filename = f"{self.ds_name}_{grid_name}_{data_time_scale.upper()}_{self.field.name}_{self.year}"
-        monthly_filename = (
-            f"{self.ds_name}_{grid_name}_MONTHLY_{self.field.name}_{self.year}"
-        )
+        monthly_filename = f"{self.ds_name}_{grid_name}_MONTHLY_{self.field.name}_{self.year}"
 
         output_path = f"{OUTPUT_DIR}/{self.ds_name}/transformed_products/{grid_name}/aggregated/{self.field.name}/"
 
@@ -384,16 +373,10 @@ class Aggregation(Dataset):
             empty_year = True
         else:
             if self.do_monthly_aggregation:
-                logger.info(
-                    f"Aggregating monthly {str(self.year)}_{grid_name}_{self.field.name}"
-                )
+                logger.info(f"Aggregating monthly {str(self.year)}_{grid_name}_{self.field.name}")
                 try:
-                    mon_DS_year_merged = self.monthly_aggregation(
-                        daily_annual_ds, data_var, uuids[1]
-                    )
-                    mon_DS_year_merged[data_var] = mon_DS_year_merged[data_var].fillna(
-                        NETCDF_FILL_VALUE
-                    )
+                    mon_DS_year_merged = self.monthly_aggregation(daily_annual_ds, data_var, uuids[1])
+                    mon_DS_year_merged[data_var] = mon_DS_year_merged[data_var].fillna(NETCDF_FILL_VALUE)
 
                     records.save_binary(
                         mon_DS_year_merged,
@@ -402,9 +385,7 @@ class Aggregation(Dataset):
                         grid_type,
                         data_var,
                     )
-                    records.save_netcdf(
-                        mon_DS_year_merged, f"{monthly_filename}.nc", netCDF_output_dir
-                    )
+                    records.save_netcdf(mon_DS_year_merged, f"{monthly_filename}.nc", netCDF_output_dir)
 
                 except Exception as e:
                     logger.exception(f"Error aggregating {self.ds_name}. {e}")
@@ -413,27 +394,17 @@ class Aggregation(Dataset):
 
             daily_annual_ds.attrs["uuid"] = uuids[0]
             daily_annual_ds.attrs["time_coverage_duration"] = "P1Y"
-            daily_annual_ds.attrs["time_coverage_start"] = str(
-                daily_annual_ds.time_bnds.values[0][0]
-            )[0:19]
-            daily_annual_ds.attrs["time_coverage_end"] = str(
-                daily_annual_ds.time_bnds.values[-1][-1]
-            )[0:19]
+            daily_annual_ds.attrs["time_coverage_start"] = str(daily_annual_ds.time_bnds.values[0][0])[0:19]
+            daily_annual_ds.attrs["time_coverage_end"] = str(daily_annual_ds.time_bnds.values[-1][-1])[0:19]
             if data_time_scale.upper() == "DAILY":
                 daily_annual_ds.attrs["time_coverage_resolution"] = "P1D"
             elif data_time_scale.upper() == "MONTHLY":
                 daily_annual_ds.attrs["time_coverage_resolution"] = "P1M"
 
-            daily_annual_ds[data_var] = daily_annual_ds[data_var].fillna(
-                NETCDF_FILL_VALUE
-            )
+            daily_annual_ds[data_var] = daily_annual_ds[data_var].fillna(NETCDF_FILL_VALUE)
 
-            records.save_binary(
-                daily_annual_ds, shortest_filename, bin_output_dir, grid_type, data_var
-            )
-            records.save_netcdf(
-                daily_annual_ds, f"{shortest_filename}.nc", netCDF_output_dir
-            )
+            records.save_binary(daily_annual_ds, shortest_filename, bin_output_dir, grid_type, data_var)
+            records.save_netcdf(daily_annual_ds, f"{shortest_filename}.nc", netCDF_output_dir)
 
         aggregation_successes = aggregation_successes and success
         empty_year = empty_year and success
@@ -448,13 +419,9 @@ class Aggregation(Dataset):
         else:
             solr_output_filepaths = {
                 "daily_bin": os.path.join(output_path, "bin", f"{shortest_filename}"),
-                "daily_netCDF": os.path.join(
-                    output_path, "net", f"{shortest_filename}.nc"
-                ),
+                "daily_netCDF": os.path.join(output_path, "net", f"{shortest_filename}.nc"),
                 "monthly_bin": os.path.join(output_path, "bin", f"{monthly_filename}"),
-                "monthly_netCDF": os.path.join(
-                    output_path, "net", f"{monthly_filename}.nc"
-                ),
+                "monthly_netCDF": os.path.join(output_path, "net", f"{monthly_filename}.nc"),
             }
 
         # Query Solr for existing aggregation
@@ -472,9 +439,7 @@ class Aggregation(Dataset):
             doc_id = docs[0]["id"]
             update_doc = {
                 "id": doc_id,
-                "aggregation_time_dt": {
-                    "set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-                },
+                "aggregation_time_dt": {"set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")},
                 "aggregation_version_s": {"set": self.version},
             }
         else:
@@ -491,26 +456,16 @@ class Aggregation(Dataset):
 
         # Update file paths according to the data time scale and do monthly aggregation config field
         if data_time_scale == "daily":
-            update_doc["aggregated_daily_bin_path_s"] = {
-                "set": solr_output_filepaths["daily_bin"]
-            }
-            update_doc["aggregated_daily_netCDF_path_s"] = {
-                "set": solr_output_filepaths["daily_netCDF"]
-            }
+            update_doc["aggregated_daily_bin_path_s"] = {"set": solr_output_filepaths["daily_bin"]}
+            update_doc["aggregated_daily_netCDF_path_s"] = {"set": solr_output_filepaths["daily_netCDF"]}
             update_doc["daily_aggregated_uuid_s"] = {"set": uuids[0]}
         if data_time_scale == "monthly" or self.do_monthly_aggregation:
-            update_doc["aggregated_monthly_bin_path_s"] = {
-                "set": solr_output_filepaths["monthly_bin"]
-            }
-            update_doc["aggregated_monthly_netCDF_path_s"] = {
-                "set": solr_output_filepaths["monthly_netCDF"]
-            }
+            update_doc["aggregated_monthly_bin_path_s"] = {"set": solr_output_filepaths["monthly_bin"]}
+            update_doc["aggregated_monthly_netCDF_path_s"] = {"set": solr_output_filepaths["monthly_netCDF"]}
             update_doc["monthly_aggregated_uuid_s"] = {"set": uuids[1]}
 
         if empty_year:
-            update_doc["notes_s"] = {
-                "set": "Empty year (no data present in grid), not saving to disk."
-            }
+            update_doc["notes_s"] = {"set": "Empty year (no data present in grid), not saving to disk."}
         else:
             update_doc["notes_s"] = {"set": ""}
 
@@ -521,6 +476,4 @@ class Aggregation(Dataset):
                 f"Failed to update Solr aggregation entry for {self.field.name} in {self.ds_name} for {self.year} and grid {grid_name}"
             )
 
-        self.generate_provenance(
-            grid_name, solr_output_filepaths, aggregation_successes
-        )
+        self.generate_provenance(grid_name, solr_output_filepaths, aggregation_successes)
