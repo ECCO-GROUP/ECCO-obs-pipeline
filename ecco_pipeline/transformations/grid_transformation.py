@@ -357,9 +357,10 @@ class Transformation(Dataset):
         if self.preprocessing_function:
             func_machine = PreprocessingFuncs()
             ds = func_machine.call_function(self.preprocessing_function, source_file_path, self.fields)
+            ds.attrs["original_file_name"] = self.file_name
         else:
-            ds = xr.open_dataset(source_file_path, decode_times=True)
-        ds.attrs["original_file_name"] = self.file_name
+            with xr.open_dataset(source_file_path, decode_times=True) as ds:
+                ds.attrs["original_file_name"] = self.file_name
         return ds
 
     def prepopulate_solr(self, source_file_path: str, grid_name: str):
@@ -437,8 +438,8 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
     # Iterate through grids in remaining_transformations
     for grid_name, fields in tx_jobs.items():
         logger.debug(f"Loading {grid_name} model grid")
-        grid_ds = xr.open_dataset(f"grids/{grid_name}.nc").reset_coords()
-        target_grid = Grid(grid_ds)
+        with xr.open_dataset(f"grids/{grid_name}.nc").reset_coords() as grid_ds:
+            target_grid = Grid(grid_ds)
 
         # Populate entries in Solr to track job status
         T.prepopulate_solr(source_file_path, grid_name)
