@@ -7,7 +7,6 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from multiprocessing import current_process
 from typing import Iterable, Optional
-import time
 
 import netCDF4 as nc4
 import numpy as np
@@ -158,24 +157,10 @@ class Aggregation(Dataset):
             transformation_metadata["harvested"] = harvested_metadata
             self.transformations[self.field.name].append(transformation_metadata)
         return filepaths
-    
-    def process_date(self, date, paths):
-        if len(paths) == 1:
-            return xr.open_dataset(paths[0])
-        elif len(paths) == 2:
-            assert False
-            ds1 = xr.open_dataset(paths[0])
-            ds2 = xr.open_dataset(paths[1])
-            var = list(ds1.data_vars)[0]
-            merged_var = xr.where(ds1[var].notnull(), ds1[var], ds2[var])
-            ds = ds1.copy()
-            ds[var] = merged_var
-            ds1.close()
-            ds2.close()
-            return ds  # still lazy, no data loaded yet
 
     def open_and_concat(self, filepaths: dict, hemi_pattern: Optional[dict[str, str]]):
         
+        # Hemisphirical data needs to be merged onto a global grid
         if hemi_pattern:
             north_files = []
             south_files = []
