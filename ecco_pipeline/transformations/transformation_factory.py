@@ -1,7 +1,8 @@
 import logging
+import math
 import os
 from collections import defaultdict
-from multiprocessing import Pool, cpu_count, current_process
+from multiprocessing import Pool, current_process
 from typing import Iterable
 
 import xarray as xr
@@ -32,7 +33,7 @@ def multiprocess_transformation(config: dict, granule: dict, tx_jobs: dict, log_
 
     # Perform remaining transformations
     try:
-        logger.info(
+        logger.debug(
             f"{sum([len(v) for v in tx_jobs.values()])} remaining transformations for {granule_filepath.split('/')[-1]}"
         )
         transform(granule_filepath, tx_jobs, config, granule_date)
@@ -78,20 +79,27 @@ class TxJobFactory(Dataset):
         self.job_params = self.generate_jobs()
         logger.info(f"{len(self.job_params)} harvested granules with remaining transformations.")
 
-    def execute_jobs(self):
-        if self.job_params:
-            if self.user_cpus == 1:
-                logger.info("Not using multiprocessing to do transformation")
-                for job_param in self.job_params:
-                    multiprocess_transformation(*job_param)
-            else:
-                user_cpus = min(self.user_cpus, int(cpu_count() / 4), len(self.job_params))
-                logger.info(f"Using {user_cpus} CPUs to do {len(self.job_params)} multiprocess transformation jobs")
+    def execute_jobs(self, batch_size=15):
+        """
+        Execute transformation jobs in batches, refreshing the worker pool each batch.
+        """
+        total_jobs = len(self.job_params)
+        if total_jobs == 0:
+            logger.info("No jobs to run.")
+            return
 
-                with Pool(processes=user_cpus) as pool:
-                    pool.starmap_async(multiprocess_transformation, self.job_params)
-                    pool.close()
-                    pool.join()
+        num_batches = math.ceil(total_jobs / batch_size)
+        logger.info(f"Running {total_jobs} jobs in {num_batches} batches with batch size {batch_size}.")
+
+        for i in range(0, total_jobs, batch_size):
+            batch = self.job_params[i : i + batch_size]
+            logger.info(f"Starting batch {i // batch_size + 1} with {len(batch)} jobs.")
+
+            # Each element in batch must be a tuple of arguments for starmap
+            with Pool(processes=2) as pool:  # adjust number of workers
+                pool.starmap(multiprocess_transformation, batch)
+
+            logger.info(f"Finished batch {i // batch_size + 1}.")
 
     def pipeline_cleanup(self) -> str:
         # Query Solr for dataset metadata
