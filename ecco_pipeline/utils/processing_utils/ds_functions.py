@@ -23,7 +23,7 @@ class PreprocessingFuncs:
         func = getattr(self, function_name, None)
         if func:
             # Call the function if found
-            logger.info(f"Applying preprocessing function {function_name} to data.")
+            logger.debug(f"Applying preprocessing function {function_name} to data.")
             return func(file_path, fields)
         else:
             raise FuncNotFound(f"Function '{function_name}' not found")
@@ -34,11 +34,9 @@ class PreprocessingFuncs:
         """
         vars = [field.name for field in fields]
 
-        ds = xr.open_dataset(file_path, decode_times=True)
-        ds = ds[["grid_x", "grid_y", "crs"]]
-
-        var_ds = xr.open_dataset(file_path, group="monthly")[vars]
-        merged_ds = xr.merge([ds, var_ds])
+        with xr.open_dataset(file_path, decode_times=True) as ds, xr.open_dataset(file_path, group="monthly")[vars] as var_ds:
+            ds = ds[["grid_x", "grid_y", "crs"]]
+            merged_ds = xr.merge([ds, var_ds])
         return merged_ds
 
     def nsidc_seaice_nt_extraction(self, file_path: str, fields: Iterable[Field]) -> xr.Dataset:
@@ -46,9 +44,8 @@ class PreprocessingFuncs:
         Exctracts raw_nt_seaice_conc field from cdr_supplementary/raw_nt_seaice_conc
         and merges into base dataset object
         """
-        base_ds = xr.open_dataset(file_path, decode_times=True)
-        group_ds = xr.open_dataset(file_path, group="cdr_supplementary")["raw_nt_seaice_conc"]
-        merged_ds = xr.merge([base_ds, group_ds])
+        with xr.open_dataset(file_path, decode_times=True) as base_ds, xr.open_dataset(file_path, group="cdr_supplementary")["raw_nt_seaice_conc"] as group_ds:
+            merged_ds = xr.merge([base_ds, group_ds])
         return merged_ds
 
 
