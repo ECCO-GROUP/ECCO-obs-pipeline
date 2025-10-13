@@ -16,7 +16,7 @@ GridProduct = Tuple[np.ndarray, float, SwathDefinition]
 
 def transform_to_target_grid(
     source_indices_within_target_radius_i: dict,
-    num_source_indices_within_target_radius_i: list,
+    num_source_indices_within_target_radius_i: np.ndarray,
     nearest_source_index_to_target_index_i: dict,
     source_field: np.ndarray,
     target_grid_shape: tuple,
@@ -24,51 +24,40 @@ def transform_to_target_grid(
     allow_nearest_neighbor: bool = True,
 ):
     """
-    Transforms source data to target grid
-
-    source_indices_within_target_radius_i
-    num_source_indices_within_target_radius_i
-    nearest_source_index_to_target_index_i
-    source field: 2D field
-    target_grid_shape : shape of target grid array (2D)
-    operation : one of ['mean', 'nanmean', 'median', 'nanmedian', 'nearest']
-
+    Vectorized transformation of source data to target grid.
+    Missing target cells remain NaN.
     """
 
-    source_field_r = source_field.ravel()
-
-    # define array that will contain source_field mapped to target_grid
-    source_on_target_grid = np.full((target_grid_shape), np.nan)
-
-    # get a 1D version of source_on_target_grid
+    # initialize full target grid
+    source_on_target_grid = np.full(target_grid_shape, np.nan)
     tmp_r = source_on_target_grid.ravel()
 
-    # loop through every target grid point
-    for i in range(len(tmp_r)):
-        # if the number of source_field points at target grid cell i > 0
-        if num_source_indices_within_target_radius_i[i] > 0:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", category=RuntimeWarning)
+    func_map = {
+        "mean": np.mean,
+        "nanmean": np.nanmean,
+        "median": np.median,
+        "nanmedian": np.nanmedian,
+    }
 
-                source_field_slice = source_field_r[source_indices_within_target_radius_i[i]]
+    # Process cells that have source indices
+    valid_cells = np.array(list(source_indices_within_target_radius_i.keys()))
+    valid_counts = num_source_indices_within_target_radius_i[valid_cells] > 0
 
-                function_map = {"mean": np.mean, "nanmean": np.nanmean, "median": np.median, "nanmedian": np.nanmedian}
+    if valid_counts.any():
+        for i in valid_cells[valid_counts]:
+            src_idx = source_indices_within_target_radius_i[i]
+            vals = source_field.ravel()[src_idx]
+            if operation in func_map:
+                tmp_r[i] = func_map[operation](vals)
+            elif operation == "nearest":
+                tmp_r[i] = vals[0]
 
-                if operation in function_map:
-                    func = function_map.get(operation)
-                    tmp_r[i] = func(source_field_slice)
-
-                # nearest neighbor is the first element in source_indices
-                elif operation == "nearest":
-                    tmp = source_indices_within_target_radius_i[i]
-                    tmp_r[i] = source_field_r[tmp[0]]
-
-        # number source indices within target radius is 0, then we can potentially
-        # search for a nearest neighbor.
-        elif allow_nearest_neighbor:
-            # there is a nearest neighbor within range
-            if i in nearest_source_index_to_target_index_i.keys():
-                tmp_r[i] = source_field_r[nearest_source_index_to_target_index_i[i]]
+    # Fill remaining cells with nearest neighbor if allowed
+    if allow_nearest_neighbor:
+        nn_cells = np.array(list(nearest_source_index_to_target_index_i.keys()))
+        tmp_r[nn_cells] = source_field.ravel()[
+            np.array([nearest_source_index_to_target_index_i[i] for i in nn_cells])
+        ]
 
     return source_on_target_grid
 
