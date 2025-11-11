@@ -103,6 +103,8 @@ class Harvester(Dataset):
         if self.harvester_type == "cmr":
             self.cmr_concept_id = config.get("cmr_concept_id")
             self.provider = config.get("provider")
+        elif self.harvester_type == "cmems":
+            self.cmems_concept_id = config.get("cmems_concept_id")
         else:
             self.ddir = config.get("ddir")
 
