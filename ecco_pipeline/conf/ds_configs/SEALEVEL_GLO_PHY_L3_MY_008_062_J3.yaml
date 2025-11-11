@@ -1,0 +1,38 @@
+ds_name: SEALEVEL_GLO_PHY_L3_MY_008_062_J3 # Name for dataset
+start: "20180101T00:00:00Z" # yyyymmddThh:mm:ssZ
+end: "20180110T00:00:00Z" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
+
+# Provider specifications
+harvester_type: cmems
+cmems_concept_id: cmems_obs-sl_glo_phy-ssh_my_j3-l3-duacs_PT1S
+filename_date_fmt: "%Y%m%d"
+filename_date_regex: '\d{8}'
+
+# Metadata
+data_time_scale: "daily" # daily or monthly
+fields:
+  - name: sla_filtered
+    long_name: Sea level anomaly filtered not-subsampled with dac, ocean_tide and lwe correction applied
+    standard_name: sea_surface_height_above_sea_level
+    units: m
+    pre_transformations: [] # List of functions to call on the DataSet before transformation
+    post_transformations: [] # List of functions to call on the DataArrays after transformation
+original_dataset_title: Global Ocean Along Track L 3 Sea Surface Heights Reprocessed 1993 Ongoing Tailored For Data Assimilation Jason 3
+original_dataset_short_name: SEALEVEL_GLO_PHY_L3_MY_008_062_J3
+original_dataset_url: https://data.marine.copernicus.eu/product/SEALEVEL_GLO_PHY_L3_MY_008_062/description
+original_dataset_reference: https://documentation.marine.copernicus.eu/PUM/CMEMS-SL-PUM-008-032-068.pdf
+original_dataset_doi: 10.48670/moi-00146
+
+# Transformation
+t_version: 1 # Update this value if any changes are made to this file
+transpose: False
+data_res: 1
+data_type: along_track
+
+notes: "" # String to include in global attributes of output files
+
+# Aggregation
+a_version: 1.0 # Update this value if any changes are made to this file
+remove_nan_days_from_data: True # Remove empty days from data when aggregating
+do_monthly_aggregation: True
+skipna_in_mean: True # Controls skipna when calculating monthly mean
