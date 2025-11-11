@@ -1,6 +1,7 @@
 .vscode/
 .vs*
 *.pyc
+*.egg-info
 
 .DS_Store
 
