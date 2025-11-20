@@ -26,6 +26,7 @@ from ecco_pipeline.utils.processing_utils.transformation_utils import (
     generalized_grid_product,
     transform_to_target_grid,
     transform_along_track_to_grid,
+    transform_along_track_to_target_grid
 )
 
 
@@ -177,13 +178,9 @@ class Transformation(Dataset):
                 )
             else:
                 # No factors means along track source data
-                lons = np.mod(ds["longitude"].values + 180, 360) - 180
-                lats = ds["latitude"].values
-                source_def = SwathDefinition(lons=lons, lats=lats)
-                lon_shape = model_grid.XC.values.shape
-                target_def = SwathDefinition(lons=model_grid.XC.values.ravel(), lats=model_grid.YC.values.ravel())
-
-                data_model_projection = transform_along_track_to_grid(orig_data, source_def, target_def, lon_shape)
+                src_lons = np.mod(ds["longitude"].values + 180, 360) - 180
+                src_lats = ds["latitude"].values
+                data_model_projection = transform_along_track_to_target_grid(orig_data, src_lons, src_lats, model_grid)
 
             # put the new data values into the data_DA array.
             # --where the mapped data are not nan, replace the original values

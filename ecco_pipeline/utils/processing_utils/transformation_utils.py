@@ -8,6 +8,7 @@ from pyresample.area_config import get_area_def
 from pyresample.geometry import SwathDefinition
 from pyresample.kd_tree import get_neighbour_info, resample_custom, resample_nearest
 from pyresample.utils import check_and_wrap
+from scipy.spatial import cKDTree
 
 logger = logging.getLogger(str(current_process().pid))
 
@@ -55,9 +56,7 @@ def transform_to_target_grid(
     # Fill remaining cells with nearest neighbor if allowed
     if allow_nearest_neighbor:
         nn_cells = np.array(list(nearest_source_index_to_target_index_i.keys()))
-        tmp_r[nn_cells] = source_field.ravel()[
-            np.array([nearest_source_index_to_target_index_i[i] for i in nn_cells])
-        ]
+        tmp_r[nn_cells] = source_field.ravel()[np.array([nearest_source_index_to_target_index_i[i] for i in nn_cells])]
 
     return source_on_target_grid
 
@@ -98,6 +97,43 @@ def transform_along_track_to_grid(
     min_points = 1
     source_on_target_grid = np.where(counts >= min_points, source_on_target_grid, np.nan)
     return source_on_target_grid
+
+
+def transform_along_track_to_target_grid(
+    src_data: np.ndarray, src_lons: np.ndarray, src_lats: np.ndarray, tgt_xc: np.ndarray, tgt_yc: np.ndarray
+) -> np.ndarray:
+    valid_mask = ~np.isnan(src_data)
+    src_lons_valid = src_lons[valid_mask]
+    src_lats_valid = src_lats[valid_mask]
+    src_values_valid = src_data[valid_mask]
+
+    # Flatten LLC grid
+    XC_flat = tgt_xc.ravel()
+    YC_flat = tgt_yc.ravel()
+    target_coords = np.column_stack((XC_flat, YC_flat))
+
+    # Source coordinates
+    source_coords = np.column_stack((src_lons_valid, src_lats_valid))
+
+    # KDTree nearest neighbor mapping
+    tree = cKDTree(target_coords)
+    distances, indices = tree.query(source_coords, k=1)
+
+    # Convert flat indices to (tile, j, i)
+    tile_idx, j_idx, i_idx = np.unravel_index(indices, tgt_xc.shape)
+
+    # Initialize accumulators
+    accum = np.zeros_like(tgt_xc, dtype=float)
+    count = np.zeros_like(tgt_xc, dtype=int)
+
+    # Vectorized accumulation
+    np.add.at(accum, (tile_idx, j_idx, i_idx), src_values_valid)
+    np.add.at(count, (tile_idx, j_idx, i_idx), 1)
+
+    # Fill only where there are points
+    mean_grid = np.full_like(accum, np.nan, dtype=float)
+    mask = count > 0
+    mean_grid[mask] = accum[mask] / count[mask]
 
 
 def find_mappings_from_source_to_target(
