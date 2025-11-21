@@ -2,14 +2,14 @@ import re
 import pandas as pd
 from datetime import datetime
 import matplotlib.pyplot as plt
-import seaborn as sns
 
 from pathlib import Path
+
 
 def parse_pipeline_logs(latest_only=True):
     """
     Parse pipeline logs and return a DataFrame with one row per dataset per stage.
-    
+
     Parameters
     ----------
     logs_root : Path
@@ -18,7 +18,7 @@ def parse_pipeline_logs(latest_only=True):
         Directory containing dataset configs (*.yaml).
     latest_only : bool
         If True, parse only the latest log. Otherwise parse all logs.
-    
+
     Returns
     -------
     pd.DataFrame
@@ -26,14 +26,14 @@ def parse_pipeline_logs(latest_only=True):
     # ---------------------------
     # Load datasets from configs
     # ---------------------------
-    
-    datasets = [p.stem for p in Path("ecco_pipeline/conf/ds_configs").glob("*.yaml")]
+
+    datasets = [p.stem for p in Path("conf/ds_configs").glob("*.yaml")]
     stages = ["Harvest", "Transform", "Aggregate"]
 
     # ---------------------------
     # Gather log files
     # ---------------------------
-    log_dirs = sorted(Path("ecco_pipeline/logs").glob("*"), reverse=True)
+    log_dirs = sorted(Path("logs").glob("*"), reverse=True)
     if latest_only:
         log_dirs = [d for d in log_dirs if (d / "pipeline.log").exists()][:1]
     else:
@@ -53,15 +53,17 @@ def parse_pipeline_logs(latest_only=True):
         records = []
         for ds in datasets:
             for stage in stages:
-                records.append({
-                    "run_timestamp": run_timestamp,
-                    "dataset": ds,
-                    "stage": stage,
-                    "files_processed": 0,
-                    "duration_sec": 0.0,
-                    "status": "Not Run",
-                    "errors": None
-                })
+                records.append(
+                    {
+                        "run_timestamp": run_timestamp,
+                        "dataset": ds,
+                        "stage": stage,
+                        "files_processed": 0,
+                        "duration_sec": 0.0,
+                        "status": "Not Run",
+                        "errors": None,
+                    }
+                )
         df_defaults = pd.DataFrame(records)
 
         # ---------------------------
@@ -94,28 +96,34 @@ def parse_pipeline_logs(latest_only=True):
                     files_processed += 1
 
                 m_h_end = re.search(
-                    r"\[INFO\]\s+([\d\-]+\s[\d:,]+)\s+\(pipeline\).*{} harvesting complete.*".format(re.escape(dataset)),
-                    line
+                    r"\[INFO\]\s+([\d\-]+\s[\d:,]+)\s+\(pipeline\).*{} harvesting complete.*".format(
+                        re.escape(dataset)
+                    ),
+                    line,
                 )
                 if m_h_end and start_time is not None:
                     end_time = parse_time(m_h_end.group(1))
                     duration_sec = (end_time - start_time).total_seconds()
                     status = "Success" if "successfully harvested" in line else "Failed"
-                    log_records.append({
-                        "dataset": dataset,
-                        "stage": stage,
-                        "files_processed": files_processed,
-                        "duration_sec": duration_sec,
-                        "status": status,
-                        "errors": None
-                    })
+                    log_records.append(
+                        {
+                            "dataset": dataset,
+                            "stage": stage,
+                            "files_processed": files_processed,
+                            "duration_sec": duration_sec,
+                            "status": status,
+                            "errors": None,
+                        }
+                    )
                     dataset = None
                     start_time = None
                     files_processed = 0
                     stage = None
 
             # TRANSFORMATION
-            m_t_start = re.search(r"\[INFO\]\s+([\d\-]+\s[\d:,]+)\s+\(pipeline\).*Beginning transformations on (\S+)", line)
+            m_t_start = re.search(
+                r"\[INFO\]\s+([\d\-]+\s[\d:,]+)\s+\(pipeline\).*Beginning transformations on (\S+)", line
+            )
             if m_t_start:
                 start_time = parse_time(m_t_start.group(1))
                 dataset = m_t_start.group(2)
@@ -129,21 +137,29 @@ def parse_pipeline_logs(latest_only=True):
                     files_processed = int(m_files.group(1))
 
                 m_t_end = re.search(
-                    r"\[INFO\]\s+([\d\-]+\s[\d:,]+)\s+\(pipeline\).*{} transformation complete.*".format(re.escape(dataset)), 
-                    line
+                    r"\[INFO\]\s+([\d\-]+\s[\d:,]+)\s+\(pipeline\).*{} transformation complete.*".format(
+                        re.escape(dataset)
+                    ),
+                    line,
                 )
                 if m_t_end and start_time is not None:
                     end_time = parse_time(m_t_end.group(1))
                     duration_sec = (end_time - start_time).total_seconds()
-                    status = "Success" if ("All transformations successful" in line or "No transformations performed" in line) else "Failed"
-                    log_records.append({
-                        "dataset": dataset,
-                        "stage": stage,
-                        "files_processed": files_processed,
-                        "duration_sec": duration_sec,
-                        "status": status,
-                        "errors": None
-                    })
+                    status = (
+                        "Success"
+                        if ("All transformations successful" in line or "No transformations performed" in line)
+                        else "Failed"
+                    )
+                    log_records.append(
+                        {
+                            "dataset": dataset,
+                            "stage": stage,
+                            "files_processed": files_processed,
+                            "duration_sec": duration_sec,
+                            "status": status,
+                            "errors": None,
+                        }
+                    )
                     dataset = None
                     start_time = None
                     files_processed = 0
@@ -166,21 +182,25 @@ def parse_pipeline_logs(latest_only=True):
                     files_processed = 0
 
                 m_a_end = re.search(
-                    r"\[INFO\]\s+([\d\-]+\s[\d:,]+)\s+\(pipeline\).*{} aggregation complete.*".format(re.escape(dataset)),
-                    line
+                    r"\[INFO\]\s+([\d\-]+\s[\d:,]+)\s+\(pipeline\).*{} aggregation complete.*".format(
+                        re.escape(dataset)
+                    ),
+                    line,
                 )
                 if m_a_end and start_time is not None:
                     end_time = parse_time(m_a_end.group(1))
                     duration_sec = (end_time - start_time).total_seconds()
                     status = "Success" if "All aggregations successful" in line else "Failed"
-                    log_records.append({
-                        "dataset": dataset,
-                        "stage": stage,
-                        "files_processed": files_processed,
-                        "duration_sec": duration_sec,
-                        "status": status,
-                        "errors": None
-                    })
+                    log_records.append(
+                        {
+                            "dataset": dataset,
+                            "stage": stage,
+                            "files_processed": files_processed,
+                            "duration_sec": duration_sec,
+                            "status": status,
+                            "errors": None,
+                        }
+                    )
                     dataset = None
                     start_time = None
                     files_processed = 0
@@ -214,21 +234,12 @@ def generate_pipeline_report(df: pd.DataFrame):
     # ---------------------------
     # Status changes table (failed stages)
     # ---------------------------
-    failed = df[df['status'] != "Success"]
+    failed = df[df["status"] != "Success"]
     if not failed.empty:
         print("\n⚠ Some stages failed in the latest run:")
-        print(failed[['dataset','stage','status','files_processed']].to_string(index=False))
+        print(failed[["dataset", "stage", "status", "files_processed"]].to_string(index=False))
     else:
         print("\nAll stages completed successfully in the latest run.")
-
-    # ---------------------------
-    # Stacked horizontal bar charts
-    # ---------------------------
-    stages = ["Harvest", "Transform", "Aggregate"]
-    colors = {"Harvest": "skyblue", "Transform": "orange", "Aggregate": "green"}
-
-    pivot_files = df.pivot(index="dataset", columns="stage", values="files_processed").fillna(0).sort_index()
-    pivot_duration = df.pivot(index="dataset", columns="stage", values="duration_sec").fillna(0).sort_index()
 
     def plot_vertical_stacked_bars(df):
         """
@@ -237,21 +248,21 @@ def generate_pipeline_report(df: pd.DataFrame):
         stages = ["Harvest", "Transform", "Aggregate"]
         colors = {"Harvest": "skyblue", "Transform": "orange", "Aggregate": "green"}
 
-        datasets = sorted(df['dataset'].unique())
+        datasets = sorted(df["dataset"].unique())
         n_datasets = len(datasets)
         stage_height = 0.8 / len(stages)  # fractional bar height
 
         # Map dataset to y positions
         y_pos = list(range(n_datasets))
-        
-        fig, ax = plt.subplots(figsize=(12, max(6, n_datasets/2)))
-        
+
+        fig, ax = plt.subplots(figsize=(12, max(6, n_datasets / 2)))
+
         for i, stage in enumerate(stages):
             # Compute vertical offset for this stage within dataset
-            offsets = [y - 0.4 + i*stage_height for y in y_pos]
-            values = df[df['stage'] == stage].set_index('dataset').reindex(datasets)['files_processed'].fillna(0)
+            offsets = [y - 0.4 + i * stage_height for y in y_pos]
+            values = df[df["stage"] == stage].set_index("dataset").reindex(datasets)["files_processed"].fillna(0)
             ax.barh(offsets, values, height=stage_height, color=colors[stage], label=stage)
-        
+
         ax.set_yticks(y_pos)
         ax.set_yticklabels(datasets)
         ax.set_xlabel("Files processed")
@@ -263,10 +274,8 @@ def generate_pipeline_report(df: pd.DataFrame):
 
     plot_vertical_stacked_bars(df)
 
-        # plot_stacked(pivot_files, "Files processed", "Files processed per dataset (latest run)")
-        # plot_stacked(pivot_duration, "Duration (seconds)", "Stage duration per dataset (latest run)")
-
     return df
+
 
 df_pipeline = parse_pipeline_logs(latest_only=True)
 report = generate_pipeline_report(df_pipeline)
