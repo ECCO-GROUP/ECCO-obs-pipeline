@@ -1,5 +1,34 @@
-# Tests
+# ECCO Pipeline Tests
 
-The `quicklook_notebooks` directory contains per-dataset notebooks. Each notebook takes an already harvested granule, transforms it, and makes a quicklook plot of the transformed data.
+Unit tests for the ECCO observation pipeline.
 
-The unittests in this directory are currently being built out and should be run from `ECCO-PIPELINE/ecco_pipeline`.
+## Structure
+
+- `harvesters/` - Unit tests for data harvesting (enumeration and fetching)
+- `conftest.py` - Shared pytest fixtures
+
+Visual validation notebooks are located in `ecco_pipeline/validation/`.
+
+## Running Tests
+
+Run all tests from `ecco_pipeline/`:
+```bash
+python -m pytest tests/ -v
+```
+
+Run harvester tests only:
+```bash
+python -m pytest tests/harvesters/ -v
+```
+
+## Test Design
+
+All unit tests mock external dependencies (Solr, HTTP requests) to run without network access or external services.
+
+### Harvester Tests
+
+Each harvester type has two test files:
+- `test_<type>_enumerator.py` - URL enumeration and granule discovery
+- `test_<type>_harvester.py` - Download logic and Solr updates
+
+Base class tests are in `test_harvesterclasses.py`.
