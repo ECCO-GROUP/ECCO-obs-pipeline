@@ -17,3 +17,7 @@ ecco_pipeline/logs
 
 # pipeline config
 *global_settings.py
+
+*egg-info
+
+*/reports/*.csv

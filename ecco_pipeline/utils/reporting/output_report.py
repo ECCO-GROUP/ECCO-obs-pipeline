@@ -2,6 +2,7 @@ from pathlib import Path
 import pandas as pd
 from matplotlib import pyplot as plt
 import numpy as np
+from datetime import date
 
 from conf.global_settings import OUTPUT_DIR
 
@@ -101,69 +102,97 @@ def pivot_file_counts(df):
     )
 
     return df_report
+    
+    
+def save_weekly_snapshot(df: pd.DataFrame, folder="reports"):
+    folder_path = Path(folder)
+    folder_path.mkdir(exist_ok=True)
+    snapshot_file = folder_path / f"pipeline_report_{date.today()}.csv"
+    df.to_csv(snapshot_file, index=False)
+    return snapshot_file
 
 
-def plot_harvest_transform(pivot_df):
-    datasets = pivot_df["dataset"].unique()
-    grids = [c for c in pivot_df.columns if c not in ("dataset", "stage", "harvested_files")]
-    n_datasets = len(datasets)
-    n_grids = len(grids)
+def load_previous_snapshot(folder="reports") -> pd.DataFrame:
+    folder_path = Path(folder)
+    files = sorted(folder_path.glob("pipeline_report_*.csv"))
+    if len(files) < 2:
+        return None  # no previous week to compare
+    return pd.read_csv(files[-2])  # second to last = previous week
 
-    x = np.arange(n_datasets)  # dataset positions
-    width = 0.8 / (1 + n_grids)  # total width split between Harvest + grids
+def compute_weekly_delta_clean(current_df, previous_df):
+    """
+    Compute week-over-week delta of file counts per dataset, stage, and grid.
+    Handles Harvest separately to avoid spurious extra rows.
+    
+    Args:
+        current_df (pd.DataFrame): output of report_file_counts() for this week
+        previous_df (pd.DataFrame): output of report_file_counts() for previous week
+    
+    Returns:
+        pd.DataFrame: merged dataframe with columns:
+                      ["dataset", "stage", "grid", "files_count_current",
+                       "files_count_prev", "delta"]
+    """
+    if previous_df is None:
+        print("No previous snapshot to compare.")
+        return current_df.assign(
+            files_count_current=current_df["files_count"],
+            files_count_prev=np.nan,
+            delta=np.nan
+        ).drop(columns="files_count")
+    
+    # --- Step 1: Normalize Harvest stage ---
+    current_df = current_df.copy()
+    previous_df = previous_df.copy()
+    current_df.loc[current_df["stage"] == "Harvest", "grid"] = "N/A"
+    previous_df.loc[previous_df["stage"] == "Harvest", "grid"] = "N/A"
 
-    fig, ax = plt.subplots(figsize=(max(12, n_datasets * 0.6), 6))
+    # --- Step 2: Merge on dataset, stage, grid ---
+    merged = pd.merge(
+        current_df,
+        previous_df,
+        on=["dataset", "stage", "grid"],
+        how="outer",
+        suffixes=("_current", "_prev")
+    ).fillna(0)
 
-    # Harvest bars
-    harvest_vals = pivot_df[pivot_df["stage"] == "Transform"].copy()
-    harvest_vals = pivot_df[["dataset", "harvested_files"]].drop_duplicates()
-    ax.bar(x - width / 2, harvest_vals["harvested_files"], width, label="Harvest")
+    # --- Step 3: Compute delta ---
+    merged["delta"] = merged["files_count_current"] - merged["files_count_prev"]
 
-    # Transform bars per grid
-    for i, grid in enumerate(grids):
-        transform_vals = []
-        for ds in datasets:
-            row = pivot_df[(pivot_df["dataset"] == ds) & (pivot_df["stage"] == "Transform")]
-            transform_vals.append(row[grid].values[0])
-        ax.bar(x + (i + 0.5) * width, transform_vals, width, label=f"Transform {grid}")
+    # Optional: sort nicely
+    stage_order = {"Harvest": 0, "Transform": 1, "Aggregate": 2}
+    merged["stage_order"] = merged["stage"].map(stage_order)
+    merged = merged.sort_values(["dataset", "stage_order", "grid"]).drop(columns="stage_order").reset_index(drop=True)
 
-    ax.set_xticks(x)
-    ax.set_xticklabels(datasets, rotation=45, ha="right")
-    ax.set_ylabel("Number of files")
-    ax.set_title("Harvested and Transformed file counts per dataset")
-    ax.legend()
+    return merged
+
+def plot_weekly_delta(delta_df):
+    import seaborn as sns
+
+    fig, ax = plt.subplots(figsize=(15, 6))
+    sns.barplot(
+        data=delta_df,
+        x="dataset",
+        y="delta",
+        hue="stage",
+        dodge=True,
+        ax=ax
+    )
+    ax.set_xticklabels(delta_df["dataset"].unique(), rotation=45, ha="right")
+    ax.set_ylabel("Delta file count vs last week")
+    ax.set_title("Weekly delta of pipeline files per dataset and stage")
     plt.tight_layout()
     plt.show()
-
-
-def plot_aggregate(pivot_df):
-    datasets = pivot_df["dataset"].unique()
-    grids = [c for c in pivot_df.columns if c not in ("dataset", "stage", "harvested_files")]
-    n_datasets = len(datasets)
-    n_grids = len(grids)
-
-    x = np.arange(n_datasets)
-    width = 0.8 / n_grids  # split width among grids
-
-    fig, ax = plt.subplots(figsize=(max(12, n_datasets * 0.6), 6))
-
-    for i, grid in enumerate(grids):
-        agg_vals = []
-        for ds in datasets:
-            row = pivot_df[(pivot_df["dataset"] == ds) & (pivot_df["stage"] == "Aggregate")]
-            agg_vals.append(row[grid].values[0])
-        ax.bar(x + i * width - 0.4, agg_vals, width, label=f"Aggregate {grid}")
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(datasets, rotation=45, ha="right")
-    ax.set_ylabel("Number of files")
-    ax.set_title("Aggregated file counts per dataset and grid")
-    ax.legend()
-    plt.tight_layout()
-    plt.show()
-
 
 df_pipeline = report_file_counts()
 pivot_df = pivot_file_counts(df_pipeline)
-plot_harvest_transform(pivot_df)
-plot_aggregate(pivot_df)
+
+# Save this week's snapshot
+save_weekly_snapshot(df_pipeline)
+
+# Compare with previous week
+prev_snapshot = load_previous_snapshot()
+delta_df = compute_weekly_delta_clean(df_pipeline, prev_snapshot)
+
+# Plot delta
+plot_weekly_delta(delta_df)
