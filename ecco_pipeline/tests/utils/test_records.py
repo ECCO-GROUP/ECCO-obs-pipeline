@@ -10,7 +10,17 @@ import unittest
 import numpy as np
 import xarray as xr
 
-from utils.processing_utils.records import TimeBound, make_empty_record, save_netcdf, NETCDF_FILL_VALUE, DTYPE
+from unittest.mock import patch, mock_open, MagicMock
+
+from utils.processing_utils.records import (
+    TimeBound,
+    make_empty_record,
+    save_netcdf,
+    save_binary,
+    NETCDF_FILL_VALUE,
+    BINARY_FILL_VALUE,
+    DTYPE,
+)
 
 
 class TimeBoundTestCase(unittest.TestCase):
@@ -237,6 +247,112 @@ class SaveNetcdfTestCase(unittest.TestCase):
 
             output_path = os.path.join(tmpdir, "test_output.nc")
             self.assertTrue(os.path.exists(output_path))
+
+
+class SaveBinaryTestCase(unittest.TestCase):
+    """Tests for the save_binary function."""
+
+    def get_mock_dataset_latlon(self, num_times=2):
+        """Create a mock latlon dataset for binary saving."""
+        data = np.random.rand(num_times, 10, 20).astype(np.float32)
+        data[0, 0:2, 0:2] = np.nan
+
+        times = [np.datetime64(f"2020-{i+1:02d}-15", "ns") for i in range(num_times)]
+
+        ds = xr.Dataset(
+            {
+                "ssha": (["time", "j", "i"], data),
+            },
+            coords={
+                "time": times,
+                "j": np.arange(10),
+                "i": np.arange(20),
+            },
+        )
+
+        return ds
+
+    def test_save_binary_latlon_creates_file(self):
+        """Test that save_binary creates a binary file."""
+        ds = self.get_mock_dataset_latlon(num_times=2)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_filename = "test_output.bin"
+            save_binary(ds, output_filename, tmpdir, "latlon", data_var="ssha")
+
+            output_path = os.path.join(tmpdir, output_filename)
+            self.assertTrue(os.path.exists(output_path))
+
+    def test_save_binary_latlon_file_size(self):
+        """Test that binary file has expected size."""
+        ds = self.get_mock_dataset_latlon(num_times=2)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_filename = "test_output.bin"
+            save_binary(ds, output_filename, tmpdir, "latlon", data_var="ssha")
+
+            output_path = os.path.join(tmpdir, output_filename)
+            file_size = os.path.getsize(output_path)
+
+            # Each timestep has 10*20 = 200 values, 2 timesteps, 4 bytes per float32
+            expected_size = 2 * 10 * 20 * 4
+            self.assertEqual(file_size, expected_size)
+
+    def test_save_binary_without_data_var(self):
+        """Test saving DataArray without specifying data_var."""
+        ds = self.get_mock_dataset_latlon(num_times=1)
+        da = ds["ssha"]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_filename = "test_output.bin"
+            save_binary(da, output_filename, tmpdir, "latlon", data_var="")
+
+            output_path = os.path.join(tmpdir, output_filename)
+            self.assertTrue(os.path.exists(output_path))
+
+    @patch("utils.processing_utils.records.llc_tiles_to_compact")
+    def test_save_binary_llc_calls_conversion(self, mock_llc_convert):
+        """Test that llc grid calls llc_tiles_to_compact."""
+        # Create mock llc data with tile dimension
+        num_times = 2
+        data = np.random.rand(num_times, 13, 90, 90).astype(np.float32)
+        times = [np.datetime64(f"2020-{i+1:02d}-15", "ns") for i in range(num_times)]
+
+        ds = xr.Dataset(
+            {
+                "ssha": (["time", "tile", "j", "i"], data),
+            },
+            coords={"time": times},
+        )
+
+        # Mock the llc conversion to return a 2D array
+        mock_llc_convert.return_value = np.random.rand(90, 90).astype(np.float32)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            save_binary(ds, "test_llc.bin", tmpdir, "llc", data_var="ssha")
+
+            # Check llc conversion was called for each timestep
+            self.assertEqual(mock_llc_convert.call_count, num_times)
+
+    def test_save_binary_nan_replacement(self):
+        """Test that NaN values are replaced with fill value."""
+        ds = self.get_mock_dataset_latlon(num_times=1)
+        # Explicitly set some NaN values
+        ds["ssha"].values[0, 0, 0] = np.nan
+        ds["ssha"].values[0, 1, 1] = np.nan
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_filename = "test_output.bin"
+            save_binary(ds, output_filename, tmpdir, "latlon", data_var="ssha")
+
+            output_path = os.path.join(tmpdir, output_filename)
+            self.assertTrue(os.path.exists(output_path))
+
+            # Read back and verify fill values were written
+            saved_data = np.fromfile(output_path, dtype=">f4").reshape(10, 20)
+            # Check that NaN positions have fill value
+            self.assertEqual(saved_data[0, 0], BINARY_FILL_VALUE)
+            self.assertEqual(saved_data[1, 1], BINARY_FILL_VALUE)
 
 
 if __name__ == "__main__":
