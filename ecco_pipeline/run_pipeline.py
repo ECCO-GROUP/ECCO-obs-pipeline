@@ -11,6 +11,7 @@ import yaml
 from aggregations.aggregation_factory import AgJobFactory
 from transformations.transformation_factory import TxJobFactory
 from utils.pipeline_utils import init_pipeline
+from utils.reporting import PipelineReportManager
 
 
 def create_parser() -> argparse.Namespace:
@@ -67,6 +68,12 @@ def create_parser() -> argparse.Namespace:
         default=False,
         action="store_true",
         help="removes all prior log files",
+    )
+    parser.add_argument(
+        "--generate_report",
+        default=False,
+        action="store_true",
+        help="generate weekly delta report after pipeline execution",
     )
 
     args, _ = parser.parse_known_args()
@@ -127,6 +134,11 @@ def show_menu():
             run_harvester([ds])
             run_transformation([ds])
             run_aggregation([ds])
+        # Generate report after full pipeline run
+        try:
+            generate_post_pipeline_report()
+        except Exception:
+            logger.exception("Report generation failed")
 
     # Run harvester
     elif chosen_option == "2":
@@ -241,6 +253,36 @@ def run_aggregation(datasets: List[str]):
             logger.exception(f"{ds} aggregation failed: {e}")
 
 
+def generate_post_pipeline_report(include_log_report: bool = False):
+    """
+    Generate comprehensive report after pipeline execution.
+
+    Parameters
+    ----------
+    include_log_report : bool
+        Whether to include log-based reporting (default: False)
+    """
+    try:
+        logger.info("Generating post-pipeline weekly report...")
+        report_manager = PipelineReportManager(include_log_report=include_log_report)
+        delta_df, log_df = report_manager.generate_weekly_report()
+
+        # Check for failures and log them prominently (if log report was generated)
+        if log_df is not None:
+            failed = log_df[log_df["status"] == "Failed"]
+            if not failed.empty:
+                logger.warning(
+                    f"{len(failed)} stage failures detected in this run. "
+                    "See weekly report for details."
+                )
+
+        logger.info("Weekly report generation complete.")
+
+    except Exception as e:
+        logger.exception(f"Failed to generate post-pipeline report: {e}")
+        # Don't fail the entire pipeline if reporting fails
+
+
 def start_pipeline(args: argparse.Namespace):
     if args.dataset:
         datasets = [args.dataset]
@@ -263,6 +305,10 @@ def start_pipeline(args: argparse.Namespace):
         run_harvester(datasets)
         run_transformation(datasets)
         run_aggregation(datasets)
+
+    # Generate report after full pipeline execution if requested
+    if args.generate_report and args.step in ["aggregate", "all"]:
+        generate_post_pipeline_report()
 
 
 if __name__ == "__main__":
