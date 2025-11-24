@@ -449,11 +449,11 @@ class Aggregation(Dataset):
             solr_output_filepaths = {
                 "daily_bin": os.path.join(output_path, "bin", f"{shortest_filename}"),
                 "daily_netCDF": os.path.join(
-                    output_path, "net", f"{shortest_filename}.nc"
+                    output_path, "netCDF", f"{shortest_filename}.nc"
                 ),
                 "monthly_bin": os.path.join(output_path, "bin", f"{monthly_filename}"),
                 "monthly_netCDF": os.path.join(
-                    output_path, "net", f"{monthly_filename}.nc"
+                    output_path, "netCDF", f"{monthly_filename}.nc"
                 ),
             }
 
