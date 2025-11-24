@@ -22,7 +22,7 @@ class CATDS_Harvester(Harvester):
             # Get date from filename and convert to dt object
             date = get_date(self.filename_date_regex, filename)
             dt = datetime.strptime(date, self.filename_date_fmt)
-            if not (self.start <= dt) and (self.end >= dt):
+            if not ((self.start <= dt) and (self.end >= dt)):
                 continue
 
             year = str(dt.year)

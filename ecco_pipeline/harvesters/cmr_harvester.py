@@ -319,7 +319,7 @@ class CMR_Harvester(Harvester):
             # Force date to be first of the month
             dt = dt.replace(day=1)
 
-            if not (self.start <= dt) and (self.end >= dt):
+            if not ((self.start <= dt) and (self.end >= dt)):
                 continue
 
             year = str(dt.year)
