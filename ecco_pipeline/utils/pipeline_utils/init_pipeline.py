@@ -47,9 +47,9 @@ def validate_solr():
         logger.fatal("Solr is not currently running! Start Solr and try again.")
         exit()
 
-    if not solr_utils.core_check():
+    if not solr_utils.collection_check():
         logger.fatal(
-            f'Solr core {SOLR_COLLECTION} does not exist. Add a core using "bin/solr create -c {{collection_name}}".'
+            f'Solr collection {SOLR_COLLECTION} does not exist. Add a collection using "bin/solr create -c {{collection_name}}".'
         )
         exit()
 
