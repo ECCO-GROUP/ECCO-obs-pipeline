@@ -1,8 +1,10 @@
 import logging
 import os
+from datetime import datetime
 from multiprocessing import Pool, cpu_count, current_process
 from typing import Iterable
 
+import xarray as xr
 from aggregations.aggregation import Aggregation
 import baseclasses
 from conf.global_settings import OUTPUT_DIR
@@ -230,6 +232,8 @@ class AgJobFactory(baseclasses.Dataset):
                         year_tx_docs = [t for t in transformation_docs if t["date_s"][:4] == year]
                         if self.need_to_aggregate(grid_name, field, year, year_tx_docs):
                             years_to_aggregate.append(year)
+                        else:
+                            self.reconstruct_agg_solr_doc(grid_name, field, year)
                 all_jobs.extend(
                     [
                         Aggregation(self.config, grid, year, field)
@@ -272,3 +276,70 @@ class AgJobFactory(baseclasses.Dataset):
                 return True
 
         return False
+
+    def reconstruct_agg_solr_doc(self, grid_name: str, field, year: str) -> None:
+        """
+        Creates a Solr aggregation doc from existing output files when the doc is
+        missing but processing was determined to be unnecessary.  Mirrors the fields
+        written by Aggregation.aggregate().
+        """
+        data_time_scale = self.data_time_scale
+        shortest_filename = f"{self.ds_name}_{grid_name}_{data_time_scale.upper()}_{field.name}_{year}"
+        monthly_filename = f"{self.ds_name}_{grid_name}_MONTHLY_{field.name}_{year}"
+        output_path = os.path.join(
+            OUTPUT_DIR,
+            self.ds_name,
+            "transformed_products",
+            grid_name,
+            "aggregated",
+            field.name,
+        )
+
+        netcdf_path = os.path.join(output_path, "netCDF", f"{shortest_filename}.nc")
+
+        agg_time = datetime.utcfromtimestamp(
+            os.path.getmtime(netcdf_path)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        doc = {
+            "type_s": "aggregation",
+            "dataset_s": self.ds_name,
+            "year_s": year,
+            "grid_name_s": grid_name,
+            "field_s": field.name,
+            "aggregation_time_dt": agg_time,
+            "aggregation_success_b": True,
+            "aggregation_version_s": str(self.a_version),
+        }
+
+        if data_time_scale == "daily":
+            daily_bin = os.path.join(output_path, "bin", shortest_filename)
+            doc["aggregated_daily_bin_path_s"] = daily_bin if os.path.exists(daily_bin) else ""
+            doc["aggregated_daily_netCDF_path_s"] = netcdf_path
+
+        with xr.open_dataset(netcdf_path) as ds:
+            daily_uuid = ds.attrs.get("uuid")
+        if daily_uuid:
+            doc["daily_aggregated_uuid_s"] = daily_uuid
+
+        do_monthly = self.config.get("do_monthly_aggregation", False)
+        if data_time_scale == "monthly" or do_monthly:
+            monthly_netcdf = os.path.join(output_path, "netCDF", f"{monthly_filename}.nc")
+            monthly_bin = os.path.join(output_path, "bin", monthly_filename)
+            doc["aggregated_monthly_netCDF_path_s"] = monthly_netcdf if os.path.exists(monthly_netcdf) else ""
+            doc["aggregated_monthly_bin_path_s"] = monthly_bin if os.path.exists(monthly_bin) else ""
+            if os.path.exists(monthly_netcdf):
+                with xr.open_dataset(monthly_netcdf) as ds:
+                    monthly_uuid = ds.attrs.get("uuid")
+                if monthly_uuid:
+                    doc["monthly_aggregated_uuid_s"] = monthly_uuid
+
+        r = solr_utils.solr_update([doc], r=True)
+        if r.status_code == 200:
+            logger.debug(
+                f"Reconstructed missing Solr aggregation doc for {self.ds_name} {grid_name} {field.name} {year}"
+            )
+        else:
+            logger.warning(
+                f"Failed to reconstruct Solr aggregation doc for {self.ds_name} {grid_name} {field.name} {year}"
+            )
