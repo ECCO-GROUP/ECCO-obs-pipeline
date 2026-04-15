@@ -46,13 +46,13 @@ def ping_solr():
     requests.get(url)
 
 
-def core_check() -> bool:
+def collection_check() -> bool:
     """
-    Check if core has been created on Solr
+    Check if collection exists on Solr
     """
-    url = f"{SOLR_HOST}admin/cores?action=STATUS&core={SOLR_COLLECTION}"
+    url = f"{SOLR_HOST}admin/collections?action=LIST"
     response = requests.get(url).json()
-    if response["status"][SOLR_COLLECTION].keys():
+    if SOLR_COLLECTION in response["collections"]:
         return True
     return False
 

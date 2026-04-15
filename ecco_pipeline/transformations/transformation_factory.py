@@ -1,13 +1,15 @@
 import logging
 import os
 from collections import defaultdict
+from datetime import datetime
 from multiprocessing import Pool, cpu_count, current_process
 from typing import Iterable
 
 import xarray as xr
 import baseclasses
+from conf.global_settings import OUTPUT_DIR
 from transformations.grid_transformation import Transformation, transform
-from utils.pipeline_utils import log_config, solr_utils
+from utils.pipeline_utils import file_utils, log_config, solr_utils
 
 logger = logging.getLogger("pipeline")
 
@@ -222,6 +224,10 @@ class TxJobFactory(baseclasses.Dataset):
                         if tx["field_s"] == field.name and tx["grid_name_s"] == grid:
                             update = self.need_to_update(granule, tx)
                             break
+                    else:
+                        update = self.need_to_transform(granule, grid, field)
+                        if not update:
+                            self.reconstruct_tx_solr_doc(granule, grid, field)
                     if update:
                         fields_for_grid.append(field)
                 if fields_for_grid:
@@ -245,3 +251,83 @@ class TxJobFactory(baseclasses.Dataset):
         ):
             return False
         return True
+
+    def need_to_transform(self, granule: dict, grid_name: str, field) -> bool:
+        """
+        Filesystem fallback used when no Solr transformation doc exists for a
+        granule/grid/field combination.  Mirrors the harvester's need_to_download()
+        logic: skip reprocessing if the transformed output file already exists and
+        is newer than the source granule file.
+        """
+        stem = os.path.splitext(granule["filename_s"])[0]
+        output_path = os.path.join(
+            OUTPUT_DIR,
+            self.ds_name,
+            "transformed_products",
+            grid_name,
+            "transformed",
+            field.name,
+            f"{grid_name}_{field.name}_{stem}.nc",
+        )
+        if not os.path.exists(output_path):
+            return True
+        source_path = granule.get("pre_transformation_file_path_s")
+        if not source_path or not os.path.exists(source_path):
+            return True
+        return os.path.getmtime(output_path) <= os.path.getmtime(source_path)
+
+    def reconstruct_tx_solr_doc(self, granule: dict, grid_name: str, field) -> None:
+        """
+        Creates a Solr transformation doc from an existing output file when the
+        doc is missing but processing was determined to be unnecessary.  Mirrors
+        the fields written by prepopulate_solr() + the post-transform update in
+        grid_transformation.transform().
+        """
+        stem = os.path.splitext(granule["filename_s"])[0]
+        output_filename = f"{grid_name}_{field.name}_{stem}.nc"
+        output_path = os.path.join(
+            OUTPUT_DIR,
+            self.ds_name,
+            "transformed_products",
+            grid_name,
+            "transformed",
+            field.name,
+            output_filename,
+        )
+
+        hemi = ""
+        if self.hemi_pattern:
+            if self.hemi_pattern["north"] in granule["filename_s"]:
+                hemi = "nh"
+            elif self.hemi_pattern["south"] in granule["filename_s"]:
+                hemi = "sh"
+
+        completed_dt = datetime.utcfromtimestamp(
+            os.path.getmtime(output_path)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        doc = {
+            "type_s": "transformation",
+            "date_s": granule["date_s"],
+            "dataset_s": self.ds_name,
+            "pre_transformation_file_path_s": granule.get("pre_transformation_file_path_s"),
+            "hemisphere_s": hemi,
+            "origin_checksum_s": granule.get("checksum_s"),
+            "grid_name_s": grid_name,
+            "field_s": field.name,
+            "transformation_in_progress_b": False,
+            "success_b": True,
+            "filename_s": output_filename,
+            "transformation_file_path_s": output_path,
+            "transformation_completed_dt": completed_dt,
+            "transformation_checksum_s": file_utils.md5(output_path),
+            "transformation_version_f": self.t_version,
+        }
+
+        r = solr_utils.solr_update([doc], r=True)
+        if r.status_code == 200:
+            logger.debug(f"Reconstructed missing Solr transformation doc for {output_filename}")
+        else:
+            logger.warning(
+                f"Failed to reconstruct Solr transformation doc for {output_filename}"
+            )

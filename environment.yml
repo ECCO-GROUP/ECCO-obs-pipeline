@@ -2,7 +2,6 @@
 name: ecco_pipeline
 channels:
   - conda-forge
-  - default
 dependencies:
   - python=3.10.10
   - pyresample=1.26.1
