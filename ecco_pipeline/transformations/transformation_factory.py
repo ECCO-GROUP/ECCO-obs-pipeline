@@ -6,6 +6,7 @@ from typing import Iterable
 
 import xarray as xr
 import baseclasses
+from conf.global_settings import OUTPUT_DIR
 from transformations.grid_transformation import Transformation, transform
 from utils.pipeline_utils import log_config, solr_utils
 
@@ -222,6 +223,8 @@ class TxJobFactory(baseclasses.Dataset):
                         if tx["field_s"] == field.name and tx["grid_name_s"] == grid:
                             update = self.need_to_update(granule, tx)
                             break
+                    else:
+                        update = self.need_to_transform(granule, grid, field)
                     if update:
                         fields_for_grid.append(field)
                 if fields_for_grid:
@@ -245,3 +248,27 @@ class TxJobFactory(baseclasses.Dataset):
         ):
             return False
         return True
+
+    def need_to_transform(self, granule: dict, grid_name: str, field) -> bool:
+        """
+        Filesystem fallback used when no Solr transformation doc exists for a
+        granule/grid/field combination.  Mirrors the harvester's need_to_download()
+        logic: skip reprocessing if the transformed output file already exists and
+        is newer than the source granule file.
+        """
+        stem = os.path.splitext(granule["filename_s"])[0]
+        output_path = os.path.join(
+            OUTPUT_DIR,
+            self.ds_name,
+            "transformed_products",
+            grid_name,
+            "transformed",
+            field.name,
+            f"{grid_name}_{field.name}_{stem}.nc",
+        )
+        if not os.path.exists(output_path):
+            return True
+        source_path = granule.get("pre_transformation_file_path_s")
+        if not source_path or not os.path.exists(source_path):
+            return True
+        return os.path.getmtime(output_path) <= os.path.getmtime(source_path)

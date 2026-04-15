@@ -5,6 +5,7 @@ from typing import Iterable
 
 from aggregations.aggregation import Aggregation
 import baseclasses
+from conf.global_settings import OUTPUT_DIR
 from utils.pipeline_utils import log_config, solr_utils
 
 logger = logging.getLogger("pipeline")
@@ -226,7 +227,9 @@ class AgJobFactory(baseclasses.Dataset):
                                 years_to_aggregate.append(year)
                                 break
                     else:
-                        years_to_aggregate.append(year)
+                        year_tx_docs = [t for t in transformation_docs if t["date_s"][:4] == year]
+                        if self.need_to_aggregate(grid_name, field, year, year_tx_docs):
+                            years_to_aggregate.append(year)
                 all_jobs.extend(
                     [
                         Aggregation(self.config, grid, year, field)
@@ -234,3 +237,38 @@ class AgJobFactory(baseclasses.Dataset):
                     ]
                 )
         return all_jobs
+
+    def need_to_aggregate(self, grid_name: str, field, year: str, year_tx_docs: list) -> bool:
+        """
+        Filesystem fallback used when no Solr aggregation doc exists for a
+        grid/field/year combination.  Skip re-aggregation if the output netCDF
+        file already exists and is newer than every transformation file that
+        feeds into it.
+        """
+        shortest_filename = f"{self.ds_name}_{grid_name}_{self.data_time_scale.upper()}_{field.name}_{year}"
+        output_path = os.path.join(
+            OUTPUT_DIR,
+            self.ds_name,
+            "transformed_products",
+            grid_name,
+            "aggregated",
+            field.name,
+            "netCDF",
+            f"{shortest_filename}.nc",
+        )
+
+        if not os.path.exists(output_path):
+            return True
+
+        if not year_tx_docs:
+            return True
+
+        agg_mtime = os.path.getmtime(output_path)
+        for tx in year_tx_docs:
+            tx_path = tx.get("transformation_file_path_s")
+            if not tx_path or not os.path.exists(tx_path):
+                return True
+            if os.path.getmtime(tx_path) > agg_mtime:
+                return True
+
+        return False
