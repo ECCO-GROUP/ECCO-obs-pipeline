@@ -156,6 +156,7 @@ def update_solr_grid(grid_name: str, grid_type: str, grid_file_path: str):
                     "id": grid_metadata["id"],
                     "grid_type_s": {"set": grid_type},
                     "grid_name_s": {"set": grid_name},
+                    "grid_path_s": {"set": str(grid_file_path)},
                     "grid_checksum_s": {"set": current_checksum},
                     "date_added_dt": {
                         "set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -179,17 +180,16 @@ def grids_to_solr(grids_to_use: Iterable[str] = []):
 
     grids = []
     for grid_file_path in grid_files:
-        grid_file_name = os.path.basename(grid_file_path)
         ds = xr.open_dataset(grid_file_path)
         # Assumes grids conform to metadata standard (see documentation)
         grid_name = ds.attrs["name"]
         grid_type = ds.attrs["type"]
-        grids.append((grid_name, grid_type, grid_file_name))
-        logger.debug(f"Loaded {grid_name} {grid_type} {grid_file_name}")
+        grids.append((grid_name, grid_type, grid_file_path))
+        logger.debug(f"Loaded {grid_name} {grid_type} {grid_file_path}")
 
     # Create Solr grid-type document for each missing grid type
-    for grid_name, grid_type, grid_file_name in grids:
-        logger.debug(f"Uploading solr grid {grid_name} {grid_type} {grid_file_name}")
+    for grid_name, grid_type, grid_file_path in grids:
+        logger.debug(f"Uploading solr grid {grid_name} {grid_type} {grid_file_path}")
         update_solr_grid(grid_name, grid_type, grid_file_path)
 
     # Verify grid names supplied exist on Solr
