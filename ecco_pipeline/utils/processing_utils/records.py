@@ -174,10 +174,9 @@ def save_netcdf(data: xr.Dataset, output_filename: str, netcdf_output_dir: str):
 
     coord_encoding = {}
     for coord in data_DS.coords:
+        coord_encoding[coord] = {"_FillValue": None, "dtype": "float32"}
         if coord == "time" or coord == "time_bnds":
             coord_encoding[coord] = {"dtype": "int32"}
-        else:
-            coord_encoding[coord] = {"_FillValue": None}
     coord_encoding["time"] = {"units": "hours since 1980-01-01"}
 
     var_encoding = {}
