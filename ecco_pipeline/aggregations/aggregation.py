@@ -333,7 +333,7 @@ class Aggregation(Dataset):
                 for date in sorted(missing_dates)
             ]
             missing_dates_ds = xr.concat(empty_records, dim="time")
-            daily_annual_ds = xr.concat([daily_annual_ds, missing_dates_ds], dim="time", compat="override", coords="minimal")
+            daily_annual_ds = xr.concat([daily_annual_ds, missing_dates_ds], dim="time")
         daily_annual_ds = daily_annual_ds.sortby(daily_annual_ds.time)
 
         data_var = list(daily_annual_ds.keys())[0]
