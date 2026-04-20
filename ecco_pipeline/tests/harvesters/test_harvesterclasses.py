@@ -415,12 +415,13 @@ class HarvesterTestCase(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
-                harvester = Harvester(config)
-                harvester.updated_solr_docs = []
+                with patch("harvesters.harvesterclasses.solr_utils.solr_count", return_value=0):
+                    harvester = Harvester(config)
+                    harvester.updated_solr_docs = []
 
-                status = harvester.post_fetch("https://example.com/source")
+                    status = harvester.post_fetch("https://example.com/source")
 
-                self.assertIn("harvested", status.lower())
+                    self.assertIn("harvested", status.lower())
 
     @patch("harvesters.harvesterclasses.solr_utils.solr_update")
     def test_post_fetch_with_updates(self, mock_update, mock_clean, mock_query):
@@ -434,59 +435,50 @@ class HarvesterTestCase(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
-                harvester = Harvester(config)
-                harvester.updated_solr_docs = [
-                    {
-                        "type_s": "granule",
-                        "harvest_success_b": True,
-                        "download_time_dt": "2020-01-01T00:00:00Z",
-                        "date_s": "2020-01-01T00:00:00Z"
-                    }
-                ]
+                with patch("harvesters.harvesterclasses.solr_utils.solr_count", return_value=0):
+                    harvester = Harvester(config)
+                    harvester.updated_solr_docs = [
+                        {
+                            "type_s": "granule",
+                            "harvest_success_b": True,
+                            "download_time_dt": "2020-01-01T00:00:00Z",
+                            "date_s": "2020-01-01T00:00:00Z"
+                        }
+                    ]
 
-                status = harvester.post_fetch("https://example.com/source")
+                    status = harvester.post_fetch("https://example.com/source")
 
-                # Verify solr_update was called
-                self.assertTrue(mock_update.called)
+                    # Verify solr_update was called
+                    self.assertTrue(mock_update.called)
 
     def test_harvester_status_all_success(self, mock_clean, mock_query):
         """Test harvester_status when all granules succeeded."""
-        # First call for init, then for status checks
-        mock_query.side_effect = [
-            [],  # Initial granule query
-            [],  # Initial descendant query
-            [],  # Failed granules query
-            [{"id": "1"}]  # Successful granules query
-        ]
+        mock_query.return_value = []
 
         config = self.get_mock_config()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
-                harvester = Harvester(config)
-                status = harvester.harvester_status()
+                with patch("harvesters.harvesterclasses.solr_utils.solr_count", side_effect=[0, 1]):
+                    harvester = Harvester(config)
+                    status = harvester.harvester_status()
 
-                self.assertEqual(status, "All granules successfully harvested")
+                    self.assertEqual(status, "All granules successfully harvested")
 
     def test_harvester_status_with_failures(self, mock_clean, mock_query):
         """Test harvester_status when some granules failed."""
-        # First call for init, then for status checks
-        mock_query.side_effect = [
-            [],  # Initial granule query
-            [],  # Initial descendant query
-            [{"id": "1"}, {"id": "2"}],  # Failed granules query
-            [{"id": "3"}]  # Successful granules query
-        ]
+        mock_query.return_value = []
 
         config = self.get_mock_config()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
-                harvester = Harvester(config)
-                status = harvester.harvester_status()
+                with patch("harvesters.harvesterclasses.solr_utils.solr_count", side_effect=[2, 1]):
+                    harvester = Harvester(config)
+                    status = harvester.harvester_status()
 
-                self.assertIn("2", status)
-                self.assertIn("failed", status)
+                    self.assertIn("2", status)
+                    self.assertIn("failed", status)
 
     def test_get_solr_docs_with_existing(self, mock_clean, mock_query):
         """Test get_solr_docs retrieves existing documents."""

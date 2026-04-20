@@ -276,13 +276,19 @@ class CMRHarvesterTestCase(unittest.TestCase):
         mock_query_instance.query.return_value = []
         mock_cmr_query.return_value = mock_query_instance
 
-        # First call fails, second succeeds
+        # First call fails, second succeeds.
+        # __exit__ must return False so the context manager does not suppress
+        # the exception raised by raise_for_status — otherwise the retry loop
+        # never executes.
         mock_fail = MagicMock()
+        mock_fail.__enter__ = MagicMock(return_value=mock_fail)
+        mock_fail.__exit__ = MagicMock(return_value=False)
         mock_fail.raise_for_status.side_effect = Exception("First attempt failed")
 
         mock_success = MagicMock()
-        mock_success.content = b"content"
-        mock_success.raise_for_status = MagicMock()
+        mock_success.__enter__ = MagicMock(return_value=mock_success)
+        mock_success.__exit__ = MagicMock(return_value=False)
+        mock_success.iter_content.return_value = [b"content"]
 
         mock_requests.side_effect = [mock_fail, mock_success]
 
@@ -305,11 +311,12 @@ class CMRHarvesterTestCase(unittest.TestCase):
 @patch("harvesters.harvesterclasses.solr_utils.solr_query")
 @patch("harvesters.harvesterclasses.solr_utils.clean_solr")
 @patch("harvesters.harvesterclasses.solr_utils.solr_update")
+@patch("harvesters.harvesterclasses.solr_utils.solr_count")
 @patch("harvesters.cmr_harvester.CMRQuery")
 class CMRHarvesterFunctionTestCase(unittest.TestCase):
     """Tests for the harvester() module function."""
 
-    def test_harvester_function_standard(self, mock_cmr_query, mock_update, mock_clean, mock_solr_query):
+    def test_harvester_function_standard(self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query):
         """Test the harvester() function runs standard fetch workflow."""
         mock_solr_query.return_value = []
         mock_query_instance = MagicMock()
@@ -328,7 +335,7 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
                 self.assertIsInstance(status, str)
                 mock_update.assert_called()
 
-    def test_harvester_function_atl20(self, mock_cmr_query, mock_update, mock_clean, mock_solr_query):
+    def test_harvester_function_atl20(self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query):
         """Test the harvester() function calls fetch_atl_daily for ATL20."""
         mock_solr_query.return_value = []
         mock_query_instance = MagicMock()
@@ -347,7 +354,7 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
                     status = harvester(config)
                     mock_fetch.assert_called_once()
 
-    def test_harvester_function_tellus_grac_grfo(self, mock_cmr_query, mock_update, mock_clean, mock_solr_query):
+    def test_harvester_function_tellus_grac_grfo(self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query):
         """Test the harvester() function calls fetch_tellus_grac_grfo for TELLUS dataset."""
         mock_solr_query.return_value = []
         mock_query_instance = MagicMock()
@@ -366,7 +373,7 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
                     status = harvester(config)
                     mock_fetch.assert_called_once()
 
-    def test_harvester_function_rdeft4(self, mock_cmr_query, mock_update, mock_clean, mock_solr_query):
+    def test_harvester_function_rdeft4(self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query):
         """Test the harvester() function calls fetch_rdeft4 for RDEFT4."""
         mock_solr_query.return_value = []
         mock_query_instance = MagicMock()
@@ -385,7 +392,7 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
                     status = harvester(config)
                     mock_fetch.assert_called_once()
 
-    def test_harvester_function_tellus_tolerance(self, mock_cmr_query, mock_update, mock_clean, mock_solr_query):
+    def test_harvester_function_tellus_tolerance(self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query):
         """Test the harvester() function calls fetch_tolerance_filter for other TELLUS datasets."""
         mock_solr_query.return_value = []
         mock_query_instance = MagicMock()
