@@ -29,7 +29,7 @@ class CMR_Harvester(Harvester):
     def dl_file(self, src: str, dst: str):
         for attempt in range(2):
             try:
-                with requests.get(src, stream=True) as r:
+                with requests.get(src, stream=True, timeout=120) as r:
                     r.raise_for_status()
                     with open(dst, "wb") as f:
                         for chunk in r.iter_content(chunk_size=CHUNK_SIZE):
@@ -53,12 +53,14 @@ class CMR_Harvester(Harvester):
                 continue
             to_process.append((cmr_granule, filename, dt))
 
+        for _, _, dt in to_process:
+            os.makedirs(os.path.join(self.target_dir, str(dt.year)), exist_ok=True)
+
         lock = threading.Lock()
 
         def process_granule(cmr_granule: CMRGranule, filename: str, dt: datetime):
             year = str(dt.year)
             local_fp = os.path.join(self.target_dir, year, filename)
-            os.makedirs(os.path.join(self.target_dir, year), exist_ok=True)
 
             if not self.check_update(filename, cmr_granule.mod_time):
                 return []
