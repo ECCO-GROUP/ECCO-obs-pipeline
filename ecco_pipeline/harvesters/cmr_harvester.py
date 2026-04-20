@@ -101,13 +101,15 @@ class CMR_Harvester(Harvester):
                 continue
             to_process.append((cmr_granule, filename, dt))
 
+        for _, _, dt in to_process:
+            os.makedirs(os.path.join(self.target_dir, str(dt.year)), exist_ok=True)
+
         lock = threading.Lock()
 
         def process_monthly_granule(cmr_granule: CMRGranule, filename: str, dt: datetime):
             year = str(dt.year)
             month = str(dt.month)
             local_fp = os.path.join(self.target_dir, year, filename)
-            os.makedirs(os.path.join(self.target_dir, year), exist_ok=True)
 
             native_granule = Granule(
                 self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url
@@ -158,21 +160,25 @@ class CMR_Harvester(Harvester):
                     except Exception:
                         continue
 
-                    mid_date = (
-                        var_ds.delta_time_beg.values[0]
-                        + (
-                            (
-                                var_ds.delta_time_end.values[0]
-                                - var_ds.delta_time_beg.values[0]
+                    try:
+                        mid_date = (
+                            var_ds.delta_time_beg.values[0]
+                            + (
+                                (
+                                    var_ds.delta_time_end.values[0]
+                                    - var_ds.delta_time_beg.values[0]
+                                )
+                                / 2
                             )
-                            / 2
-                        )
-                    ).astype(str)[:10]
-                    time_val = np.datetime64(mid_date).astype("datetime64[ns]")
-                    time_var_ds = var_ds.expand_dims({"time": [time_val]})
-                    time_var_ds = time_var_ds[[field.name for field in self.fields]]
-                    merged_ds = xr.merge([base_ds, time_var_ds])
-                    merged_ds.to_netcdf(daily_local_fp)
+                        ).astype(str)[:10]
+                        time_val = np.datetime64(mid_date).astype("datetime64[ns]")
+                        time_var_ds = var_ds.expand_dims({"time": [time_val]})
+                        time_var_ds = time_var_ds[[field.name for field in self.fields]]
+                        merged_ds = xr.merge([base_ds, time_var_ds])
+                        merged_ds.to_netcdf(daily_local_fp)
+                        merged_ds.close()
+                    finally:
+                        var_ds.close()
 
                     try:
                         daily_dt = datetime(int(year), int(month), i)
@@ -190,9 +196,13 @@ class CMR_Harvester(Harvester):
                         logger.debug(
                             f"{year}-{str(month).zfill(2)}-{day_number} unable to be sliced. Daily data likely missing in monthly file."
                         )
+
+                base_ds.close()
             return solr_docs
 
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        # xarray/netCDF4 operations are CPU-bound — 1 worker avoids core saturation
+        # while still freeing the main thread during I/O waits.
+        with ThreadPoolExecutor(max_workers=1) as executor:
             futures = [
                 executor.submit(process_monthly_granule, *args) for args in to_process
             ]
