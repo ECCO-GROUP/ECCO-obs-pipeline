@@ -17,7 +17,7 @@ from utils.processing_utils.records import TimeBound
 
 logger = logging.getLogger("pipeline")
 
-MAX_WORKERS = 10
+MAX_WORKERS = 3
 CHUNK_SIZE = 1024 * 1024  # 1 MB
 
 
