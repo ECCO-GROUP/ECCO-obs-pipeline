@@ -22,7 +22,7 @@ def search_catds(harvester: Harvester):
     for row in data.find_all("tr")[3:-1]:
         tokens = row.find_all("td")
         url = os.path.join(ds_url, tokens[1].find("a")["href"])
-        mod_time = datetime.strptime(tokens[2].text, "%Y-%m-%d %H:%M  ")
+        mod_time = datetime.strptime(tokens[2].text.strip(), "%Y-%m-%d %H:%M")
         all_granules.append(CATDSGranule(url, mod_time))
     logger.info(f"Found {len(all_granules)} possible granules. Checking for updates...")
     return all_granules
