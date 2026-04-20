@@ -129,75 +129,81 @@ class CMR_Harvester(Harvester):
                 )
 
             solr_docs = []
-            if dl_success:
-                base_ds = xr.open_dataset(local_fp, decode_times=True)
-                base_ds = base_ds[["grid_x", "grid_y", "crs"]]
+            if not dl_success:
+                return solr_docs
 
-                for i in range(1, 32):
-                    if not self.check_update(filename, cmr_granule.mod_time):
-                        continue
+            # Determine which days are missing from Solr before opening any files
+            days_needing_update = []
+            for i in range(1, 32):
+                try:
+                    datetime(dt.year, dt.month, i)
+                except ValueError:
+                    continue
+                day_number = str(i).zfill(2)
+                daily_filename = (
+                    filename[:9]
+                    + year
+                    + str(month).zfill(2)
+                    + day_number
+                    + filename[-10:-3]
+                    + ".nc"
+                )
+                if self.check_update(daily_filename, cmr_granule.mod_time):
+                    days_needing_update.append((i, day_number, daily_filename))
 
-                    success = True
-                    day_number = str(i).zfill(2)
+            if not days_needing_update:
+                return solr_docs
 
-                    try:
-                        datetime(dt.year, dt.month, i)
-                    except Exception:
-                        continue
+            base_ds = xr.open_dataset(local_fp, decode_times=True)
+            base_ds = base_ds[["grid_x", "grid_y", "crs"]]
 
-                    daily_filename = (
-                        filename[:9]
-                        + year
-                        + str(month).zfill(2)
-                        + day_number
-                        + filename[-10:-3]
-                        + ".nc"
-                    )
-                    daily_local_fp = os.path.join(self.target_dir, year, daily_filename)
+            for i, day_number, daily_filename in days_needing_update:
+                daily_local_fp = os.path.join(self.target_dir, year, daily_filename)
 
-                    try:
-                        var_ds = xr.open_dataset(local_fp, group=f"daily/day{day_number}")
-                    except Exception:
-                        continue
+                try:
+                    var_ds = xr.open_dataset(local_fp, group=f"daily/day{day_number}")
+                except Exception:
+                    continue
 
-                    try:
-                        mid_date = (
-                            var_ds.delta_time_beg.values[0]
-                            + (
-                                (
-                                    var_ds.delta_time_end.values[0]
-                                    - var_ds.delta_time_beg.values[0]
-                                )
-                                / 2
+                success = True
+                try:
+                    mid_date = (
+                        var_ds.delta_time_beg.values[0]
+                        + (
+                            (
+                                var_ds.delta_time_end.values[0]
+                                - var_ds.delta_time_beg.values[0]
                             )
-                        ).astype(str)[:10]
-                        time_val = np.datetime64(mid_date).astype("datetime64[ns]")
-                        time_var_ds = var_ds.expand_dims({"time": [time_val]})
-                        time_var_ds = time_var_ds[[field.name for field in self.fields]]
-                        merged_ds = xr.merge([base_ds, time_var_ds])
-                        merged_ds.to_netcdf(daily_local_fp)
-                        merged_ds.close()
-                    finally:
-                        var_ds.close()
-
-                    try:
-                        daily_dt = datetime(int(year), int(month), i)
-                        daily_granule = Granule(
-                            self.ds_name,
-                            daily_local_fp,
-                            daily_dt,
-                            cmr_granule.mod_time,
-                            cmr_granule.url,
+                            / 2
                         )
-                        daily_granule.update_item(self.solr_docs, success)
-                        daily_granule.update_descendant(self.descendant_docs, success)
-                        solr_docs.extend(daily_granule.get_solr_docs())
-                    except Exception:
-                        logger.debug(
-                            f"{year}-{str(month).zfill(2)}-{day_number} unable to be sliced. Daily data likely missing in monthly file."
-                        )
+                    ).astype(str)[:10]
+                    time_val = np.datetime64(mid_date).astype("datetime64[ns]")
+                    time_var_ds = var_ds.expand_dims({"time": [time_val]})
+                    time_var_ds = time_var_ds[[field.name for field in self.fields]]
+                    merged_ds = xr.merge([base_ds, time_var_ds])
+                    merged_ds.to_netcdf(daily_local_fp)
+                    merged_ds.close()
+                finally:
+                    var_ds.close()
 
-                base_ds.close()
+                try:
+                    daily_dt = datetime(int(year), int(month), i)
+                    daily_granule = Granule(
+                        self.ds_name,
+                        daily_local_fp,
+                        daily_dt,
+                        cmr_granule.mod_time,
+                        cmr_granule.url,
+                    )
+                    daily_granule.update_item(self.solr_docs, success)
+                    daily_granule.update_descendant(self.descendant_docs, success)
+                    solr_docs.extend(daily_granule.get_solr_docs())
+                except Exception:
+                    logger.debug(
+                        f"{year}-{str(month).zfill(2)}-{day_number} unable to be sliced. Daily data likely missing in monthly file."
+                    )
+
+            base_ds.close()
             return solr_docs
 
         # xarray/netCDF4 operations are CPU-bound — 1 worker avoids core saturation
