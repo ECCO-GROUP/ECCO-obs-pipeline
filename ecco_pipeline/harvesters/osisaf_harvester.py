@@ -39,6 +39,8 @@ class OSISAF_Harvester(Harvester):
             to_process.append((osisaf_granule, filename, dt))
 
         lock = threading.Lock()
+        total = len(to_process)
+        completed = 0
 
         def process_granule(osisaf_granule: OSISAFGranule, filename: str, dt: datetime):
             year = str(dt.year)
@@ -74,11 +76,14 @@ class OSISAF_Harvester(Harvester):
                 docs = future.result()
                 with lock:
                     self.updated_solr_docs.extend(docs)
+                    completed += 1
+                    if completed % 500 == 0:
+                        logger.info(f"{self.ds_name}: processed {completed}/{total} granules")
 
         logger.info(f"Downloading {self.ds_name} complete")
 
     def dl_file(self, src: str, dst: str):
-        with requests.get(src, stream=True) as r:
+        with requests.get(src, stream=True, timeout=120) as r:
             r.raise_for_status()
             with open(dst, "wb") as f:
                 for chunk in r.iter_content(chunk_size=CHUNK_SIZE):
