@@ -38,6 +38,10 @@ class OSISAF_Harvester(Harvester):
                 continue
             to_process.append((osisaf_granule, filename, dt))
 
+        # Pre-create all year directories to avoid repeated syscalls in workers
+        for _, _, dt in to_process:
+            os.makedirs(os.path.join(self.target_dir, str(dt.year)), exist_ok=True)
+
         lock = threading.Lock()
         total = len(to_process)
         completed = 0
@@ -45,7 +49,6 @@ class OSISAF_Harvester(Harvester):
         def process_granule(osisaf_granule: OSISAFGranule, filename: str, dt: datetime):
             year = str(dt.year)
             local_fp = os.path.join(self.target_dir, year, filename)
-            os.makedirs(os.path.dirname(local_fp), exist_ok=True)
 
             if not self.check_update(filename, osisaf_granule.mod_time):
                 return []

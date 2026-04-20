@@ -32,12 +32,14 @@ class CATDS_Harvester(Harvester):
                 continue
             to_process.append((catds_granule, filename, dt))
 
+        for _, _, dt in to_process:
+            os.makedirs(os.path.join(self.target_dir, str(dt.year)), exist_ok=True)
+
         lock = threading.Lock()
 
         def process_granule(catds_granule: CATDSGranule, filename: str, dt: datetime):
             year = str(dt.year)
             local_fp = os.path.join(self.target_dir, year, filename)
-            os.makedirs(os.path.dirname(local_fp), exist_ok=True)
 
             if not self.check_update(filename, catds_granule.mod_time):
                 return []
@@ -72,7 +74,7 @@ class CATDS_Harvester(Harvester):
         logger.info(f"Downloading {self.ds_name} complete")
 
     def dl_file(self, src: str, dst: str):
-        with requests.get(src, stream=True) as r:
+        with requests.get(src, stream=True, timeout=120) as r:
             r.raise_for_status()
             with open(dst, "wb") as f:
                 for chunk in r.iter_content(chunk_size=CHUNK_SIZE):

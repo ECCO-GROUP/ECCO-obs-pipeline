@@ -12,7 +12,7 @@ logger = logging.getLogger("pipeline")
 
 
 OSISAF_URL = "https://thredds.met.no/thredds/catalog/osisaf/met.no/"
-MAX_WORKERS = 3
+MAX_WORKERS = 2
 
 
 def _fetch_xml(url: str) -> BeautifulSoup:
