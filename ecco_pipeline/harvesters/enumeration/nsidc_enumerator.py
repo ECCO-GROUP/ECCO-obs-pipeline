@@ -12,7 +12,7 @@ logger = logging.getLogger("pipeline")
 
 
 NSIDC_URL = "https://noaadata.apps.nsidc.org/NOAA/"
-MAX_WORKERS = 3
+MAX_WORKERS = 4
 
 
 def _fetch_year_granules(ds_hemi_url: str, year: str) -> list:
