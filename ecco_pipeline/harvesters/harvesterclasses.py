@@ -122,25 +122,20 @@ class Harvester(Dataset):
         docs = {}
         descendants_docs = {}
 
-        # Query for existing harvested docs
+        # Query for existing harvested docs — only fetch fields needed for
+        # check_update (harvest_success_b, download_time_dt) and upserts (id)
         fq = ["type_s:granule", f"dataset_s:{self.ds_name}"]
-        harvested_docs = solr_utils.solr_query(fq)
+        harvested_docs = solr_utils.solr_query(
+            fq, fl="id,filename_s,harvest_success_b,download_time_dt"
+        )
+        for doc in harvested_docs:
+            docs[doc["filename_s"]] = doc
 
-        # Dictionary of existing harvested docs
-        # harvested doc filename : solr entry for that doc
-        if len(harvested_docs) > 0:
-            for doc in harvested_docs:
-                docs[doc["filename_s"]] = doc
-
-        # Query for existing descendants docs
+        # Query for existing descendants docs — only id needed for upserts
         fq = ["type_s:descendants", f"dataset_s:{self.ds_name}"]
-        existing_descendants_docs = solr_utils.solr_query(fq)
-
-        # Dictionary of existing descendants docs
-        # descendant doc date : solr entry for that doc
-        if len(existing_descendants_docs) > 0:
-            for doc in existing_descendants_docs:
-                descendants_docs[doc["filename_s"]] = doc
+        existing_descendants_docs = solr_utils.solr_query(fq, fl="id,filename_s")
+        for doc in existing_descendants_docs:
+            descendants_docs[doc["filename_s"]] = doc
 
         return docs, descendants_docs
 
@@ -268,24 +263,15 @@ class Harvester(Dataset):
         return harvesting_status
 
     def harvester_status(self) -> str:
-        # Query for Solr failed harvest documents
-        fq = ["type_s:granule", f"dataset_s:{self.ds_name}", "harvest_success_b:false"]
-        failed_harvesting = solr_utils.solr_query(fq)
+        fq_base = ["type_s:granule", f"dataset_s:{self.ds_name}"]
+        failed_count = solr_utils.solr_count(fq_base + ["harvest_success_b:false"])
+        successful_count = solr_utils.solr_count(fq_base + ["harvest_success_b:true"])
 
-        # Query for Solr successful harvest documents
-        fq = ["type_s:granule", f"dataset_s:{self.ds_name}", "harvest_success_b:true"]
-        successful_harvesting = solr_utils.solr_query(fq)
-
-        harvest_status = "All granules successfully harvested"
-
-        if not successful_harvesting:
-            harvest_status = (
-                "No usable granules harvested (either all failed or no data collected)"
-            )
-        elif failed_harvesting:
-            harvest_status = f"{len(failed_harvesting)} harvested granules failed"
-
-        return harvest_status
+        if not successful_count:
+            return "No usable granules harvested (either all failed or no data collected)"
+        elif failed_count:
+            return f"{failed_count} harvested granules failed"
+        return "All granules successfully harvested"
 
     def ds_doc_update(self) -> bool:
         # Query for Solr dataset level document

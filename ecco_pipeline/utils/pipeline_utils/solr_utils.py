@@ -28,6 +28,24 @@ def solr_query(fq: Iterable[str], fl: str = "") -> Iterable[dict]:
     return response.json()["response"]["docs"]
 
 
+def solr_count(fq: Iterable[str]) -> int:
+    """
+    Return the number of documents matching fq without fetching any docs.
+    """
+    query_params = {"q": "*:*", "fq": fq, "rows": 0}
+    url = f"{SOLR_HOST}{SOLR_COLLECTION}/select?"
+    try:
+        response = requests.get(
+            url, params=query_params, headers={"Connection": "close"}
+        )
+    except Exception:
+        time.sleep(5)
+        response = requests.get(
+            url, params=query_params, headers={"Connection": "close"}
+        )
+    return response.json()["response"]["numFound"]
+
+
 def solr_update(update_body: Iterable[dict], r: bool = False):
     """
     Submit update to Solr

@@ -157,11 +157,12 @@ class OSISAFHarvesterTestCase(unittest.TestCase):
 @patch("harvesters.harvesterclasses.solr_utils.solr_query")
 @patch("harvesters.harvesterclasses.solr_utils.clean_solr")
 @patch("harvesters.harvesterclasses.solr_utils.solr_update")
+@patch("harvesters.harvesterclasses.solr_utils.solr_count")
 @patch("harvesters.osisaf_harvester.search_osisaf")
 class OSISAFHarvesterFunctionTestCase(unittest.TestCase):
     """Tests for the harvester() module function."""
 
-    def test_harvester_function(self, mock_search, mock_update, mock_clean, mock_query):
+    def test_harvester_function(self, mock_search, mock_count, mock_update, mock_clean, mock_query):
         """Test the harvester() function runs complete workflow."""
         mock_query.return_value = []
         mock_search.return_value = []

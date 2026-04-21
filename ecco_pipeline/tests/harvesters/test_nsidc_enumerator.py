@@ -64,30 +64,20 @@ class SearchNSIDCTestCase(unittest.TestCase):
         """Test basic NSIDC search functionality."""
         harvester = self.get_mock_harvester()
 
-        # Setup mock responses
-        mock_responses = []
+        # The enumerator fetches year listings for both hemispheres sequentially,
+        # then fetches file listings concurrently. Order must match that flow.
+        year_response = MagicMock()
+        year_response.text = self.get_year_listing_html()
 
-        # Response for north hemisphere year listing
-        north_year_response = MagicMock()
-        north_year_response.text = self.get_year_listing_html()
-        mock_responses.append(north_year_response)
+        file_response = MagicMock()
+        file_response.text = self.get_file_listing_html()
 
-        # Response for 2020 file listing (north)
-        north_file_response = MagicMock()
-        north_file_response.text = self.get_file_listing_html()
-        mock_responses.append(north_file_response)
-
-        # Response for south hemisphere year listing
-        south_year_response = MagicMock()
-        south_year_response.text = self.get_year_listing_html()
-        mock_responses.append(south_year_response)
-
-        # Response for 2020 file listing (south)
-        south_file_response = MagicMock()
-        south_file_response.text = self.get_file_listing_html()
-        mock_responses.append(south_file_response)
-
-        mock_get.side_effect = mock_responses
+        mock_get.side_effect = [
+            year_response,   # north hemisphere year listing (sequential)
+            year_response,   # south hemisphere year listing (sequential)
+            file_response,   # north 2020 file listing (concurrent)
+            file_response,   # south 2020 file listing (concurrent)
+        ]
 
         granules = search_nsidc(harvester)
 

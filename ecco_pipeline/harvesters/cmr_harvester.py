@@ -1,6 +1,8 @@
 import calendar
 import logging
 import os
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 import time
 from typing import Iterable
@@ -15,89 +17,111 @@ from utils.processing_utils.records import TimeBound
 
 logger = logging.getLogger("pipeline")
 
+MAX_WORKERS = 3
+CHUNK_SIZE = 1024 * 1024  # 1 MB
+
 
 class CMR_Harvester(Harvester):
     def __init__(self, config: dict):
         super().__init__(config)
         self.cmr_granules: Iterable[CMRGranule] = CMRQuery(self).query()
 
+    def dl_file(self, src: str, dst: str):
+        for attempt in range(2):
+            try:
+                with requests.get(src, stream=True, timeout=120) as r:
+                    r.raise_for_status()
+                    with open(dst, "wb") as f:
+                        for chunk in r.iter_content(chunk_size=CHUNK_SIZE):
+                            f.write(chunk)
+                return
+            except Exception:
+                if attempt == 0:
+                    time.sleep(5)
+                else:
+                    raise
+
     def fetch(self):
+        to_process = []
         for cmr_granule in self.cmr_granules:
             filename = cmr_granule.url.split("/")[-1]
             if "NRT" in filename:
                 continue
-            # Get date from filename and convert to dt object
             date = get_date(self.filename_date_regex, filename)
             dt = datetime.strptime(date, self.filename_date_fmt)
-            if not (self.start <= dt) and (self.end >= dt):
+            if not ((self.start <= dt) and (self.end >= dt)):
                 continue
+            to_process.append((cmr_granule, filename, dt))
 
+        for _, _, dt in to_process:
+            os.makedirs(os.path.join(self.target_dir, str(dt.year)), exist_ok=True)
+
+        lock = threading.Lock()
+
+        def process_granule(cmr_granule: CMRGranule, filename: str, dt: datetime):
             year = str(dt.year)
-
             local_fp = os.path.join(self.target_dir, year, filename)
-            os.makedirs(os.path.join(self.target_dir, year), exist_ok=True)
 
-            if self.check_update(filename, cmr_granule.mod_time):
-                success = True
-                granule = Granule(
-                    self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url
-                )
+            if not self.check_update(filename, cmr_granule.mod_time):
+                return []
 
-                if self.need_to_download(granule):
-                    logger.info(f"Downloading {filename} to {local_fp}")
-                    try:
-                        self.dl_file(cmr_granule.url, local_fp)
-                    except Exception:
-                        success = False
-                else:
-                    logger.debug(f"{filename} already downloaded and up to date")
+            success = True
+            granule = Granule(
+                self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url
+            )
 
-                granule.update_item(self.solr_docs, success)
-                granule.update_descendant(self.descendant_docs, success)
-                self.updated_solr_docs.extend(granule.get_solr_docs())
+            if self.need_to_download(granule):
+                logger.info(f"Downloading {filename} to {local_fp}")
+                try:
+                    self.dl_file(cmr_granule.url, local_fp)
+                except Exception:
+                    success = False
+            else:
+                logger.debug(f"{filename} already downloaded and up to date")
+
+            granule.update_item(self.solr_docs, success)
+            granule.update_descendant(self.descendant_docs, success)
+            return granule.get_solr_docs()
+
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = [executor.submit(process_granule, *args) for args in to_process]
+            for future in as_completed(futures):
+                with lock:
+                    self.updated_solr_docs.extend(future.result())
+
         logger.info(f"Downloading {self.ds_name} complete")
 
-    def dl_file(self, src: str, dst: str):
-        try:
-            r = requests.get(src)
-            r.raise_for_status()
-            with open(dst, "wb") as f:
-                f.write(r.content)
-        except Exception:
-            time.sleep(5)
-            r = requests.get(src)
-            r.raise_for_status()
-            with open(dst, "wb") as f:
-                f.write(r.content)
-
     def fetch_atl_daily(self):
+        to_process = []
         for cmr_granule in self.cmr_granules:
             filename = cmr_granule.url.split("/")[-1]
             if "NRT" in filename:
                 continue
-            # Get date from filename and convert to dt object
             date = get_date(self.filename_date_regex, filename)
             dt = datetime.strptime(date, self.filename_date_fmt)
-            if not (self.start <= dt) and (self.end >= dt):
+            if not ((self.start <= dt) and (self.end >= dt)):
                 continue
+            to_process.append((cmr_granule, filename, dt))
 
+        for _, _, dt in to_process:
+            os.makedirs(os.path.join(self.target_dir, str(dt.year)), exist_ok=True)
+
+        lock = threading.Lock()
+
+        def process_monthly_granule(cmr_granule: CMRGranule, filename: str, dt: datetime):
             year = str(dt.year)
             month = str(dt.month)
-
             local_fp = os.path.join(self.target_dir, year, filename)
-            os.makedirs(os.path.join(self.target_dir, year), exist_ok=True)
 
             native_granule = Granule(
                 self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url
             )
 
             dl_success = True
-
             if self.need_to_download(native_granule):
                 logger.info(f"Downloading {filename} to {local_fp}")
                 try:
                     self.dl_file(cmr_granule.url, local_fp)
-                    dl_success = True
                 except Exception as e:
                     logger.warning(e)
                     dl_success = False
@@ -106,41 +130,45 @@ class CMR_Harvester(Harvester):
                     f"{year}-{str(month).zfill(2)} monthly file up to date. Slicing to ensure entries in Solr..."
                 )
 
-            if dl_success:
-                base_ds = xr.open_dataset(local_fp, decode_times=True)
-                base_ds = base_ds[["grid_x", "grid_y", "crs"]]
+            solr_docs = []
+            if not dl_success:
+                return solr_docs
 
-                # Pull out daily slices from monthly granule
-                for i in range(1, 32):
-                    if not self.check_update(filename, cmr_granule.mod_time):
-                        continue
+            # Determine which days are missing from Solr before opening any files
+            days_needing_update = []
+            for i in range(1, 32):
+                try:
+                    datetime(dt.year, dt.month, i)
+                except ValueError:
+                    continue
+                day_number = str(i).zfill(2)
+                daily_filename = (
+                    filename[:9]
+                    + year
+                    + str(month).zfill(2)
+                    + day_number
+                    + filename[-10:-3]
+                    + ".nc"
+                )
+                if self.check_update(daily_filename, cmr_granule.mod_time):
+                    days_needing_update.append((i, day_number, daily_filename))
 
-                    success = True
-                    day_number = str(i).zfill(2)
+            if not days_needing_update:
+                return solr_docs
 
-                    # Try to make a datetime object
-                    try:
-                        datetime(dt.year, dt.month, i)
-                    except Exception:
-                        # Day number is not valid for this month
-                        continue
-                    daily_filename = (
-                        filename[:9]
-                        + year
-                        + str(month).zfill(2)
-                        + day_number
-                        + filename[-10:-3]
-                        + ".nc"
-                    )
-                    daily_local_fp = os.path.join(self.target_dir, year, daily_filename)
+            base_ds = xr.open_dataset(local_fp, decode_times=True)
+            base_ds = base_ds[["grid_x", "grid_y", "crs"]]
 
-                    try:
-                        var_ds = xr.open_dataset(
-                            local_fp, group=f"daily/day{day_number}"
-                        )
-                    except Exception:
-                        # Day number is not valid for this month
-                        continue
+            for i, day_number, daily_filename in days_needing_update:
+                daily_local_fp = os.path.join(self.target_dir, year, daily_filename)
+
+                try:
+                    var_ds = xr.open_dataset(local_fp, group=f"daily/day{day_number}")
+                except Exception:
+                    continue
+
+                success = True
+                try:
                     mid_date = (
                         var_ds.delta_time_beg.values[0]
                         + (
@@ -151,48 +179,68 @@ class CMR_Harvester(Harvester):
                             / 2
                         )
                     ).astype(str)[:10]
-                    date = np.datetime64(mid_date).astype("datetime64[ns]")
-                    time_var_ds = var_ds.expand_dims({"time": [date]})
+                    time_val = np.datetime64(mid_date).astype("datetime64[ns]")
+                    time_var_ds = var_ds.expand_dims({"time": [time_val]})
                     time_var_ds = time_var_ds[[field.name for field in self.fields]]
                     merged_ds = xr.merge([base_ds, time_var_ds])
                     merged_ds.to_netcdf(daily_local_fp)
+                    merged_ds.close()
+                finally:
+                    var_ds.close()
 
-                    try:
-                        daily_dt = datetime(int(year), int(month), i)
-                        daily_granule = Granule(
-                            self.ds_name,
-                            daily_local_fp,
-                            daily_dt,
-                            cmr_granule.mod_time,
-                            cmr_granule.url,
-                        )
-                        daily_granule.update_item(self.solr_docs, success)
-                        daily_granule.update_descendant(self.descendant_docs, success)
-                        self.updated_solr_docs.extend(daily_granule.get_solr_docs())
-                    except Exception:
-                        logger.debug(
-                            f"{year}-{str(month).zfill(2)}-{day_number} unable to be sliced. Daily data likely missing in monthly file."
-                        )
+                try:
+                    daily_dt = datetime(int(year), int(month), i)
+                    daily_granule = Granule(
+                        self.ds_name,
+                        daily_local_fp,
+                        daily_dt,
+                        cmr_granule.mod_time,
+                        cmr_granule.url,
+                    )
+                    daily_granule.update_item(self.solr_docs, success)
+                    daily_granule.update_descendant(self.descendant_docs, success)
+                    solr_docs.extend(daily_granule.get_solr_docs())
+                except Exception:
+                    logger.debug(
+                        f"{year}-{str(month).zfill(2)}-{day_number} unable to be sliced. Daily data likely missing in monthly file."
+                    )
+
+            base_ds.close()
+            return solr_docs
+
+        # xarray/netCDF4 operations are CPU-bound — 1 worker avoids core saturation
+        # while still freeing the main thread during I/O waits.
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            futures = [
+                executor.submit(process_monthly_granule, *args) for args in to_process
+            ]
+            for future in as_completed(futures):
+                with lock:
+                    self.updated_solr_docs.extend(future.result())
+
         logger.info(f"Downloading {self.ds_name} complete")
 
     def fetch_tellus_grac_grfo(self):
+        to_process = []
         for cmr_granule in self.cmr_granules:
             filename = cmr_granule.url.split("/")[-1]
             if "NRT" in filename:
                 continue
-            # Get date from filename and convert to dt object
             date = get_date(self.filename_date_regex, filename)
             dt = datetime.strptime(date, self.filename_date_fmt)
-            if not (self.start <= dt) and (self.end >= dt):
+            if not ((self.start <= dt) and (self.end >= dt)):
                 continue
+            to_process.append((cmr_granule, filename, dt))
 
+        lock = threading.Lock()
+
+        def process_granule(cmr_granule: CMRGranule, filename: str, dt: datetime):
             local_fp = os.path.join(self.target_dir, filename)
-            os.makedirs(os.path.join(self.target_dir), exist_ok=True)
+            os.makedirs(self.target_dir, exist_ok=True)
 
             if (
                 not os.path.exists(local_fp)
-                or datetime.fromtimestamp(os.path.getmtime(local_fp))
-                < cmr_granule.mod_time
+                or datetime.fromtimestamp(os.path.getmtime(local_fp)) < cmr_granule.mod_time
             ):
                 logger.info(f"Downloading {filename} to {local_fp}")
                 self.dl_file(cmr_granule.url, local_fp)
@@ -203,36 +251,26 @@ class CMR_Harvester(Harvester):
 
             ds = xr.open_dataset(local_fp, decode_times=True)
 
-            # Extract time coverage from file metadata
             time_start = np.datetime64(ds.attrs["time_coverage_start"][:-1]).astype(
                 "datetime64[M]"
             )
             time_end = (
-                np.datetime64(ds.attrs["time_coverage_end"][:-1]).astype(
-                    "datetime64[M]"
-                )
-                + 1
+                np.datetime64(ds.attrs["time_coverage_end"][:-1]).astype("datetime64[M]") + 1
             )
-
-            # Construct months within time coverage
             months = np.arange(time_start, time_end, 1, dtype="datetime64[M]")
-            # Compute monthly centertimes
             monthly_cts = [
-                TimeBound(rec_avg_start=month, period="AVG_MON").center
-                for month in months
+                TimeBound(rec_avg_start=month, period="AVG_MON").center for month in months
             ]
 
             logger.info("Slicing aggregated granule into monthly granules...")
 
+            solr_docs = []
             for monthly_center in monthly_cts:
                 try:
                     success = True
-                    sub_ds = ds.sel(
-                        time=np.datetime64(monthly_center), method="nearest"
-                    )
+                    sub_ds = ds.sel(time=np.datetime64(monthly_center), method="nearest")
                     sub_ds_time = sub_ds.time.values
 
-                    # Check if slice is within +/- 7 day tolerance
                     if not (
                         sub_ds_time >= monthly_center - np.timedelta64(7, "D")
                         and sub_ds_time <= monthly_center + np.timedelta64(7, "D")
@@ -246,7 +284,6 @@ class CMR_Harvester(Harvester):
                         str(monthly_center.astype("datetime64[M]")), "%Y-%m"
                     )
                     filename_time = str(time_dt)[:10].replace("-", "")
-
                     slice_filename = f"{self.ds_name}_{filename_time}.nc"
                     slice_local_fp = os.path.join(
                         self.target_dir, str(time_dt.year), slice_filename
@@ -271,7 +308,14 @@ class CMR_Harvester(Harvester):
                 )
                 monthly_granule.update_item(self.solr_docs, success)
                 monthly_granule.update_descendant(self.descendant_docs, success)
-                self.updated_solr_docs.extend(monthly_granule.get_solr_docs())
+                solr_docs.extend(monthly_granule.get_solr_docs())
+            return solr_docs
+
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = [executor.submit(process_granule, *args) for args in to_process]
+            for future in as_completed(futures):
+                with lock:
+                    self.updated_solr_docs.extend(future.result())
 
         logger.info(f"Downloading {self.ds_name} complete")
 
@@ -291,7 +335,7 @@ class CMR_Harvester(Harvester):
         url_dict = {
             granule.url.split("RDEFT4_")[-1].split(".")[0]: granule
             for granule in self.cmr_granules
-        }  # granule end date:url
+        }
 
         end_of_month_granules = []
         for month_end in end_of_month:
@@ -306,45 +350,51 @@ class CMR_Harvester(Harvester):
                         end_of_month_granules.append(url_dict[month_end_str])
                         break
 
-        self.cmr_granules: Iterable[CMRGranule] = end_of_month_granules
-
-        for cmr_granule in self.cmr_granules:
+        to_process = []
+        for cmr_granule in end_of_month_granules:
             filename = cmr_granule.url.split("/")[-1]
             if "NRT" in filename:
                 continue
-            # Get date from filename and convert to dt object
             date = get_date(self.filename_date_regex, filename)
-            dt = datetime.strptime(date, self.filename_date_fmt)
-
-            # Force date to be first of the month
-            dt = dt.replace(day=1)
-
+            dt = datetime.strptime(date, self.filename_date_fmt).replace(day=1)
             if not ((self.start <= dt) and (self.end >= dt)):
                 continue
+            to_process.append((cmr_granule, filename, dt))
 
+        lock = threading.Lock()
+
+        def process_granule(cmr_granule: CMRGranule, filename: str, dt: datetime):
             year = str(dt.year)
-
             local_fp = os.path.join(self.target_dir, year, filename)
             os.makedirs(os.path.join(self.target_dir, year), exist_ok=True)
 
-            if self.check_update(filename, cmr_granule.mod_time):
-                success = True
-                granule = Granule(
-                    self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url
-                )
+            if not self.check_update(filename, cmr_granule.mod_time):
+                return []
 
-                if self.need_to_download(granule):
-                    logger.info(f"Downloading {filename} to {local_fp}")
-                    try:
-                        self.dl_file(cmr_granule.url, local_fp)
-                    except Exception:
-                        success = False
-                else:
-                    logger.debug(f"{filename} already downloaded and up to date")
+            success = True
+            granule = Granule(
+                self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url
+            )
 
-                granule.update_item(self.solr_docs, success)
-                granule.update_descendant(self.descendant_docs, success)
-                self.updated_solr_docs.extend(granule.get_solr_docs())
+            if self.need_to_download(granule):
+                logger.info(f"Downloading {filename} to {local_fp}")
+                try:
+                    self.dl_file(cmr_granule.url, local_fp)
+                except Exception:
+                    success = False
+            else:
+                logger.debug(f"{filename} already downloaded and up to date")
+
+            granule.update_item(self.solr_docs, success)
+            granule.update_descendant(self.descendant_docs, success)
+            return granule.get_solr_docs()
+
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = [executor.submit(process_granule, *args) for args in to_process]
+            for future in as_completed(futures):
+                with lock:
+                    self.updated_solr_docs.extend(future.result())
+
         logger.info(f"Downloading {self.ds_name} complete")
 
     def fetch_tolerance_filter(self):
@@ -371,7 +421,6 @@ class CMR_Harvester(Harvester):
         )
         time_end = datetime.strptime(filename_time, self.filename_date_fmt)
 
-        # Construct months within time coverage
         months = np.arange(
             time_start.strftime("%Y-%m-01"),
             time_end.strftime("%Y-%m-01"),
@@ -395,39 +444,51 @@ class CMR_Harvester(Harvester):
                     f"Granule nearest to {month} ({nearest_key}) is outside of tolerance window. Skipping."
                 )
 
-        for cmr_granule in self.cmr_granules:
+        to_process = []
+        for cmr_granule in granules_to_use:
             filename = cmr_granule.url.split("/")[-1]
             if "NRT" in filename:
                 continue
-            # Get date from filename and convert to dt object
             date = get_date(self.filename_date_regex, filename)
             dt = datetime.strptime(date, self.filename_date_fmt)
-            if not (self.start <= dt) and (self.end >= dt):
+            if not ((self.start <= dt) and (self.end >= dt)):
                 continue
+            to_process.append((cmr_granule, filename, dt))
 
+        lock = threading.Lock()
+
+        def process_granule(cmr_granule: CMRGranule, filename: str, dt: datetime):
             year = str(dt.year)
-
             local_fp = os.path.join(self.target_dir, year, filename)
             os.makedirs(os.path.join(self.target_dir, year), exist_ok=True)
 
-            if self.check_update(filename, cmr_granule.mod_time):
-                success = True
-                granule = Granule(
-                    self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url
-                )
+            if not self.check_update(filename, cmr_granule.mod_time):
+                return []
 
-                if self.need_to_download(granule):
-                    logger.info(f"Downloading {filename} to {local_fp}")
-                    try:
-                        self.dl_file(cmr_granule.url, local_fp)
-                    except Exception:
-                        success = False
-                else:
-                    logger.debug(f"{filename} already downloaded and up to date")
+            success = True
+            granule = Granule(
+                self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url
+            )
 
-                granule.update_item(self.solr_docs, success)
-                granule.update_descendant(self.descendant_docs, success)
-                self.updated_solr_docs.extend(granule.get_solr_docs())
+            if self.need_to_download(granule):
+                logger.info(f"Downloading {filename} to {local_fp}")
+                try:
+                    self.dl_file(cmr_granule.url, local_fp)
+                except Exception:
+                    success = False
+            else:
+                logger.debug(f"{filename} already downloaded and up to date")
+
+            granule.update_item(self.solr_docs, success)
+            granule.update_descendant(self.descendant_docs, success)
+            return granule.get_solr_docs()
+
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = [executor.submit(process_granule, *args) for args in to_process]
+            for future in as_completed(futures):
+                with lock:
+                    self.updated_solr_docs.extend(future.result())
+
         logger.info(f"Downloading {self.ds_name} complete")
 
 

@@ -83,15 +83,12 @@ class SearchOSISAFTestCase(unittest.TestCase):
         </catalog>
         """
 
-    @patch("harvesters.enumeration.osisaf_enumerator.requests.session")
-    def test_search_osisaf_daily_basic(self, mock_session_class):
+    @patch("harvesters.enumeration.osisaf_enumerator.requests.get")
+    def test_search_osisaf_daily_basic(self, mock_get_fn):
         """Test basic OSISAF daily search functionality."""
         harvester = self.get_mock_harvester("daily")
 
-        mock_session = MagicMock()
-        mock_session_class.return_value = mock_session
-
-        def mock_get(url):
+        def mock_get(url, **kwargs):
             response = MagicMock()
             if url.endswith("catalog.xml") and "/2020/" not in url and "/01/" not in url and "/02/" not in url:
                 response.text = self.get_year_catalog_xml()
@@ -101,22 +98,19 @@ class SearchOSISAFTestCase(unittest.TestCase):
                 response.text = self.get_daily_catalog_xml()
             return response
 
-        mock_session.get.side_effect = mock_get
+        mock_get_fn.side_effect = mock_get
 
         granules = search_osisaf(harvester)
 
         self.assertGreater(len(granules), 0)
         self.assertIsInstance(granules[0], OSISAFGranule)
 
-    @patch("harvesters.enumeration.osisaf_enumerator.requests.session")
-    def test_search_osisaf_monthly(self, mock_session_class):
+    @patch("harvesters.enumeration.osisaf_enumerator.requests.get")
+    def test_search_osisaf_monthly(self, mock_get_fn):
         """Test OSISAF monthly search functionality."""
         harvester = self.get_mock_harvester("monthly")
 
-        mock_session = MagicMock()
-        mock_session_class.return_value = mock_session
-
-        def mock_get(url):
+        def mock_get(url, **kwargs):
             response = MagicMock()
             if "monthly/catalog.xml" in url and "/2020/" not in url:
                 response.text = self.get_year_catalog_xml()
@@ -126,7 +120,7 @@ class SearchOSISAFTestCase(unittest.TestCase):
                 response.text = self.get_monthly_file_catalog_xml()
             return response
 
-        mock_session.get.side_effect = mock_get
+        mock_get_fn.side_effect = mock_get
 
         granules = search_osisaf(harvester)
 
@@ -134,17 +128,14 @@ class SearchOSISAFTestCase(unittest.TestCase):
         for granule in granules:
             self.assertIsInstance(granule, OSISAFGranule)
 
-    @patch("harvesters.enumeration.osisaf_enumerator.requests.session")
-    def test_search_osisaf_url_construction(self, mock_session_class):
+    @patch("harvesters.enumeration.osisaf_enumerator.requests.get")
+    def test_search_osisaf_url_construction(self, mock_get_fn):
         """Test that correct URLs are constructed."""
         harvester = self.get_mock_harvester("daily")
 
-        mock_session = MagicMock()
-        mock_session_class.return_value = mock_session
-
         calls = []
 
-        def mock_get(url):
+        def mock_get(url, **kwargs):
             calls.append(url)
             response = MagicMock()
             if url.endswith("catalog.xml") and "/2020/" not in url and "/01/" not in url and "/02/" not in url:
@@ -155,7 +146,7 @@ class SearchOSISAFTestCase(unittest.TestCase):
                 response.text = self.get_daily_catalog_xml()
             return response
 
-        mock_session.get.side_effect = mock_get
+        mock_get_fn.side_effect = mock_get
 
         search_osisaf(harvester)
 
@@ -163,15 +154,12 @@ class SearchOSISAFTestCase(unittest.TestCase):
         self.assertTrue(any("thredds.met.no" in call for call in calls))
         self.assertTrue(any("osisaf" in call for call in calls))
 
-    @patch("harvesters.enumeration.osisaf_enumerator.requests.session")
-    def test_search_osisaf_granule_attributes(self, mock_session_class):
+    @patch("harvesters.enumeration.osisaf_enumerator.requests.get")
+    def test_search_osisaf_granule_attributes(self, mock_get_fn):
         """Test that granules have correct attributes."""
         harvester = self.get_mock_harvester("daily")
 
-        mock_session = MagicMock()
-        mock_session_class.return_value = mock_session
-
-        def mock_get(url):
+        def mock_get(url, **kwargs):
             response = MagicMock()
             if url.endswith("catalog.xml") and "/2020/" not in url and "/01/" not in url and "/02/" not in url:
                 response.text = self.get_year_catalog_xml()
@@ -181,7 +169,7 @@ class SearchOSISAFTestCase(unittest.TestCase):
                 response.text = self.get_daily_catalog_xml()
             return response
 
-        mock_session.get.side_effect = mock_get
+        mock_get_fn.side_effect = mock_get
 
         granules = search_osisaf(harvester)
 
@@ -190,17 +178,14 @@ class SearchOSISAFTestCase(unittest.TestCase):
             self.assertIn("fileServer", granule.url)
             self.assertIsInstance(granule.mod_time, datetime)
 
-    @patch("harvesters.enumeration.osisaf_enumerator.requests.session")
-    def test_search_osisaf_skips_monthly_dir(self, mock_session_class):
+    @patch("harvesters.enumeration.osisaf_enumerator.requests.get")
+    def test_search_osisaf_skips_monthly_dir(self, mock_get_fn):
         """Test that monthly directory is skipped in daily search."""
         harvester = self.get_mock_harvester("daily")
 
-        mock_session = MagicMock()
-        mock_session_class.return_value = mock_session
-
         calls = []
 
-        def mock_get(url):
+        def mock_get(url, **kwargs):
             calls.append(url)
             response = MagicMock()
             if url.endswith("catalog.xml") and "/2020/" not in url and "/01/" not in url and "/02/" not in url:
@@ -211,7 +196,7 @@ class SearchOSISAFTestCase(unittest.TestCase):
                 response.text = self.get_daily_catalog_xml()
             return response
 
-        mock_session.get.side_effect = mock_get
+        mock_get_fn.side_effect = mock_get
 
         search_osisaf(harvester)
 
