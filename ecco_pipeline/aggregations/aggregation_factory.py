@@ -223,18 +223,22 @@ class AgJobFactory(baseclasses.Dataset):
                     # If aggregation was previously done compare transformation time with aggregation time
                     if aggregation_docs:
                         agg_time = aggregation_docs[0]["aggregation_time_dt"]
+                        needs_reaggregate = False
                         for t in transformation_docs:
                             if t["date_dt"][:4] != year:
                                 continue
                             if t["transformation_completed_dt"] > agg_time:
                                 years_to_aggregate.append(year)
+                                needs_reaggregate = True
                                 break
+                        if not needs_reaggregate:
+                            self._ensure_provenance(grid, field, year)
                     else:
                         year_tx_docs = [t for t in transformation_docs if t["date_dt"][:4] == year]
                         if self.need_to_aggregate(grid_name, field, year, year_tx_docs):
                             years_to_aggregate.append(year)
                         else:
-                            self.reconstruct_agg_solr_doc(grid_name, field, year)
+                            self.reconstruct_agg_solr_doc(grid, field, year)
                 all_jobs.extend(
                     [
                         Aggregation(self.config, grid, year, field)
@@ -278,12 +282,14 @@ class AgJobFactory(baseclasses.Dataset):
 
         return False
 
-    def reconstruct_agg_solr_doc(self, grid_name: str, field, year: str) -> None:
+    def reconstruct_agg_solr_doc(self, grid: dict, field, year: str) -> None:
         """
         Creates a Solr aggregation doc from existing output files when the doc is
         missing but processing was determined to be unnecessary.  Mirrors the fields
-        written by Aggregation.aggregate().
+        written by Aggregation.aggregate().  Also generates the provenance JSON if
+        it is absent.
         """
+        grid_name = grid["grid_name_s"]
         data_time_scale = self.data_time_scale
         shortest_filename = f"{self.ds_name}_{grid_name}_{data_time_scale.upper()}_{field.name}_{year}"
         monthly_filename = f"{self.ds_name}_{grid_name}_MONTHLY_{field.name}_{year}"
@@ -346,3 +352,35 @@ class AgJobFactory(baseclasses.Dataset):
             logger.warning(
                 f"Failed to reconstruct Solr aggregation doc for {self.ds_name} {grid_name} {field.name} {year}"
             )
+
+        self._ensure_provenance(grid, field, year)
+
+    def _ensure_provenance(self, grid: dict, field, year: str) -> None:
+        """
+        Generate the provenance JSON for a grid/field/year if it does not already exist.
+        Called in all skip paths so that provenance files are always present even when
+        aggregation itself is not re-run (e.g. after a Solr wipe and repopulation).
+        """
+        grid_name = grid["grid_name_s"]
+        json_filename = f"{self.ds_name}_{field.name}_{grid_name}_{year}_descendants.json"
+        json_path = os.path.join(
+            OUTPUT_DIR,
+            self.ds_name,
+            "transformed_products",
+            grid_name,
+            "aggregated",
+            field.name,
+            json_filename,
+        )
+        if not os.path.exists(json_path):
+            logger.debug(
+                f"Provenance file missing for {self.ds_name} {grid_name} {field.name} {year}, generating."
+            )
+            try:
+                agg = Aggregation(self.config, grid, year, field)
+                agg.get_filepaths()
+                agg.generate_provenance(grid_name, {}, True)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to generate provenance for {self.ds_name} {grid_name} {field.name} {year}: {e}"
+                )
