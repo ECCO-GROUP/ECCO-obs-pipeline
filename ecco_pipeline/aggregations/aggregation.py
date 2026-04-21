@@ -79,35 +79,6 @@ class Aggregation(Dataset):
     def generate_provenance(
         self, grid_name, solr_output_filepaths, aggregation_successes
     ):
-        # Query for descendants entries from this year
-        fq = ["type_s:descendants", f"dataset_s:{self.ds_name}", f"date_s:{self.year}*"]
-        existing_descendants_docs = solr_utils.solr_query(fq)
-
-        # if descendants entries already exist, update them
-        if len(existing_descendants_docs) > 0:
-            update_body = []
-            for doc in existing_descendants_docs:
-                doc_id = doc["id"]
-
-                temp_doc = {
-                    "id": doc_id,
-                    "all_aggregation_success_b": {"set": aggregation_successes},
-                }
-
-                # Add aggregation file path fields to descendants entry
-                for key, value in solr_output_filepaths.items():
-                    temp_doc[
-                        f"{grid_name}_{self.field.name}_aggregated_{key}_path_s"
-                    ] = {"set": value}
-                update_body.append(temp_doc)
-
-            r = solr_utils.solr_update(update_body, r=True)
-
-            if r.status_code != 200:
-                logger.exception(
-                    f"Failed to update Solr aggregation entry for {self.field.name} in {self.ds_name} for {self.year} and grid {grid_name}"
-                )
-
         fq = [
             f"dataset_s:{self.ds_name}",
             "type_s:aggregation",
@@ -149,12 +120,12 @@ class Aggregation(Dataset):
             "success_b:True",
             f'grid_name_s:{self.grid["grid_name_s"]}',
             f"field_s:{self.field.name}",
-            f"date_s:{self.year}*",
+            f"date_dt:[{self.year}-01-01T00:00:00Z TO {int(self.year)+1}-01-01T00:00:00Z}}",
         ]
         docs = solr_utils.solr_query(fq)
         filepaths = defaultdict(list)
         for doc in docs:
-            filepaths[doc["date_s"]].append(doc["transformation_file_path_s"])
+            filepaths[doc["date_dt"]].append(doc["transformation_file_path_s"])
 
             # Update JSON transformations list
             fq = [
@@ -203,10 +174,10 @@ class Aggregation(Dataset):
             "success_b:True",
             f'grid_name_s:{self.grid["grid_name_s"]}',
             f"field_s:{self.field.name}",
-            f"date_s:{self.year}*",
+            f"date_dt:[{self.year}-01-01T00:00:00Z TO {int(self.year)+1}-01-01T00:00:00Z}}",
         ]
         docs = solr_utils.solr_query(fq)
-        doc_dates = sorted([doc["date_s"][:10] for doc in docs])
+        doc_dates = sorted([doc["date_dt"][:10] for doc in docs])
 
         data_time_scale = self.ds_meta.get("data_time_scale_s")
 
@@ -306,6 +277,7 @@ class Aggregation(Dataset):
 
     def aggregate(self):
         aggregation_successes = True
+        aggregation_started_dt = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
         # Construct list of dates corresponding to data time scale
         grid_path = self.grid["grid_path_s"]
         grid_name = self.grid["grid_name_s"]
@@ -476,17 +448,24 @@ class Aggregation(Dataset):
                     "set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
                 },
                 "aggregation_version_s": {"set": self.version},
+                "aggregation_success_b": {"set": success},
+                "aggregation_started_dt": {"set": aggregation_started_dt},
+                "year_i": {"set": int(self.year)},
+                "error_message_s": {"set": "" if success else "Aggregation failed"},
             }
         else:
             update_doc = {
                 "type_s": "aggregation",
                 "dataset_s": self.ds_name,
                 "year_s": self.year,
+                "year_i": int(self.year),
                 "grid_name_s": grid_name,
                 "field_s": self.field.name,
                 "aggregation_time_dt": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "aggregation_started_dt": aggregation_started_dt,
                 "aggregation_success_b": success,
                 "aggregation_version_s": self.version,
+                "error_message_s": "" if success else "Aggregation failed",
             }
 
         # Update file paths according to the data time scale and do monthly aggregation config field

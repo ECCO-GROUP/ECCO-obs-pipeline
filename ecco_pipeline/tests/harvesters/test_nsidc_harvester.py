@@ -108,7 +108,7 @@ class NSIDCHarvesterTestCase(unittest.TestCase):
 
                 # Verify download occurred
                 mock_requests.assert_called_once()
-                self.assertEqual(len(h.updated_solr_docs), 2)  # granule + descendant
+                self.assertEqual(len(h.updated_solr_docs), 1)  # granule only
 
     @patch("harvesters.nsidc_harvester.requests.get")
     def test_fetch_skips_out_of_range_dates(self, mock_requests, mock_search, mock_clean, mock_query):

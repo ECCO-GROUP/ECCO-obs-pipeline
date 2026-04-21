@@ -287,7 +287,7 @@ class AggregationGetFilepathsTestCase(unittest.TestCase):
             [{"start_date_dt": "2020-01-01T00:00:00Z"}],
             [
                 {
-                    "date_s": "2020-01-15T00:00:00Z",
+                    "date_dt": "2020-01-15T00:00:00Z",
                     "transformation_file_path_s": "/path/to/file1.nc",
                     "pre_transformation_file_path_s": "/path/to/pre1.nc",
                 }
@@ -313,12 +313,12 @@ class AggregationGetFilepathsTestCase(unittest.TestCase):
             [{"start_date_dt": "2020-01-01T00:00:00Z"}],
             [
                 {
-                    "date_s": "2020-01-15T00:00:00Z",
+                    "date_dt": "2020-01-15T00:00:00Z",
                     "transformation_file_path_s": "/path/to/asc.nc",
                     "pre_transformation_file_path_s": "/path/to/pre_asc.nc",
                 },
                 {
-                    "date_s": "2020-01-15T00:00:00Z",
+                    "date_dt": "2020-01-15T00:00:00Z",
                     "transformation_file_path_s": "/path/to/desc.nc",
                     "pre_transformation_file_path_s": "/path/to/pre_desc.nc",
                 },
@@ -343,7 +343,7 @@ class AggregationGetFilepathsTestCase(unittest.TestCase):
             [{"start_date_dt": "2020-01-01T00:00:00Z"}],
             [
                 {
-                    "date_s": "2020-01-15T00:00:00Z",
+                    "date_dt": "2020-01-15T00:00:00Z",
                     "transformation_file_path_s": "/path/to/file1.nc",
                     "pre_transformation_file_path_s": "/path/to/pre1.nc",
                 }
@@ -501,7 +501,7 @@ class AggregationGetMissingDatesTestCase(unittest.TestCase):
         mock_query.side_effect = [
             [{"start_date_dt": "2020-01-01T00:00:00Z", "data_time_scale_s": "daily"}],
             [
-                {"date_s": f"2020-{m:02d}-{d:02d}T00:00:00Z"}
+                {"date_dt": f"2020-{m:02d}-{d:02d}T00:00:00Z"}
                 for m in range(1, 13)
                 for d in range(1, 32)
                 if m in [1, 3, 5, 7, 8, 10, 12] or d <= 30
@@ -524,10 +524,10 @@ class AggregationGetMissingDatesTestCase(unittest.TestCase):
         mock_query.side_effect = [
             [{"start_date_dt": "2020-01-01T00:00:00Z", "data_time_scale_s": "daily"}],
             [
-                {"date_s": "2020-01-01T00:00:00Z"},
-                {"date_s": "2020-01-02T00:00:00Z"},
+                {"date_dt": "2020-01-01T00:00:00Z"},
+                {"date_dt": "2020-01-02T00:00:00Z"},
                 # 2020-01-03 is missing
-                {"date_s": "2020-01-04T00:00:00Z"},
+                {"date_dt": "2020-01-04T00:00:00Z"},
             ],
         ]
 
@@ -546,10 +546,10 @@ class AggregationGetMissingDatesTestCase(unittest.TestCase):
         mock_query.side_effect = [
             [{"start_date_dt": "2020-01-01T00:00:00Z", "data_time_scale_s": "monthly"}],
             [
-                {"date_s": "2020-01-01T00:00:00Z"},
-                {"date_s": "2020-02-01T00:00:00Z"},
+                {"date_dt": "2020-01-01T00:00:00Z"},
+                {"date_dt": "2020-02-01T00:00:00Z"},
                 # March missing
-                {"date_s": "2020-04-01T00:00:00Z"},
+                {"date_dt": "2020-04-01T00:00:00Z"},
             ],
         ]
 
@@ -568,8 +568,8 @@ class AggregationGetMissingDatesTestCase(unittest.TestCase):
         mock_query.side_effect = [
             [{"start_date_dt": "2020-01-01T00:00:00Z", "data_time_scale_s": "monthly"}],
             [
-                {"date_s": "2020-01-01T00:00:00Z"},
-                {"date_s": "2020-02-03T00:00:00Z"},  # Within tolerance of 2020-02-01
+                {"date_dt": "2020-01-01T00:00:00Z"},
+                {"date_dt": "2020-02-03T00:00:00Z"},  # Within tolerance of 2020-02-01
             ],
         ]
 
@@ -719,50 +719,13 @@ class AggregationGenerateProvenanceTestCase(unittest.TestCase):
     @patch("builtins.open", new_callable=mock_open)
     @patch("aggregations.aggregation.solr_utils.solr_update")
     @patch("aggregations.aggregation.solr_utils.solr_query")
-    def test_generate_provenance_updates_existing_descendants(self, mock_query, mock_update, mock_file):
-        """Test updating existing descendants documents."""
-        # First call for ds_meta, second for descendants, third for aggregation docs
-        mock_query.side_effect = [
-            [{"start_date_dt": "2020-01-01T00:00:00Z"}],
-            [{"id": "descendant1", "date_s": "2020-01-15T00:00:00Z"}],  # Existing descendants
-            [{"id": "agg1"}],  # Aggregation docs
-        ]
-
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_update.return_value = mock_response
-
-        config = self.get_base_config()
-        field = MagicMock()
-        field.name = "ssha"
-        agg = Aggregation(config, self.get_mock_grid(), "2020", field)
-
-        solr_paths = {
-            "daily_bin": "/path/to/daily.bin",
-            "daily_netCDF": "/path/to/daily.nc",
-        }
-
-        agg.generate_provenance("TEST_GRID", solr_paths, True)
-
-        # Check that update was called
-        mock_update.assert_called_once()
-        update_body = mock_update.call_args[0][0]
-        self.assertEqual(update_body[0]["id"], "descendant1")
-
-    @patch("builtins.open", new_callable=mock_open)
-    @patch("aggregations.aggregation.solr_utils.solr_update")
-    @patch("aggregations.aggregation.solr_utils.solr_query")
     def test_generate_provenance_exports_json(self, mock_query, mock_update, mock_file):
-        """Test that JSON file is exported."""
+        """Test that JSON file is exported with correct content and no Solr update."""
+        # Two queries: ds_meta (in __init__) and aggregation docs
         mock_query.side_effect = [
             [{"start_date_dt": "2020-01-01T00:00:00Z", "dataset_s": "TEST_DATASET"}],
-            [],  # No existing descendants
-            [{"id": "agg1"}],  # Aggregation docs
+            [{"id": "agg1", "aggregation_success_b": True}],  # Aggregation docs
         ]
-
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_update.return_value = mock_response
 
         config = self.get_base_config()
         field = MagicMock()
@@ -776,8 +739,15 @@ class AggregationGenerateProvenanceTestCase(unittest.TestCase):
 
         agg.generate_provenance("TEST_GRID", solr_paths, True)
 
-        # Check that file was opened for writing
+        # JSON file should be written; no Solr update (descendants removed)
         self.assertTrue(mock_file.called)
+        mock_update.assert_not_called()
+
+        # Verify JSON content
+        written = json.loads(mock_file().write.call_args[0][0])
+        self.assertEqual(written["dataset"]["dataset_s"], "TEST_DATASET")
+        self.assertEqual(written["aggregation"][0]["id"], "agg1")
+        self.assertIn("transformations", written)
 
 
 if __name__ == "__main__":

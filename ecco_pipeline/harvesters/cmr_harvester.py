@@ -66,21 +66,25 @@ class CMR_Harvester(Harvester):
                 return []
 
             success = True
+            error_message = ""
             granule = Granule(
                 self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url
             )
 
+            download_duration = 0
             if self.need_to_download(granule):
                 logger.info(f"Downloading {filename} to {local_fp}")
+                download_start = datetime.utcnow()
                 try:
                     self.dl_file(cmr_granule.url, local_fp)
-                except Exception:
+                except Exception as e:
                     success = False
+                    error_message = str(e)
+                download_duration = int((datetime.utcnow() - download_start).total_seconds())
             else:
                 logger.debug(f"{filename} already downloaded and up to date")
 
-            granule.update_item(self.solr_docs, success)
-            granule.update_descendant(self.descendant_docs, success)
+            granule.update_item(self.solr_docs, success, error_message, download_duration)
             return granule.get_solr_docs()
 
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
@@ -198,7 +202,6 @@ class CMR_Harvester(Harvester):
                         cmr_granule.url,
                     )
                     daily_granule.update_item(self.solr_docs, success)
-                    daily_granule.update_descendant(self.descendant_docs, success)
                     solr_docs.extend(daily_granule.get_solr_docs())
                 except Exception:
                     logger.debug(
@@ -238,6 +241,7 @@ class CMR_Harvester(Harvester):
             local_fp = os.path.join(self.target_dir, filename)
             os.makedirs(self.target_dir, exist_ok=True)
 
+            download_start = datetime.utcnow()
             if (
                 not os.path.exists(local_fp)
                 or datetime.fromtimestamp(os.path.getmtime(local_fp)) < cmr_granule.mod_time
@@ -248,6 +252,7 @@ class CMR_Harvester(Harvester):
             else:
                 logger.info("File up to date. Slicing to ensure entries in Solr...")
                 downloaded = False
+            download_duration = int((datetime.utcnow() - download_start).total_seconds())
 
             ds = xr.open_dataset(local_fp, decode_times=True)
 
@@ -306,8 +311,7 @@ class CMR_Harvester(Harvester):
                     cmr_granule.mod_time,
                     cmr_granule.url,
                 )
-                monthly_granule.update_item(self.solr_docs, success)
-                monthly_granule.update_descendant(self.descendant_docs, success)
+                monthly_granule.update_item(self.solr_docs, success, download_duration=download_duration)
                 solr_docs.extend(monthly_granule.get_solr_docs())
             return solr_docs
 
@@ -372,21 +376,25 @@ class CMR_Harvester(Harvester):
                 return []
 
             success = True
+            error_message = ""
             granule = Granule(
                 self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url
             )
 
+            download_duration = 0
             if self.need_to_download(granule):
                 logger.info(f"Downloading {filename} to {local_fp}")
+                download_start = datetime.utcnow()
                 try:
                     self.dl_file(cmr_granule.url, local_fp)
-                except Exception:
+                except Exception as e:
                     success = False
+                    error_message = str(e)
+                download_duration = int((datetime.utcnow() - download_start).total_seconds())
             else:
                 logger.debug(f"{filename} already downloaded and up to date")
 
-            granule.update_item(self.solr_docs, success)
-            granule.update_descendant(self.descendant_docs, success)
+            granule.update_item(self.solr_docs, success, error_message, download_duration)
             return granule.get_solr_docs()
 
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
@@ -466,21 +474,25 @@ class CMR_Harvester(Harvester):
                 return []
 
             success = True
+            error_message = ""
             granule = Granule(
                 self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url
             )
 
+            download_duration = 0
             if self.need_to_download(granule):
                 logger.info(f"Downloading {filename} to {local_fp}")
+                download_start = datetime.utcnow()
                 try:
                     self.dl_file(cmr_granule.url, local_fp)
-                except Exception:
+                except Exception as e:
                     success = False
+                    error_message = str(e)
+                download_duration = int((datetime.utcnow() - download_start).total_seconds())
             else:
                 logger.debug(f"{filename} already downloaded and up to date")
 
-            granule.update_item(self.solr_docs, success)
-            granule.update_descendant(self.descendant_docs, success)
+            granule.update_item(self.solr_docs, success, error_message, download_duration)
             return granule.get_solr_docs()
 
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
@@ -495,7 +507,7 @@ class CMR_Harvester(Harvester):
 def harvester(config: dict) -> str:
     """
     Uses CMR search to find granules within date range given in harvester_config.yaml.
-    Creates (or updates) Solr entries for dataset, harvested granule, and descendants.
+    Creates (or updates) Solr entries for dataset and harvested granules.
     """
 
     harvester = CMR_Harvester(config)

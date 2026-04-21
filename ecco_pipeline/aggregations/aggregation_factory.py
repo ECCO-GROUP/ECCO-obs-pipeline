@@ -115,6 +115,7 @@ class AgJobFactory(baseclasses.Dataset):
                 "id": ds_metadata["id"],
                 "aggregation_version_s": {"set": str(self.a_version)},
                 "aggregation_status_s": {"set": aggregation_status},
+                "last_aggregation_dt": {"set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")},
             }
         ]
 
@@ -203,7 +204,7 @@ class AgJobFactory(baseclasses.Dataset):
                 ]
                 transformation_docs = solr_utils.solr_query(fq)
                 transformation_years = list(
-                    set([t["date_s"][:4] for t in transformation_docs])
+                    set([t["date_dt"][:4] for t in transformation_docs])
                 )
                 transformation_years.sort()
                 years_to_aggregate = []
@@ -223,13 +224,13 @@ class AgJobFactory(baseclasses.Dataset):
                     if aggregation_docs:
                         agg_time = aggregation_docs[0]["aggregation_time_dt"]
                         for t in transformation_docs:
-                            if t["date_s"][:4] != year:
+                            if t["date_dt"][:4] != year:
                                 continue
                             if t["transformation_completed_dt"] > agg_time:
                                 years_to_aggregate.append(year)
                                 break
                     else:
-                        year_tx_docs = [t for t in transformation_docs if t["date_s"][:4] == year]
+                        year_tx_docs = [t for t in transformation_docs if t["date_dt"][:4] == year]
                         if self.need_to_aggregate(grid_name, field, year, year_tx_docs):
                             years_to_aggregate.append(year)
                         else:
@@ -305,11 +306,13 @@ class AgJobFactory(baseclasses.Dataset):
             "type_s": "aggregation",
             "dataset_s": self.ds_name,
             "year_s": year,
+            "year_i": int(year),
             "grid_name_s": grid_name,
             "field_s": field.name,
             "aggregation_time_dt": agg_time,
             "aggregation_success_b": True,
             "aggregation_version_s": str(self.a_version),
+            "error_message_s": "",
         }
 
         if data_time_scale == "daily":

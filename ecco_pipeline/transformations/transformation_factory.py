@@ -26,7 +26,7 @@ def multiprocess_transformation(
         print(e)
 
     granule_filepath = granule.get("pre_transformation_file_path_s")
-    granule_date = granule.get("date_s")
+    granule_date = granule.get("date_dt")
 
     # Skips granules that weren't harvested properly
     if not granule_filepath or granule.get("file_size_l") < 100:
@@ -132,6 +132,7 @@ class TxJobFactory(baseclasses.Dataset):
             {
                 "id": dataset_metadata["id"],
                 "transformation_status_s": {"set": transformation_status},
+                "last_transformation_dt": {"set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")},
             }
         ]
 
@@ -308,7 +309,7 @@ class TxJobFactory(baseclasses.Dataset):
 
         doc = {
             "type_s": "transformation",
-            "date_s": granule["date_s"],
+            "date_dt": granule["date_dt"],
             "dataset_s": self.ds_name,
             "pre_transformation_file_path_s": granule.get("pre_transformation_file_path_s"),
             "hemisphere_s": hemi,
@@ -316,12 +317,14 @@ class TxJobFactory(baseclasses.Dataset):
             "grid_name_s": grid_name,
             "field_s": field.name,
             "transformation_in_progress_b": False,
+            "transformation_started_dt": completed_dt,
             "success_b": True,
             "filename_s": output_filename,
             "transformation_file_path_s": output_path,
             "transformation_completed_dt": completed_dt,
             "transformation_checksum_s": file_utils.md5(output_path),
             "transformation_version_f": self.t_version,
+            "error_message_s": "",
         }
 
         r = solr_utils.solr_update([doc], r=True)
