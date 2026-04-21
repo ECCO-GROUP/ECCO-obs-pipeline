@@ -285,6 +285,7 @@ class AgJobFactoryMakeJobsTestCase(unittest.TestCase):
             "start": "20200101T00:00:00Z",
             "end": "20201231T00:00:00Z",
             "a_version": "2.0",
+            "data_time_scale": "daily",
             "fields": [
                 {
                     "name": "ssha",
@@ -308,7 +309,7 @@ class AgJobFactoryMakeJobsTestCase(unittest.TestCase):
         mock_query.side_effect = [
             [{"grid_name_s": "GRID1"}],  # grids
             [{"start_date_dt": "2020-01-01T00:00:00Z", "aggregation_version_s": "2.0"}],  # ds_meta
-            [{"date_s": "2020-01-15T00:00:00Z"}],  # transformations
+            [{"date_dt": "2020-01-15T00:00:00Z"}],  # transformations
             [],  # no existing aggregation
         ]
 
@@ -331,7 +332,7 @@ class AgJobFactoryMakeJobsTestCase(unittest.TestCase):
             [{"start_date_dt": "2020-01-01T00:00:00Z", "aggregation_version_s": "2.0"}],  # ds_meta
             [  # transformations
                 {
-                    "date_s": "2020-01-15T00:00:00Z",
+                    "date_dt": "2020-01-15T00:00:00Z",
                     "transformation_completed_dt": "2020-01-16T10:00:00Z",
                 }
             ],
@@ -362,7 +363,7 @@ class AgJobFactoryMakeJobsTestCase(unittest.TestCase):
             [{"start_date_dt": "2020-01-01T00:00:00Z", "aggregation_version_s": "2.0"}],  # ds_meta
             [  # transformations
                 {
-                    "date_s": "2020-01-15T00:00:00Z",
+                    "date_dt": "2020-01-15T00:00:00Z",
                     "transformation_completed_dt": "2020-01-17T10:00:00Z",
                 }
             ],
@@ -707,6 +708,7 @@ class AgJobFactoryPipelineCleanupTestCase(unittest.TestCase):
             "start": "20200101T00:00:00Z",
             "end": "20201231T00:00:00Z",
             "a_version": "1.0",
+            "data_time_scale": "daily",
             "fields": [
                 {
                     "name": "ssha",
@@ -738,7 +740,7 @@ class AgJobFactoryPipelineCleanupTestCase(unittest.TestCase):
                     "aggregation_version_s": "1.0",
                 }
             ],  # dataset metadata (get_jobs during init)
-            [{"date_s": "2020-01-15T00:00:00Z"}],  # Transformations query (make_jobs)
+            [{"date_dt": "2020-01-15T00:00:00Z"}],  # Transformations query (make_jobs)
             [],  # Existing aggregations query
             [{"id": "agg1"}],  # successful aggregations (get_agg_status call in pipeline_cleanup)
             [],  # no failed aggregations (get_agg_status call in pipeline_cleanup)

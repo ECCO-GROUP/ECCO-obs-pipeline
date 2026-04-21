@@ -52,22 +52,7 @@ class GranuleTestCase(unittest.TestCase):
         self.assertEqual(granule.solr_item["dataset_s"], self.ds_name)
         self.assertEqual(granule.solr_item["filename_s"], "test_file_20200101.nc")
         self.assertEqual(granule.solr_item["source_s"], self.url)
-        self.assertEqual(granule.solr_item["date_s"], "2020-01-01T00:00:00Z")
-
-    def test_gen_descendant_doc(self):
-        """Test that descendant Solr document is generated correctly."""
-        granule = Granule(
-            self.ds_name,
-            self.local_fp,
-            self.date,
-            self.modified_time,
-            self.url
-        )
-
-        self.assertEqual(granule.descendant_item["type_s"], "descendants")
-        self.assertEqual(granule.descendant_item["dataset_s"], self.ds_name)
-        self.assertEqual(granule.descendant_item["filename_s"], "test_file_20200101.nc")
-        self.assertEqual(granule.descendant_item["source_s"], self.url)
+        self.assertEqual(granule.solr_item["date_dt"], "2020-01-01T00:00:00Z")
 
     @patch("harvesters.harvesterclasses.file_utils.md5")
     def test_update_item_success(self, mock_md5):
@@ -133,30 +118,8 @@ class GranuleTestCase(unittest.TestCase):
 
         self.assertEqual(granule.solr_item["id"], "existing-solr-id-123")
 
-    def test_update_descendant_success(self):
-        """Test update_descendant with successful status."""
-        granule = Granule(
-            self.ds_name,
-            self.local_fp,
-            self.date,
-            self.modified_time,
-            self.url
-        )
-
-        # Pre-populate solr_item with path
-        granule.solr_item["pre_transformation_file_path_s"] = self.local_fp
-
-        descendants_docs = {}
-        granule.update_descendant(descendants_docs, success=True)
-
-        self.assertTrue(granule.descendant_item["harvest_success_b"])
-        self.assertEqual(
-            granule.descendant_item["pre_transformation_file_path_s"],
-            self.local_fp
-        )
-
     def test_get_solr_docs(self):
-        """Test get_solr_docs returns both documents."""
+        """Test get_solr_docs returns one granule document."""
         granule = Granule(
             self.ds_name,
             self.local_fp,
@@ -167,9 +130,8 @@ class GranuleTestCase(unittest.TestCase):
 
         docs = granule.get_solr_docs()
 
-        self.assertEqual(len(docs), 2)
+        self.assertEqual(len(docs), 1)
         self.assertEqual(docs[0]["type_s"], "granule")
-        self.assertEqual(docs[1]["type_s"], "descendants")
 
 
 @patch("harvesters.harvesterclasses.solr_utils.solr_query")
@@ -402,6 +364,8 @@ class HarvesterTestCase(unittest.TestCase):
                 self.assertEqual(ds_doc["dataset_s"], "TEST_DATASET")
                 self.assertEqual(ds_doc["short_name_s"], "TEST")
                 self.assertEqual(ds_doc["data_time_scale_s"], "daily")
+                self.assertEqual(ds_doc["harvester_type_s"], "nsidc")
+                self.assertEqual(ds_doc["t_version_f"], 1.0)
 
     @patch("harvesters.harvesterclasses.solr_utils.solr_update")
     def test_post_fetch_no_updates(self, mock_update, mock_clean, mock_query):
@@ -442,7 +406,7 @@ class HarvesterTestCase(unittest.TestCase):
                             "type_s": "granule",
                             "harvest_success_b": True,
                             "download_time_dt": "2020-01-01T00:00:00Z",
-                            "date_s": "2020-01-01T00:00:00Z"
+                            "date_dt": "2020-01-01T00:00:00Z"
                         }
                     ]
 
@@ -481,15 +445,10 @@ class HarvesterTestCase(unittest.TestCase):
                     self.assertIn("failed", status)
 
     def test_get_solr_docs_with_existing(self, mock_clean, mock_query):
-        """Test get_solr_docs retrieves existing documents."""
-        mock_query.side_effect = [
-            [
-                {"filename_s": "file1.nc", "id": "id1"},
-                {"filename_s": "file2.nc", "id": "id2"}
-            ],
-            [
-                {"filename_s": "file1.nc", "id": "desc1"}
-            ]
+        """Test get_solr_docs retrieves existing granule documents."""
+        mock_query.return_value = [
+            {"filename_s": "file1.nc", "id": "id1"},
+            {"filename_s": "file2.nc", "id": "id2"},
         ]
 
         config = self.get_mock_config()
@@ -500,7 +459,6 @@ class HarvesterTestCase(unittest.TestCase):
 
                 self.assertEqual(len(harvester.solr_docs), 2)
                 self.assertEqual(harvester.solr_docs["file1.nc"]["id"], "id1")
-                self.assertEqual(len(harvester.descendant_docs), 1)
 
 
 if __name__ == "__main__":

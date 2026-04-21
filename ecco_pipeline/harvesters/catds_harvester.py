@@ -45,21 +45,25 @@ class CATDS_Harvester(Harvester):
                 return []
 
             success = True
+            error_message = ""
             granule = Granule(
                 self.ds_name, local_fp, dt, catds_granule.mod_time, catds_granule.url
             )
 
+            download_duration = 0
             if self.need_to_download(granule):
                 logger.info(f"Downloading {filename} to {local_fp}")
+                download_start = datetime.utcnow()
                 try:
                     self.dl_file(catds_granule.url, local_fp)
-                except Exception:
+                except Exception as e:
                     success = False
+                    error_message = str(e)
+                download_duration = int((datetime.utcnow() - download_start).total_seconds())
             else:
                 logger.debug(f"{filename} already downloaded and up to date")
 
-            granule.update_item(self.solr_docs, success)
-            granule.update_descendant(self.descendant_docs, success)
+            granule.update_item(self.solr_docs, success, error_message, download_duration)
             return granule.get_solr_docs()
 
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
@@ -84,7 +88,7 @@ class CATDS_Harvester(Harvester):
 def harvester(config: dict) -> str:
     """
     Uses CMR search to find granules within date range given in harvester_config.yaml.
-    Creates (or updates) Solr entries for dataset, harvested granule, and descendants.
+    Creates (or updates) Solr entries for dataset and harvested granules.
     """
 
     harvester = CATDS_Harvester(config)

@@ -127,7 +127,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
 
                 # Verify download occurred
                 mock_requests.assert_called_once()
-                self.assertEqual(len(h.updated_solr_docs), 2)  # granule + descendant
+                self.assertEqual(len(h.updated_solr_docs), 1)  # granule only
 
     @patch("harvesters.cmr_harvester.requests.get")
     def test_fetch_skips_nrt_files(self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query):
@@ -264,8 +264,8 @@ class CMRHarvesterTestCase(unittest.TestCase):
                 h.fetch()
 
                 self.assertEqual(mock_requests.call_count, 3)
-                # 3 granules * 2 docs = 6
-                self.assertEqual(len(h.updated_solr_docs), 6)
+                # 3 granules * 1 doc each = 3
+                self.assertEqual(len(h.updated_solr_docs), 3)
 
     @patch("harvesters.cmr_harvester.time.sleep")
     @patch("harvesters.cmr_harvester.requests.get")

@@ -105,7 +105,7 @@ class CATDSHarvesterTestCase(unittest.TestCase):
                 h.fetch()
 
                 mock_requests.assert_called_once()
-                self.assertEqual(len(h.updated_solr_docs), 2)
+                self.assertEqual(len(h.updated_solr_docs), 1)  # granule only
 
     @patch("harvesters.catds_harvester.requests.get")
     def test_fetch_skips_out_of_range_dates(self, mock_requests, mock_search, mock_clean, mock_query):
@@ -178,8 +178,8 @@ class CATDSHarvesterTestCase(unittest.TestCase):
                 h.fetch()
 
                 self.assertEqual(mock_requests.call_count, 3)
-                # 3 granules * 2 docs (granule + descendant) = 6
-                self.assertEqual(len(h.updated_solr_docs), 6)
+                # 3 granules * 1 doc each = 3
+                self.assertEqual(len(h.updated_solr_docs), 3)
 
 
 @patch("harvesters.harvesterclasses.solr_utils.solr_query")

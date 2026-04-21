@@ -248,12 +248,14 @@ class Transformation(Dataset):
                 except Exception as e:
                     logger.exception(e)
 
+            error_message = ""
             if field.name in ds.data_vars:
                 try:
                     field_DA = self.perform_mapping(ds, factors, field, model_grid)
                     mapping_success = True
                 except Exception as e:
                     logger.exception(f"Transformation failed: {e}")
+                    error_message = str(e)
                     field_DA = records.make_empty_record(record_date, model_grid)
                     field_DA.attrs["long_name"] = field.long_name
                     field_DA.attrs["standard_name"] = field.standard_name
@@ -284,6 +286,7 @@ class Transformation(Dataset):
                         field_DA.attrs["valid_max"] = np.nanmax(field_DA.values)
                 except Exception as e:
                     logger.exception(f"Post-transformation failed: {e}")
+                    error_message = str(e)
                     field_DA = records.make_empty_record(record_date, model_grid)
                     field_DA.attrs["long_name"] = field.long_name
                     field_DA.attrs["standard_name"] = field.standard_name
@@ -348,7 +351,7 @@ class Transformation(Dataset):
 
             field_DS = field_DS.drop("time_start")
             field_DS = field_DS.drop("time_end")
-            field_DSs.append((field_DS, mapping_success))
+            field_DSs.append((field_DS, mapping_success, error_message))
 
         return field_DSs
 
@@ -398,8 +401,9 @@ class Transformation(Dataset):
 
                 # Initialize new transformation entry
                 transform["type_s"] = "transformation"
-                transform["date_s"] = self.date
+                transform["date_dt"] = self.date
                 transform["dataset_s"] = self.ds_name
+                transform["transformation_started_dt"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
                 transform["pre_transformation_file_path_s"] = source_file_path
                 transform["hemisphere_s"] = self.hemi.replace("_", "")
                 transform["origin_checksum_s"] = docs[0]["checksum_s"]
@@ -419,7 +423,7 @@ class Transformation(Dataset):
 def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: str):
     """
     Performs and saves locally all remaining transformations for a given source granule
-    Updates Solr with transformation entries and updates descendants, and dataset entries
+    Updates Solr with transformation entries and dataset entries
     """
     T = Transformation(config, source_file_path, granule_date)
 
@@ -454,7 +458,7 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
         # Save the output in netCDF format
         # =====================================================
         # Save each transformed granule for the current field
-        for field, (field_DS, success) in zip(fields, field_DSs):
+        for field, (field_DS, success, error_message) in zip(fields, field_DSs):
             output_filename = f"{grid_name}_{field.name}_{T.file_name}.nc"
 
             output_path = os.path.join(
@@ -497,6 +501,7 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
                     "success_b": {"set": success},
                     "transformation_checksum_s": {"set": file_utils.md5(transformed_location)},
                     "transformation_version_f": {"set": T.transformation_version},
+                    "error_message_s": {"set": error_message},
                 }
             ]
 

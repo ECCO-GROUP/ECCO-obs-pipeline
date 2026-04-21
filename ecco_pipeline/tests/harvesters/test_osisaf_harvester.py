@@ -105,7 +105,7 @@ class OSISAFHarvesterTestCase(unittest.TestCase):
                 h.fetch()
 
                 mock_requests.assert_called_once()
-                self.assertEqual(len(h.updated_solr_docs), 2)
+                self.assertEqual(len(h.updated_solr_docs), 1)  # granule only
 
     @patch("harvesters.osisaf_harvester.requests.get")
     def test_fetch_skips_icdrft_files(self, mock_requests, mock_search, mock_clean, mock_query):

@@ -377,7 +377,7 @@ class MultiprocessTransformationTestCase(unittest.TestCase):
         mock_logging.return_value = mock_logger
 
         config = {"ds_name": "TEST"}
-        granule = {"pre_transformation_file_path_s": "/data/test.nc", "file_size_l": 1000, "date_s": "2020-01-01"}
+        granule = {"pre_transformation_file_path_s": "/data/test.nc", "file_size_l": 1000, "date_dt": "2020-01-01"}
         tx_jobs = {"grid": ["field"]}
 
         multiprocess_transformation(config, granule, tx_jobs, "INFO", "/logs")

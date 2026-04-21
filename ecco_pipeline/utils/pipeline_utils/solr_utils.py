@@ -79,13 +79,13 @@ def check_grids():
     """
     Check if grids have been written to Solr
     """
-    if not solr_query(["type_s=grid"]):
+    if not solr_query(["type_s:grid"]):
         return True
     return False
 
 
 def validate_granules():
-    granules = solr_query(["type_s=granule"])
+    granules = solr_query(["type_s:granule"], fl="id,pre_transformation_file_path_s")
     docs_to_remove = []
 
     for granule in granules:
@@ -101,7 +101,7 @@ def validate_granules():
 
 def clean_solr(config):
     """
-    Remove harvested, transformed, and descendant entries in Solr for dates
+    Remove harvested and transformed entries in Solr for dates
     outside of config date range. Also remove related aggregations, and force
     aggregation rerun for those years.
     """
@@ -125,12 +125,12 @@ def clean_solr(config):
         dataset_metadata = dataset_metadata[0]
 
     # Remove entries earlier than config start date
-    fq = f"dataset_s:{dataset_name} AND date_s:[* TO {config_start}}}"
+    fq = f"dataset_s:{dataset_name} AND date_dt:[* TO {config_start}T00:00:00Z}}"
     url = f"{SOLR_HOST}{SOLR_COLLECTION}/update?commit=true"
     requests.post(url, json={"delete": {"query": fq}})
 
     # Remove entries later than config end date
-    fq = f"dataset_s:{dataset_name} AND date_s:{{{config_end} TO *]"
+    fq = f"dataset_s:{dataset_name} AND date_dt:{{{config_end}T00:00:00Z TO *]"
     url = f"{SOLR_HOST}{SOLR_COLLECTION}/update?commit=true"
     requests.post(url, json={"delete": {"query": fq}})
 
