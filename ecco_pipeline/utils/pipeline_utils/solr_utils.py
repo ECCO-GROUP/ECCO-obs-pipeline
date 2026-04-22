@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 from datetime import datetime
@@ -8,23 +9,32 @@ import requests
 import yaml
 from conf.global_settings import SOLR_COLLECTION, SOLR_HOST
 
+logger = logging.getLogger("pipeline")
+
+_HEADERS = {"Connection": "close"}
+_TIMEOUT = 60
+_RETRY_DELAY = 5
+
+
+def _request(method: str, url: str, **kwargs):
+    """Single retry wrapper for all Solr requests."""
+    kwargs.setdefault("headers", _HEADERS)
+    kwargs.setdefault("timeout", _TIMEOUT)
+    try:
+        return requests.request(method, url, **kwargs)
+    except Exception as e:
+        logger.warning(f"Solr request failed ({e}), retrying in {_RETRY_DELAY}s...")
+        time.sleep(_RETRY_DELAY)
+        return requests.request(method, url, **kwargs)
+
 
 def solr_query(fq: Iterable[str], fl: str = "") -> Iterable[dict]:
     """
     Submit query to Solr
     """
     query_params = {"q": "*:*", "fq": fq, "fl": fl, "rows": 300000}
-
     url = f"{SOLR_HOST}{SOLR_COLLECTION}/select?"
-    try:
-        response = requests.get(
-            url, params=query_params, headers={"Connection": "close"}
-        )
-    except Exception:
-        time.sleep(5)
-        response = requests.get(
-            url, params=query_params, headers={"Connection": "close"}
-        )
+    response = _request("GET", url, params=query_params)
     return response.json()["response"]["docs"]
 
 
@@ -34,15 +44,7 @@ def solr_count(fq: Iterable[str]) -> int:
     """
     query_params = {"q": "*:*", "fq": fq, "rows": 0}
     url = f"{SOLR_HOST}{SOLR_COLLECTION}/select?"
-    try:
-        response = requests.get(
-            url, params=query_params, headers={"Connection": "close"}
-        )
-    except Exception:
-        time.sleep(5)
-        response = requests.get(
-            url, params=query_params, headers={"Connection": "close"}
-        )
+    response = _request("GET", url, params=query_params)
     return response.json()["response"]["numFound"]
 
 
@@ -51,7 +53,7 @@ def solr_update(update_body: Iterable[dict], r: bool = False):
     Submit update to Solr
     """
     url = f"{SOLR_HOST}{SOLR_COLLECTION}/update?commit=true"
-    response = requests.post(url, json=update_body)
+    response = _request("POST", url, json=update_body)
     if r:
         return response
 
