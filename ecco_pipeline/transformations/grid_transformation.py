@@ -447,78 +447,105 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
         factors = T.make_factors(grid_ds)
         T.prepopulate_solr(source_file_path, grid_name)
 
-        # =====================================================
-        # Run transformation
-        # =====================================================
-        logger.debug(f"Running transformations for {T.file_name}")
+        try:
+            # =====================================================
+            # Run transformation
+            # =====================================================
+            logger.debug(f"Running transformations for {T.file_name}")
 
-        # Returns list of transformed DSs, one for each field in fields
-        field_DSs = T.transform(grid_ds, factors, ds)
+            # Returns list of transformed DSs, one for each field in fields
+            field_DSs = T.transform(grid_ds, factors, ds)
 
-        # =====================================================
-        # Save the output in netCDF format
-        # =====================================================
-        # Save each transformed granule for the current field
-        for field, (field_DS, success, error_message) in zip(fields, field_DSs):
-            output_filename = f"{grid_name}_{field.name}_{T.file_name}.nc"
+            # =====================================================
+            # Save the output in netCDF format
+            # =====================================================
+            # Save each transformed granule for the current field
+            for field, (field_DS, success, error_message) in zip(fields, field_DSs):
+                output_filename = f"{grid_name}_{field.name}_{T.file_name}.nc"
 
-            output_path = os.path.join(
-                OUTPUT_DIR,
-                T.ds_name,
-                "transformed_products",
-                grid_name,
-                "transformed",
-                field.name,
-            )
-            os.makedirs(output_path, exist_ok=True)
-
-            transformed_location = os.path.join(output_path, output_filename)
-
-            # save field_DS
-            records.save_netcdf(field_DS, output_filename, output_path)
-
-            # Query Solr for transformation entry
-            query_fq = [
-                f"dataset_s:{T.ds_name}",
-                "type_s:transformation",
-                f"grid_name_s:{grid_name}",
-                f"field_s:{field.name}",
-                f'pre_transformation_file_path_s:"{source_file_path}"',
-            ]
-
-            doc_id = solr_utils.solr_query(query_fq)[0]["id"]
-
-            transformation_successes = transformation_successes and success
-            transformation_file_paths[f"{grid_name}_{field.name}_transformation_file_path_s"] = transformed_location
-
-            # Update Solr transformation entry with file paths and status
-            update_body = [
-                {
-                    "id": doc_id,
-                    "filename_s": {"set": output_filename},
-                    "transformation_file_path_s": {"set": transformed_location},
-                    "transformation_completed_dt": {"set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")},
-                    "transformation_in_progress_b": {"set": False},
-                    "success_b": {"set": success},
-                    "transformation_checksum_s": {"set": file_utils.md5(transformed_location)},
-                    "transformation_version_f": {"set": T.transformation_version},
-                    "error_message_s": {"set": error_message},
-                }
-            ]
-
-            if success and "Default empty model grid record" in field_DS.variables:
-                update_body[0]["transformation_note"] = {
-                    "set": "Field not found in source data. Defaulting to empty record."
-                }
-
-            r = solr_utils.solr_update(update_body, r=True)
-
-            if r.status_code != 200:
-                logger.exception(
-                    f'Failed to update Solr transformation entry for {field["name"]} in {T.ds_name} on {T.date}'
+                output_path = os.path.join(
+                    OUTPUT_DIR,
+                    T.ds_name,
+                    "transformed_products",
+                    grid_name,
+                    "transformed",
+                    field.name,
                 )
+                os.makedirs(output_path, exist_ok=True)
 
-            if success and grid_name not in grids_updated:
-                grids_updated.append(grid_name)
+                transformed_location = os.path.join(output_path, output_filename)
+
+                # save field_DS
+                records.save_netcdf(field_DS, output_filename, output_path)
+
+                # Query Solr for transformation entry
+                query_fq = [
+                    f"dataset_s:{T.ds_name}",
+                    "type_s:transformation",
+                    f"grid_name_s:{grid_name}",
+                    f"field_s:{field.name}",
+                    f'pre_transformation_file_path_s:"{source_file_path}"',
+                ]
+
+                doc_id = solr_utils.solr_query(query_fq)[0]["id"]
+
+                transformation_successes = transformation_successes and success
+                transformation_file_paths[f"{grid_name}_{field.name}_transformation_file_path_s"] = transformed_location
+
+                # Update Solr transformation entry with file paths and status
+                update_body = [
+                    {
+                        "id": doc_id,
+                        "filename_s": {"set": output_filename},
+                        "transformation_file_path_s": {"set": transformed_location},
+                        "transformation_completed_dt": {"set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")},
+                        "transformation_in_progress_b": {"set": False},
+                        "success_b": {"set": success},
+                        "transformation_checksum_s": {"set": file_utils.md5(transformed_location)},
+                        "transformation_version_f": {"set": T.transformation_version},
+                        "error_message_s": {"set": error_message},
+                    }
+                ]
+
+                if success and "Default empty model grid record" in field_DS.variables:
+                    update_body[0]["transformation_note"] = {
+                        "set": "Field not found in source data. Defaulting to empty record."
+                    }
+
+                r = solr_utils.solr_update(update_body, r=True)
+
+                if r.status_code != 200:
+                    logger.exception(
+                        f'Failed to update Solr transformation entry for {field["name"]} in {T.ds_name} on {T.date}'
+                    )
+
+                if success and grid_name not in grids_updated:
+                    grids_updated.append(grid_name)
+
+        except Exception as e:
+            error_str = str(e)
+            logger.exception(f"Transformation failed for {T.file_name} on grid {grid_name}: {error_str}")
+            transformation_successes = False
+            completed_dt = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+            failed_updates = []
+            for field in fields:
+                query_fq = [
+                    f"dataset_s:{T.ds_name}",
+                    "type_s:transformation",
+                    f"grid_name_s:{grid_name}",
+                    f"field_s:{field.name}",
+                    f'pre_transformation_file_path_s:"{source_file_path}"',
+                ]
+                docs = solr_utils.solr_query(query_fq)
+                if docs:
+                    failed_updates.append({
+                        "id": docs[0]["id"],
+                        "success_b": {"set": False},
+                        "transformation_in_progress_b": {"set": False},
+                        "transformation_completed_dt": {"set": completed_dt},
+                        "error_message_s": {"set": error_str},
+                    })
+            if failed_updates:
+                solr_utils.solr_update(failed_updates)
 
         logger.debug(f"CPU id {os.getpid()} saving {T.file_name} output file for grid {grid_name}")

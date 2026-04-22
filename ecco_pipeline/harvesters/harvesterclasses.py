@@ -157,7 +157,7 @@ class Harvester(Dataset):
         return False
 
     def post_fetch(self, source: str) -> str:
-        check_time = datetime.utcnow().strftime("%Y-%m-%dT00:00:00Z")
+        check_time = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
         if self.updated_solr_docs:
             r = solr_utils.solr_update(self.updated_solr_docs, r=True)

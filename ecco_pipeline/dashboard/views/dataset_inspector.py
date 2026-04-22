@@ -252,10 +252,13 @@ def render(datasets_df: pd.DataFrame):
         c1.markdown(f"**Harvest status:** {r.get('harvest_status_s') or '—'}")
         c2.markdown(f"**Transform status:** {r.get('transformation_status_s') or '—'}")
         c3.markdown(f"**Aggregation status:** {r.get('aggregation_status_s') or '—'}")
+        def _fmt_dt(val) -> str:
+            return "—" if pd.isna(val) else str(val)[:19]
+
         st.caption(
-            f"Last harvest: {str(r.get('last_harvest_dt') or '—')[:19]}  |  "
-            f"Last transform: {str(r.get('last_transformation_dt') or '—')[:19]}  |  "
-            f"Last aggregation: {str(r.get('last_aggregation_dt') or '—')[:19]}"
+            f"Last harvest: {_fmt_dt(r.get('last_checked_dt'))}  |  "
+            f"Last transform: {_fmt_dt(r.get('last_transformation_dt'))}  |  "
+            f"Last aggregation: {_fmt_dt(r.get('last_aggregation_dt'))}"
         )
         st.divider()
 

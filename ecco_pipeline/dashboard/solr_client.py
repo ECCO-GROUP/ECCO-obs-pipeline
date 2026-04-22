@@ -43,13 +43,13 @@ def get_datasets() -> pd.DataFrame:
     # Normalise expected columns that may not exist yet
     for col in [
         "dataset_s", "harvest_status_s", "transformation_status_s",
-        "aggregation_status_s", "last_harvest_dt", "last_transformation_dt",
+        "aggregation_status_s", "last_checked_dt", "last_transformation_dt",
         "last_aggregation_dt", "n_granules_i", "n_granules_success_i",
         "n_granules_failed_i", "harvester_type_s",
     ]:
         if col not in df.columns:
             df[col] = None
-    for col in ["last_harvest_dt", "last_transformation_dt", "last_aggregation_dt"]:
+    for col in ["last_checked_dt", "last_transformation_dt", "last_aggregation_dt"]:
         df[col] = pd.to_datetime(df[col], errors="coerce", utc=True)
     return df
 
