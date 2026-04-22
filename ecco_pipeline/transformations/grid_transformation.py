@@ -442,12 +442,12 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
     for grid_name in tx_jobs.keys():
         fields: Iterable[Field] = tx_jobs[grid_name]
 
-        logger.debug(f"Loading {grid_name} model grid")
-        grid_ds = xr.open_dataset(f"grids/{grid_name}.nc").reset_coords()
-        factors = T.make_factors(grid_ds)
-        T.prepopulate_solr(source_file_path, grid_name)
-
         try:
+            logger.debug(f"Loading {grid_name} model grid")
+            grid_ds = xr.open_dataset(f"grids/{grid_name}.nc").reset_coords()
+            factors = T.make_factors(grid_ds)
+            T.prepopulate_solr(source_file_path, grid_name)
+
             # =====================================================
             # Run transformation
             # =====================================================
@@ -523,7 +523,7 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
                     grids_updated.append(grid_name)
 
         except Exception as e:
-            error_str = str(e)
+            error_str = str(e) or repr(e)
             logger.exception(f"Transformation failed for {T.file_name} on grid {grid_name}: {error_str}")
             transformation_successes = False
             completed_dt = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
