@@ -66,19 +66,19 @@ def _since(days: int) -> str:
 def get_recent_granules(days: int = 7) -> pd.DataFrame:
     since = _since(days)
     docs = _query(
-        ["type_s:granule", f"last_update_dt:[{since} TO *]"],
-        fl="dataset_s,date_dt,filename_s,harvest_success_b,error_message_s,last_update_dt,download_duration_i",
+        ["type_s:granule", f"download_time_dt:[{since} TO *]"],
+        fl="dataset_s,date_dt,filename_s,harvest_success_b,error_message_s,download_time_dt,download_duration_i",
     )
     if not docs:
         return pd.DataFrame(columns=["dataset_s", "date_dt", "filename_s",
                                       "harvest_success_b", "error_message_s",
-                                      "last_update_dt"])
+                                      "download_time_dt"])
     df = pd.DataFrame(docs)
     df = _ensure_columns(df, {
         "dataset_s": "", "filename_s": "", "error_message_s": "",
-        "harvest_success_b": True, "last_update_dt": None,
+        "harvest_success_b": True, "download_time_dt": None,
     })
-    df["last_update_dt"] = pd.to_datetime(df["last_update_dt"], errors="coerce", utc=True)
+    df["download_time_dt"] = pd.to_datetime(df["download_time_dt"], errors="coerce", utc=True)
     df["date_dt"] = pd.to_datetime(df["date_dt"], errors="coerce", utc=True)
     df["harvest_success_b"] = df["harvest_success_b"].astype(bool)
     return df
@@ -87,21 +87,21 @@ def get_recent_granules(days: int = 7) -> pd.DataFrame:
 def get_recent_transformations(days: int = 7) -> pd.DataFrame:
     since = _since(days)
     docs = _query(
-        ["type_s:transformation", f"transformation_completed_dt:[{since} TO *]"],
-        fl="dataset_s,date_dt,grid_name_s,field_s,success_b,error_message_s,transformation_completed_dt",
+        ["type_s:transformation", f"transformation_started_dt:[{since} TO *]"],
+        fl="dataset_s,date_dt,grid_name_s,field_s,success_b,error_message_s,transformation_started_dt",
     )
     if not docs:
         return pd.DataFrame(columns=["dataset_s", "date_dt", "grid_name_s",
                                       "field_s", "success_b", "error_message_s",
-                                      "transformation_completed_dt"])
+                                      "transformation_started_dt"])
     df = pd.DataFrame(docs)
     df = _ensure_columns(df, {
         "dataset_s": "", "grid_name_s": "", "field_s": "",
         "error_message_s": "", "success_b": True,
-        "transformation_completed_dt": None,
+        "transformation_started_dt": None,
     })
-    df["transformation_completed_dt"] = pd.to_datetime(
-        df["transformation_completed_dt"], errors="coerce", utc=True
+    df["transformation_started_dt"] = pd.to_datetime(
+        df["transformation_started_dt"], errors="coerce", utc=True
     )
     df["success_b"] = df["success_b"].astype(bool)
     return df

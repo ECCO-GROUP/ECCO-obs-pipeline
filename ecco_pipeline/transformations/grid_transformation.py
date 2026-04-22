@@ -390,6 +390,7 @@ class Transformation(Dataset):
                 transform["id"] = docs[0]["id"]
                 transform["transformation_in_progress_b"] = {"set": True}
                 transform["success_b"] = {"set": False}
+                transform["transformation_started_dt"] = {"set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")}
             else:
                 # Query for granule entry to get checksum
                 query_fq = [
