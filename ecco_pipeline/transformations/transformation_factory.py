@@ -29,10 +29,32 @@ def multiprocess_transformation(
     granule_date = granule.get("date_dt")
 
     # Skips granules that weren't harvested properly
-    if not granule_filepath or granule.get("file_size_l") < 100:
-        logger.exception(
-            f"Granule {granule_filepath} was not harvested properly. Skipping."
-        )
+    if not granule_filepath or (granule.get("file_size_l") or 0) < 100:
+        error_msg = "Granule not harvested properly."
+        logger.error(f"Granule {granule_filepath} was not harvested properly. Skipping.")
+        if granule_filepath:
+            completed_dt = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+            failed_updates = []
+            for grid_name, fields in tx_jobs.items():
+                for field in fields:
+                    fq = [
+                        f"dataset_s:{config['ds_name']}",
+                        "type_s:transformation",
+                        f"grid_name_s:{grid_name}",
+                        f"field_s:{field.name}",
+                        f'pre_transformation_file_path_s:"{granule_filepath}"',
+                    ]
+                    docs = solr_utils.solr_query(fq)
+                    if docs:
+                        failed_updates.append({
+                            "id": docs[0]["id"],
+                            "success_b": {"set": False},
+                            "transformation_in_progress_b": {"set": False},
+                            "transformation_completed_dt": {"set": completed_dt},
+                            "error_message_s": {"set": error_msg},
+                        })
+            if failed_updates:
+                solr_utils.solr_update(failed_updates)
         return
 
     # Perform remaining transformations
