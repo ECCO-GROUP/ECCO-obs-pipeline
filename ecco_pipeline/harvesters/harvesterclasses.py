@@ -48,14 +48,17 @@ class Granule:
             self.solr_item["harvest_success_b"] = True
             self.solr_item["file_size_l"] = os.path.getsize(self.local_fp)
             self.solr_item["error_message_s"] = ""
+            self.solr_item["download_time_dt"] = datetime.fromtimestamp(
+                os.path.getmtime(self.local_fp)
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
         else:
             self.solr_item["harvest_success_b"] = False
             self.solr_item["pre_transformation_file_path_s"] = ""
             self.solr_item["file_size_l"] = 0
             self.solr_item["error_message_s"] = error_message
-        self.solr_item["download_time_dt"] = datetime.utcnow().strftime(
-            "%Y-%m-%dT00:00:00Z"
-        )
+            existing = solr_docs.get(self.filename, {})
+            if "download_time_dt" in existing:
+                self.solr_item["download_time_dt"] = existing["download_time_dt"]
         self.solr_item["download_duration_i"] = download_duration
 
     def get_solr_docs(self):
