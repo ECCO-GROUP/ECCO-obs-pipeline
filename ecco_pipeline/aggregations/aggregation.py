@@ -13,7 +13,7 @@ import numpy as np
 import xarray as xr
 from baseclasses import Dataset, Field
 from conf.global_settings import OUTPUT_DIR
-from utils.pipeline_utils import solr_utils
+from utils.pipeline_utils import file_utils, solr_utils
 from utils.processing_utils import records
 
 logger = logging.getLogger(str(current_process().pid))
@@ -433,6 +433,12 @@ class Aggregation(Dataset):
                 ),
             }
 
+        checksums = {}
+        if success and not empty_year:
+            for key, path in solr_output_filepaths.items():
+                if path and os.path.exists(path):
+                    checksums[f"{key}_checksum_s"] = file_utils.md5(path)
+
         # Query Solr for existing aggregation
         fq = [
             f"dataset_s:{self.ds_name}",
@@ -456,6 +462,7 @@ class Aggregation(Dataset):
                 "aggregation_started_dt": {"set": aggregation_started_dt},
                 "year_i": {"set": self.year},
                 "error_message_s": {"set": "" if success else "Aggregation failed"},
+                **{k: {"set": v} for k, v in checksums.items()},
             }
         else:
             update_doc = {
@@ -469,6 +476,7 @@ class Aggregation(Dataset):
                 "aggregation_success_b": success,
                 "aggregation_version_s": self.version,
                 "error_message_s": "" if success else "Aggregation failed",
+                **checksums,
             }
 
         # Update file paths according to the data time scale and do monthly aggregation config field
