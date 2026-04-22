@@ -216,9 +216,9 @@ def _aggregation_panel(ds_name: str):
 
     # Failed aggregations
     failures = agg[~agg["aggregation_success_b"]][
-        ["year_s", "grid_name_s", "field_s", "error_message_s"]
+        ["year_i", "grid_name_s", "field_s", "error_message_s"]
     ].rename(columns={
-        "year_s": "Year", "grid_name_s": "Grid",
+        "year_i": "Year", "grid_name_s": "Grid",
         "field_s": "Field", "error_message_s": "Error",
     })
 

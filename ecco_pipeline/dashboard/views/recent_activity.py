@@ -86,7 +86,7 @@ def _failures_table(
             rows.append({
                 "Stage": "Aggregate",
                 "Dataset": r.get("dataset_s", ""),
-                "Date": str(r.get("year_s", "")),
+                "Date": str(r.get("year_i", "")),
                 "Detail": f'{r.get("grid_name_s", "")} / {r.get("field_s", "")}',
                 "Error": r.get("error_message_s", ""),
             })

@@ -111,15 +111,15 @@ def get_recent_aggregations(days: int = 7) -> pd.DataFrame:
     since = _since(days)
     docs = _query(
         ["type_s:aggregation", f"aggregation_time_dt:[{since} TO *]"],
-        fl="dataset_s,year_s,grid_name_s,field_s,aggregation_success_b,error_message_s,aggregation_time_dt",
+        fl="dataset_s,year_i,grid_name_s,field_s,aggregation_success_b,error_message_s,aggregation_time_dt",
     )
     if not docs:
-        return pd.DataFrame(columns=["dataset_s", "year_s", "grid_name_s",
+        return pd.DataFrame(columns=["dataset_s", "year_i", "grid_name_s",
                                       "field_s", "aggregation_success_b",
                                       "error_message_s", "aggregation_time_dt"])
     df = pd.DataFrame(docs)
     df = _ensure_columns(df, {
-        "dataset_s": "", "year_s": "", "grid_name_s": "", "field_s": "",
+        "dataset_s": "", "year_i": None, "grid_name_s": "", "field_s": "",
         "error_message_s": "", "aggregation_success_b": True,
         "aggregation_time_dt": None,
     })
@@ -186,13 +186,13 @@ def get_transformations(ds_name: str) -> pd.DataFrame:
 def get_aggregations(ds_name: str) -> pd.DataFrame:
     docs = _query(
         ["type_s:aggregation", f"dataset_s:{ds_name}"],
-        fl="year_s,year_i,grid_name_s,field_s,aggregation_success_b,error_message_s,aggregation_time_dt",
+        fl="year_i,grid_name_s,field_s,aggregation_success_b,error_message_s,aggregation_time_dt",
     )
     if not docs:
         return pd.DataFrame()
     df = pd.DataFrame(docs)
     df = _ensure_columns(df, {
-        "year_s": "",
+        "year_i": None,
         "grid_name_s": "",
         "field_s": "",
         "error_message_s": "",
@@ -200,5 +200,5 @@ def get_aggregations(ds_name: str) -> pd.DataFrame:
         "aggregation_success_b": True,
     })
     df["aggregation_success_b"] = df["aggregation_success_b"].astype(bool)
-    df["year_i"] = pd.to_numeric(df.get("year_i", df.get("year_s")), errors="coerce")
+    df["year_i"] = pd.to_numeric(df.get("year_i"), errors="coerce")
     return df.sort_values("year_i")

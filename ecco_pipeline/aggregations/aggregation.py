@@ -38,7 +38,7 @@ class Aggregation(Dataset):
         self.transformations: Iterable[dict] = defaultdict(list)
         self._set_ds_meta()
         self.grid: dict = grid
-        self.year: str = year
+        self.year: int = year
         self.field: Field = field
 
     def __str__(self) -> str:
@@ -77,14 +77,17 @@ class Aggregation(Dataset):
         return data_ds
 
     def generate_provenance(
-        self, grid_name, solr_output_filepaths, aggregation_successes
-    ):
+        self, grid_name: str, solr_output_filepaths: dict, aggregation_successes: bool
+    ) -> None:
+        if not aggregation_successes:
+            return
+
         fq = [
             f"dataset_s:{self.ds_name}",
             "type_s:aggregation",
             f"grid_name_s:{grid_name}",
             f"field_s:{self.field.name}",
-            f"year_s:{self.year}",
+            f"year_i:{self.year}",
         ]
         docs = solr_utils.solr_query(fq)
 
@@ -96,6 +99,7 @@ class Aggregation(Dataset):
         json_output["dataset"] = self.ds_meta
         json_output["aggregation"] = docs
         json_output["transformations"] = self.transformations[self.field.name]
+        json_output["output_filepaths"] = solr_output_filepaths
 
         json_filename = (
             f"{self.ds_name}_{self.field.name}_{grid_name}_{self.year}_descendants.json"
@@ -120,7 +124,7 @@ class Aggregation(Dataset):
             "success_b:True",
             f'grid_name_s:{self.grid["grid_name_s"]}',
             f"field_s:{self.field.name}",
-            f"date_dt:[{self.year}-01-01T00:00:00Z TO {int(self.year)+1}-01-01T00:00:00Z}}",
+            f"date_dt:[{self.year}-01-01T00:00:00Z TO {self.year+1}-01-01T00:00:00Z}}",
         ]
         docs = solr_utils.solr_query(fq)
         filepaths = defaultdict(list)
@@ -174,7 +178,7 @@ class Aggregation(Dataset):
             "success_b:True",
             f'grid_name_s:{self.grid["grid_name_s"]}',
             f"field_s:{self.field.name}",
-            f"date_dt:[{self.year}-01-01T00:00:00Z TO {int(self.year)+1}-01-01T00:00:00Z}}",
+            f"date_dt:[{self.year}-01-01T00:00:00Z TO {self.year+1}-01-01T00:00:00Z}}",
         ]
         docs = solr_utils.solr_query(fq)
         doc_dates = sorted([doc["date_dt"][:10] for doc in docs])
@@ -183,7 +187,7 @@ class Aggregation(Dataset):
 
         if data_time_scale == "daily":
             dates_in_year = np.arange(
-                f"{self.year}-01-01", f"{int(self.year)+1}-01-01", dtype="datetime64[D]"
+                f"{self.year}-01-01", f"{self.year+1}-01-01", dtype="datetime64[D]"
             ).astype(str)
             missing_dates = sorted(list(set(dates_in_year) - set(doc_dates)))
         elif data_time_scale == "monthly":
@@ -225,7 +229,7 @@ class Aggregation(Dataset):
                     f"{self.year}-{str(month+1).zfill(2)}-01", "ns"
                 )
             else:
-                cur_mon_year = np.datetime64(f"{int(self.year)+1}-01-01", "ns")
+                cur_mon_year = np.datetime64(f"{self.year+1}-01-01", "ns")
 
             mon_str = str(self.year) + "-" + str(month).zfill(2)
             cur_mon = ds[var].sel(time=mon_str)
@@ -435,7 +439,7 @@ class Aggregation(Dataset):
             "type_s:aggregation",
             f"grid_name_s:{grid_name}",
             f"field_s:{self.field.name}",
-            f"year_s:{self.year}",
+            f"year_i:{self.year}",
         ]
         docs = solr_utils.solr_query(fq)
 
@@ -450,15 +454,14 @@ class Aggregation(Dataset):
                 "aggregation_version_s": {"set": self.version},
                 "aggregation_success_b": {"set": success},
                 "aggregation_started_dt": {"set": aggregation_started_dt},
-                "year_i": {"set": int(self.year)},
+                "year_i": {"set": self.year},
                 "error_message_s": {"set": "" if success else "Aggregation failed"},
             }
         else:
             update_doc = {
                 "type_s": "aggregation",
                 "dataset_s": self.ds_name,
-                "year_s": self.year,
-                "year_i": int(self.year),
+                "year_i": self.year,
                 "grid_name_s": grid_name,
                 "field_s": self.field.name,
                 "aggregation_time_dt": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
