@@ -17,7 +17,7 @@ from dashboard.views import dataset_inspector, recent_activity
 # Page config
 # ---------------------------------------------------------------------------
 st.set_page_config(
-    page_title="ECCO Pipeline Dashboard",
+    page_title="ECCO Observation Pipeline Dashboard",
     page_icon="🌊",
     layout="wide",
     initial_sidebar_state="expanded",
