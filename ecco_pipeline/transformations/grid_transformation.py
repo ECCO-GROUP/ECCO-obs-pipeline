@@ -385,20 +385,24 @@ class Transformation(Dataset):
 
             # If grid/field combination transformation exists, update transformation status
             # Otherwise initialize new transformation entry
+            # Query for granule entry to get current checksum
+            granule_fq = [
+                f"dataset_s:{self.ds_name}",
+                "type_s:granule",
+                f'pre_transformation_file_path_s:"{source_file_path}"',
+            ]
+            granule_docs = solr_utils.solr_query(granule_fq)
+
             if len(docs) > 0:
-                # Reset status fields
+                # Reset status fields and update checksum in case granule was re-harvested
                 transform["id"] = docs[0]["id"]
                 transform["transformation_in_progress_b"] = {"set": True}
                 transform["success_b"] = {"set": False}
                 transform["transformation_started_dt"] = {"set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")}
+                if granule_docs:
+                    transform["origin_checksum_s"] = {"set": granule_docs[0]["checksum_s"]}
             else:
-                # Query for granule entry to get checksum
-                query_fq = [
-                    f"dataset_s:{self.ds_name}",
-                    "type_s:granule",
-                    f'pre_transformation_file_path_s:"{source_file_path}"',
-                ]
-                docs = solr_utils.solr_query(query_fq)
+                docs = granule_docs
 
                 # Initialize new transformation entry
                 transform["type_s"] = "transformation"
