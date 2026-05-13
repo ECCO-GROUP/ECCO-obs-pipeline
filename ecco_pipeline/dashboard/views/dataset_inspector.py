@@ -248,12 +248,21 @@ def render(datasets_df: pd.DataFrame):
     row = datasets_df[datasets_df["dataset_s"] == selected]
     if not row.empty:
         r = row.iloc[0]
-        c1, c2, c3 = st.columns(3)
-        c1.markdown(f"**Harvest status:** {r.get('harvest_status_s') or '—'}")
-        c2.markdown(f"**Transform status:** {r.get('transformation_status_s') or '—'}")
-        c3.markdown(f"**Aggregation status:** {r.get('aggregation_status_s') or '—'}")
+
+        def _fmt_str(val) -> str:
+            # `val or '—'` is wrong: NaN is truthy in Python.
+            if pd.isna(val):
+                return "—"
+            s = str(val).strip()
+            return s if s else "—"
+
         def _fmt_dt(val) -> str:
             return "—" if pd.isna(val) else str(val)[:19]
+
+        c1, c2, c3 = st.columns(3)
+        c1.markdown(f"**Harvest status:** {_fmt_str(r.get('harvest_status_s'))}")
+        c2.markdown(f"**Transform status:** {_fmt_str(r.get('transformation_status_s'))}")
+        c3.markdown(f"**Aggregation status:** {_fmt_str(r.get('aggregation_status_s'))}")
 
         st.caption(
             f"Last harvest: {_fmt_dt(r.get('last_checked_dt'))}  |  "
