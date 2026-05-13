@@ -41,6 +41,12 @@ class Granule:
         if self.filename in solr_docs.keys():
             self.solr_item["id"] = solr_docs[self.filename]["id"]
 
+        # last_attempt_dt records every harvest attempt (success or failure) so the
+        # dashboard can surface first-time failures that have no download_time_dt.
+        self.solr_item["last_attempt_dt"] = datetime.utcnow().strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+
         if success:
             # calculate checksum and expected file size
             self.solr_item["checksum_s"] = file_utils.md5(self.local_fp)
