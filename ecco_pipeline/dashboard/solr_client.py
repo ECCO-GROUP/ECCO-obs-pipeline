@@ -65,20 +65,24 @@ def _since(days: int) -> str:
 
 def get_recent_granules(days: int = 7) -> pd.DataFrame:
     since = _since(days)
+    # Filter on last_attempt_dt (set unconditionally) rather than download_time_dt
+    # (set only on success) so first-time failures are visible.
     docs = _query(
-        ["type_s:granule", f"download_time_dt:[{since} TO *]"],
-        fl="dataset_s,date_dt,filename_s,harvest_success_b,error_message_s,download_time_dt,download_duration_i",
+        ["type_s:granule", f"last_attempt_dt:[{since} TO *]"],
+        fl="dataset_s,date_dt,filename_s,harvest_success_b,error_message_s,download_time_dt,last_attempt_dt,download_duration_i",
     )
     if not docs:
         return pd.DataFrame(columns=["dataset_s", "date_dt", "filename_s",
                                       "harvest_success_b", "error_message_s",
-                                      "download_time_dt"])
+                                      "download_time_dt", "last_attempt_dt"])
     df = pd.DataFrame(docs)
     df = _ensure_columns(df, {
         "dataset_s": "", "filename_s": "", "error_message_s": "",
         "harvest_success_b": True, "download_time_dt": None,
+        "last_attempt_dt": None,
     })
     df["download_time_dt"] = pd.to_datetime(df["download_time_dt"], errors="coerce", utc=True)
+    df["last_attempt_dt"] = pd.to_datetime(df["last_attempt_dt"], errors="coerce", utc=True)
     df["date_dt"] = pd.to_datetime(df["date_dt"], errors="coerce", utc=True)
     df["harvest_success_b"] = df["harvest_success_b"].astype(bool)
     return df

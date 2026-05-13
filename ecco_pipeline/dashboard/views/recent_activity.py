@@ -96,6 +96,24 @@ def _failures_table(
     )
 
 
+def _error_summary(failures: pd.DataFrame) -> pd.DataFrame:
+    """Group failures by error message so repeated failures roll up."""
+    if failures.empty:
+        return pd.DataFrame(columns=["Error", "Count", "Stages", "Datasets"])
+    grouped = (
+        failures.assign(Error=failures["Error"].fillna("").replace("", "(no message)"))
+        .groupby("Error")
+        .agg(
+            Count=("Stage", "size"),
+            Stages=("Stage", lambda x: ", ".join(sorted(set(x)))),
+            Datasets=("Dataset", lambda x: ", ".join(sorted(set(x)))),
+        )
+        .reset_index()
+        .sort_values("Count", ascending=False)
+    )
+    return grouped
+
+
 def render():
     st.header(f"Recent Activity — Last {DAYS} Days")
 
@@ -139,4 +157,45 @@ def render():
     if failures.empty:
         st.success("No failures in the last 7 days.")
     else:
-        st.dataframe(failures, use_container_width=True, hide_index=True)
+        st.markdown("**Top error messages**")
+        st.dataframe(
+            _error_summary(failures),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Error": st.column_config.TextColumn(width="large"),
+                "Count": st.column_config.NumberColumn(width="small"),
+                "Stages": st.column_config.TextColumn(width="small"),
+                "Datasets": st.column_config.TextColumn(width="medium"),
+            },
+        )
+
+        st.markdown("**Failure detail**  *(click a row to view the full error)*")
+        event = st.dataframe(
+            failures,
+            use_container_width=True,
+            hide_index=True,
+            on_select="rerun",
+            selection_mode="single-row",
+            column_config={
+                "Error": st.column_config.TextColumn(width="large"),
+                "Detail": st.column_config.TextColumn(width="medium"),
+            },
+        )
+        selection = getattr(event, "selection", None)
+        selected_rows = []
+        if selection is not None:
+            selected_rows = (
+                selection.get("rows", [])
+                if isinstance(selection, dict)
+                else getattr(selection, "rows", [])
+            )
+        if selected_rows:
+            row = failures.iloc[selected_rows[0]]
+            with st.container(border=True):
+                st.markdown(
+                    f"**Stage:** {row['Stage']}  •  **Dataset:** {row['Dataset']}  •  "
+                    f"**Date:** {row['Date']}  •  **Detail:** `{row['Detail']}`"
+                )
+                st.markdown("**Error message:**")
+                st.code(row["Error"] or "(empty)", language=None)
