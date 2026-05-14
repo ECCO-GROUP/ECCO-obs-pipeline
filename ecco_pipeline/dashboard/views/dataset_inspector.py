@@ -135,6 +135,21 @@ def _transformation_panel(ds_name: str):
         with st.expander(f"Failed transformations ({len(failures)})", expanded=True):
             st.dataframe(failures, use_container_width=True, hide_index=True)
 
+    # Transformations that succeeded but flagged a data-quality issue (e.g. a field
+    # missing from the source data, producing an empty record).
+    has_msg = tx["error_message_s"].fillna("").astype(str).str.strip().ne("")
+    warnings = tx[tx["success_b"] & has_msg][
+        ["date_dt", "grid_name_s", "field_s", "error_message_s"]
+    ].rename(columns={
+        "date_dt": "Date", "grid_name_s": "Grid",
+        "field_s": "Field", "error_message_s": "Message",
+    })
+    warnings["Date"] = warnings["Date"].dt.date
+
+    if not warnings.empty:
+        with st.expander(f"Warnings ({len(warnings)})", expanded=False):
+            st.dataframe(warnings, use_container_width=True, hide_index=True)
+
 
 # ---------------------------------------------------------------------------
 # Aggregation panel

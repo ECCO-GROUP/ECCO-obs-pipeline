@@ -96,6 +96,56 @@ def _failures_table(
     )
 
 
+def _warnings_table(
+    granules: pd.DataFrame,
+    transformations: pd.DataFrame,
+    aggregations: pd.DataFrame,
+) -> pd.DataFrame:
+    """Rows where the stage 'succeeded' but still recorded a non-empty error_message_s
+    (e.g. a transformation that produced an empty record for a missing field)."""
+    rows = []
+
+    def _has_msg(df: pd.DataFrame) -> pd.Series:
+        return df["error_message_s"].fillna("").astype(str).str.strip().ne("")
+
+    if not granules.empty:
+        warned = granules[granules["harvest_success_b"] & _has_msg(granules)]
+        for _, r in warned.iterrows():
+            rows.append({
+                "Stage": "Harvest",
+                "Dataset": r.get("dataset_s", ""),
+                "Date": str(r["date_dt"])[:10] if pd.notna(r.get("date_dt")) else "",
+                "Detail": r.get("filename_s", ""),
+                "Message": r.get("error_message_s", ""),
+            })
+
+    if not transformations.empty:
+        warned = transformations[transformations["success_b"] & _has_msg(transformations)]
+        for _, r in warned.iterrows():
+            rows.append({
+                "Stage": "Transform",
+                "Dataset": r.get("dataset_s", ""),
+                "Date": str(r["date_dt"])[:10] if pd.notna(r.get("date_dt")) else "",
+                "Detail": f'{r.get("grid_name_s", "")} / {r.get("field_s", "")}',
+                "Message": r.get("error_message_s", ""),
+            })
+
+    if not aggregations.empty:
+        warned = aggregations[aggregations["aggregation_success_b"] & _has_msg(aggregations)]
+        for _, r in warned.iterrows():
+            rows.append({
+                "Stage": "Aggregate",
+                "Dataset": r.get("dataset_s", ""),
+                "Date": str(r.get("year_i", "")),
+                "Detail": f'{r.get("grid_name_s", "")} / {r.get("field_s", "")}',
+                "Message": r.get("error_message_s", ""),
+            })
+
+    return pd.DataFrame(rows) if rows else pd.DataFrame(
+        columns=["Stage", "Dataset", "Date", "Detail", "Message"]
+    )
+
+
 def _error_summary(failures: pd.DataFrame) -> pd.DataFrame:
     """Group failures by error message so repeated failures roll up."""
     if failures.empty:
@@ -199,3 +249,23 @@ def render():
                 )
                 st.markdown("**Error message:**")
                 st.code(row["Error"] or "(empty)", language=None)
+
+    # ── Warnings detail ────────────────────────────────────────────────────
+    # Stages that "succeeded" but recorded a message — e.g. a transformation that
+    # produced an empty record because a field was missing from the source data.
+    warnings = _warnings_table(granules, transformations, aggregations)
+
+    st.subheader(f"Warnings ({len(warnings)})")
+    if warnings.empty:
+        st.success("No warnings in the last 7 days.")
+    else:
+        st.caption("These stages completed but flagged a data-quality issue.")
+        st.dataframe(
+            warnings,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Message": st.column_config.TextColumn(width="large"),
+                "Detail": st.column_config.TextColumn(width="medium"),
+            },
+        )

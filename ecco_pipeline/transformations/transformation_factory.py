@@ -29,14 +29,25 @@ def multiprocess_transformation(
     granule_date = granule.get("date_dt")
 
     # Skips granules that weren't harvested properly
-    if not granule_filepath or (granule.get("file_size_l") or 0) < 100:
-        error_msg = "Granule not harvested properly."
-        logger.error(f"Granule {granule_filepath} was not harvested properly. Skipping.")
-        if granule_filepath:
-            completed_dt = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-            failed_updates = []
-            for grid_name, fields in tx_jobs.items():
-                for field in fields:
+    file_size = granule.get("file_size_l") or 0
+    if not granule_filepath or file_size < 100:
+        if not granule_filepath:
+            error_msg = "Granule not harvested properly: no source file path recorded."
+        else:
+            error_msg = (
+                f"Granule not harvested properly: source file missing or too small "
+                f"({file_size} bytes)."
+            )
+        logger.error(
+            f"{granule.get('filename_s', granule_filepath)}: {error_msg} Skipping."
+        )
+
+        completed_dt = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        updates = []
+        for grid_name, fields in tx_jobs.items():
+            for field in fields:
+                docs = []
+                if granule_filepath:
                     fq = [
                         f"dataset_s:{config['ds_name']}",
                         "type_s:transformation",
@@ -45,16 +56,32 @@ def multiprocess_transformation(
                         f'pre_transformation_file_path_s:"{granule_filepath}"',
                     ]
                     docs = solr_utils.solr_query(fq)
-                    if docs:
-                        failed_updates.append({
-                            "id": docs[0]["id"],
-                            "success_b": {"set": False},
-                            "transformation_in_progress_b": {"set": False},
-                            "transformation_completed_dt": {"set": completed_dt},
-                            "error_message_s": {"set": error_msg},
-                        })
-            if failed_updates:
-                solr_utils.solr_update(failed_updates)
+                if docs:
+                    updates.append({
+                        "id": docs[0]["id"],
+                        "success_b": {"set": False},
+                        "transformation_in_progress_b": {"set": False},
+                        "transformation_completed_dt": {"set": completed_dt},
+                        "error_message_s": {"set": error_msg},
+                    })
+                else:
+                    # No transformation doc exists yet — create one so the failure
+                    # is visible on the dashboard instead of silently skipped.
+                    updates.append({
+                        "type_s": "transformation",
+                        "dataset_s": config["ds_name"],
+                        "date_dt": granule_date,
+                        "grid_name_s": grid_name,
+                        "field_s": field.name,
+                        "pre_transformation_file_path_s": granule_filepath or "",
+                        "transformation_started_dt": completed_dt,
+                        "transformation_completed_dt": completed_dt,
+                        "transformation_in_progress_b": False,
+                        "success_b": False,
+                        "error_message_s": error_msg,
+                    })
+        if updates:
+            solr_utils.solr_update(updates)
         return
 
     # Perform remaining transformations

@@ -267,9 +267,13 @@ class Transformation(Dataset):
                     field_DA.attrs["empty_record_note"] = "Transformation failed"
                     mapping_success = False
             else:
-                logger.error(
-                    f"Transformation failed: key {field.name} is missing from source data. Making empty record."
+                logger.warning(
+                    f"Field {field.name} is missing from source data. Making empty record."
                 )
+                # mapping_success stays True: an empty record is valid output and we
+                # don't want to re-transform this every run. The error_message carries
+                # the data-quality issue so it surfaces on the dashboard as a warning.
+                error_message = f"Field '{field.name}' missing from source data — empty record created"
                 field_DA = records.make_empty_record(record_date, model_grid)
                 field_DA.attrs["long_name"] = field.long_name
                 field_DA.attrs["standard_name"] = field.standard_name

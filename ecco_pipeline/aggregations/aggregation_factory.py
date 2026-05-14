@@ -225,7 +225,8 @@ class AgJobFactory(baseclasses.Dataset):
                         agg_time = aggregation_docs[0]["aggregation_time_dt"]
                         needs_reaggregate = False
                         for t in transformation_docs:
-                            if t["date_dt"][:4] != year:
+                            # year is an int; date_dt[:4] is a string — coerce to compare
+                            if int(t["date_dt"][:4]) != year:
                                 continue
                             if t["transformation_completed_dt"] > agg_time:
                                 years_to_aggregate.append(year)
@@ -234,7 +235,7 @@ class AgJobFactory(baseclasses.Dataset):
                         if not needs_reaggregate:
                             self._ensure_provenance(grid, field, year)
                     else:
-                        year_tx_docs = [t for t in transformation_docs if t["date_dt"][:4] == year]
+                        year_tx_docs = [t for t in transformation_docs if int(t["date_dt"][:4]) == year]
                         if self.need_to_aggregate(grid_name, field, year, year_tx_docs):
                             years_to_aggregate.append(year)
                         else:
