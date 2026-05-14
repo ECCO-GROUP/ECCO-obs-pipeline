@@ -32,6 +32,7 @@ class Dataset:
             else datetime.strptime(config.get("end"), "%Y%m%dT%H:%M:%SZ")
         )
         self.harvester_type: str = config.get("harvester_type")
+        self.ecco_variable: str = config.get("ecco_variable")
         self.filename_date_fmt: str = config.get("filename_date_fmt")
         self.filename_date_regex: str = config.get("filename_date_regex")
         self.data_time_scale: str = config.get("data_time_scale")
