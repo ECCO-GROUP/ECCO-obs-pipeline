@@ -40,6 +40,8 @@ class Aggregation(Dataset):
         self.grid: dict = grid
         self.year: int = year
         self.field: Field = field
+        # Canonical name of the interpolated data variable in transformed files.
+        self.var_name: str = f"{field.name}_interpolated_to_{grid['grid_name_s']}"
 
     def __str__(self) -> str:
         return f'"{self.grid["grid_name_s"]} {self.field.name} {self.year}"'
@@ -144,17 +146,32 @@ class Aggregation(Dataset):
             self.transformations[self.field.name].append(transformation_metadata)
         return filepaths
 
+    def _open_transformed(self, filepath: str) -> xr.Dataset:
+        """
+        Open a transformed file and normalise its single data variable to the
+        canonical {field}_interpolated_to_{grid} name. Files produced by older code
+        (or the empty-record fallbacks before they were renamed) may carry the
+        generic 'Default empty model grid record' name — normalising here lets
+        open_and_concat merge and concat hemispheres/dates without depending on
+        what name happens to be on disk.
+        """
+        ds = xr.open_dataset(filepath)
+        data_vars = list(ds.data_vars)
+        if self.var_name not in data_vars and len(data_vars) == 1:
+            ds = ds.rename({data_vars[0]: self.var_name})
+        return ds
+
     def open_and_concat(self, filepaths: dict):
+        var = self.var_name
         opened_files = []
         dates = sorted(list(filepaths.keys()))
         for date in dates:
             files = filepaths[date]
             if len(files) == 1:
-                opened_files.append(xr.open_dataset(files[0]))
+                opened_files.append(self._open_transformed(files[0]))
             else:
-                f1 = xr.open_dataset(files[0])
-                f2 = xr.open_dataset(files[1])
-                var = list(f1.keys())[0]
+                f1 = self._open_transformed(files[0])
+                f2 = self._open_transformed(files[1])
                 if np.isnan(f1[var].values).all():
                     if np.isnan(f2[var].values).all():
                         opened_files.append(f1)
