@@ -222,14 +222,18 @@ class Transformation(Dataset):
 
         return data_DA
 
-    def transform(self, model_grid: xr.Dataset, factors: Tuple, ds: xr.Dataset) -> Iterable[Tuple[xr.Dataset, bool]]:
+    def transform(self, model_grid: xr.Dataset, factors: Tuple, ds: xr.Dataset, fields: Iterable["Field"] = None) -> Iterable[Tuple[xr.Dataset, bool]]:
         """
         Function that actually performs the transformations. Returns a list of transformed
         xarray datasets, one dataset for each field being transformed for the given grid.
+        If `fields` is provided, only those fields are transformed (must be a subset of
+        self.fields). The returned list is aligned with the `fields` argument.
         """
         logger = logging.getLogger(str(current_process().pid))
 
-        logger.info(f"Transforming {len(self.fields)} fields on {self.date} to {model_grid.name}")
+        fields_iter = fields if fields is not None else self.fields
+
+        logger.info(f"Transforming {len(fields_iter)} fields on {self.date} to {model_grid.name}")
 
         record_date = self.date.replace("Z", "")
 
@@ -238,7 +242,7 @@ class Transformation(Dataset):
         # =====================================================
         # Loop through fields to transform
         # =====================================================
-        for field in self.fields:
+        for field in fields_iter:
             logger.debug(f"Transforming {self.file_name} for field {field.name}")
 
             if field.pre_transformations:
@@ -364,12 +368,16 @@ class Transformation(Dataset):
         ds.attrs["original_file_name"] = self.file_name
         return ds
 
-    def prepopulate_solr(self, source_file_path: str, grid_name: str):
+    def prepopulate_solr(self, source_file_path: str, grid_name: str, fields: Iterable["Field"] = None):
         """
-        Populate Solr with transformation entries prior to attempting transformation
+        Populate Solr with transformation entries prior to attempting transformation.
+        Only operates on the given `fields` subset (defaults to self.fields). Passing a
+        subset is required when only some fields need re-transformation — otherwise
+        docs for fields not in the per-field update loop get stuck at success_b=False.
         """
         update_body = []
-        for field in self.fields:
+        fields_iter = fields if fields is not None else self.fields
+        for field in fields_iter:
             logger.debug(f"Transforming {field.name}")
 
             # Query if grid/field combination transformation entry exists
@@ -393,12 +401,17 @@ class Transformation(Dataset):
             ]
             granule_docs = solr_utils.solr_query(granule_fq)
 
+            # Sentinel error_message — if the per-field update never runs (worker crash,
+            # process kill, etc.) the doc shows this instead of an empty field.
+            in_progress_msg = "Transformation in progress (or interrupted before completion)"
+
             if len(docs) > 0:
                 # Reset status fields and update checksum in case granule was re-harvested
                 transform["id"] = docs[0]["id"]
                 transform["transformation_in_progress_b"] = {"set": True}
                 transform["success_b"] = {"set": False}
                 transform["transformation_started_dt"] = {"set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")}
+                transform["error_message_s"] = {"set": in_progress_msg}
                 if granule_docs:
                     transform["origin_checksum_s"] = {"set": granule_docs[0]["checksum_s"]}
             else:
@@ -416,6 +429,7 @@ class Transformation(Dataset):
                 transform["field_s"] = field.name
                 transform["transformation_in_progress_b"] = True
                 transform["success_b"] = False
+                transform["error_message_s"] = in_progress_msg
             update_body.append(transform)
         r = solr_utils.solr_update(update_body, r=True)
         try:
@@ -450,15 +464,17 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
             logger.debug(f"Loading {grid_name} model grid")
             grid_ds = xr.open_dataset(f"grids/{grid_name}.nc").reset_coords()
             factors = T.make_factors(grid_ds)
-            T.prepopulate_solr(source_file_path, grid_name)
+            T.prepopulate_solr(source_file_path, grid_name, fields)
 
             # =====================================================
             # Run transformation
             # =====================================================
             logger.debug(f"Running transformations for {T.file_name}")
 
-            # Returns list of transformed DSs, one for each field in fields
-            field_DSs = T.transform(grid_ds, factors, ds)
+            # Returns list of transformed DSs, one per entry in `fields` (subset of
+            # self.fields). Must match the same `fields` we just prepopulated so the
+            # zip below pairs correctly.
+            field_DSs = T.transform(grid_ds, factors, ds, fields)
 
             # =====================================================
             # Save the output in netCDF format
