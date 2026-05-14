@@ -29,10 +29,17 @@ def _harvest_panel(ds_name: str):
     success = int(granules["harvest_success_b"].sum())
     failed = total - success
 
-    c1, c2, c3 = st.columns(3)
+    successful = granules[granules["harvest_success_b"]]
+    if not successful.empty and successful["date_dt"].notna().any():
+        latest_date = str(successful["date_dt"].max().date())
+    else:
+        latest_date = "—"
+
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total granules", total)
     c2.metric("Successful", success)
     c3.metric("Failed", failed, delta=f"-{failed}" if failed else None, delta_color="inverse")
+    c4.metric("Latest granule date", latest_date)
 
     # Timeline: one bar per date coloured by outcome
     granules["date"] = granules["date_dt"].dt.date

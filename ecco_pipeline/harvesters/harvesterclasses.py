@@ -174,6 +174,7 @@ class Harvester(Dataset):
         ]
         ds_meta["original_dataset_doi_s"] = self.og_ds_metadata["original_dataset_doi"]
         ds_meta["harvester_type_s"] = self.harvester_type
+        ds_meta["ecco_variable_s"] = self.ecco_variable
         ds_meta["t_version_f"] = self.t_version
         return ds_meta
 
@@ -237,6 +238,7 @@ class Harvester(Dataset):
             ds_meta = {}
             ds_meta["id"] = dataset_metadata["id"]
             ds_meta["last_checked_dt"] = {"set": check_time}
+            ds_meta["ecco_variable_s"] = {"set": self.ecco_variable}
             ds_meta["n_granules_i"] = {"set": n_failed + n_success}
             ds_meta["n_granules_success_i"] = {"set": n_success}
             ds_meta["n_granules_failed_i"] = {"set": n_failed}

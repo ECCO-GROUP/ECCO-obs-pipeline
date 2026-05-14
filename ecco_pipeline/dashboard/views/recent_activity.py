@@ -168,11 +168,23 @@ def render():
     st.header(f"Recent Activity — Last {DAYS} Days")
 
     with st.spinner("Querying Solr..."):
+        totals = solr_client.get_total_counts()
         granules = solr_client.get_recent_granules(DAYS)
         transformations = solr_client.get_recent_transformations(DAYS)
         aggregations = solr_client.get_recent_aggregations(DAYS)
 
-    # ── Top-level metrics ──────────────────────────────────────────────────
+    # ── All-time totals ────────────────────────────────────────────────────
+    st.subheader("All-time totals")
+    t1, t2, t3, t4 = st.columns(4)
+    t1.metric("Granules", totals["granules"])
+    t2.metric("Transformations", totals["transformations"])
+    t3.metric("Aggregations", totals["aggregations"])
+    t4.metric("Datasets", totals["datasets"])
+
+    st.divider()
+
+    # ── Last 7 days ────────────────────────────────────────────────────────
+    st.subheader(f"Last {DAYS} days")
     col1, col2, col3 = st.columns(3)
     g_fail = int((~granules["harvest_success_b"]).sum()) if not granules.empty and "harvest_success_b" in granules.columns else 0
     t_fail = int((~transformations["success_b"]).sum()) if not transformations.empty and "success_b" in transformations.columns else 0

@@ -2,6 +2,7 @@
 Thin wrapper around solr_utils that returns pandas DataFrames.
 All Solr field names are normalised here so views don't need to know them.
 """
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -45,12 +46,84 @@ def get_datasets() -> pd.DataFrame:
         "dataset_s", "harvest_status_s", "transformation_status_s",
         "aggregation_status_s", "last_checked_dt", "last_transformation_dt",
         "last_aggregation_dt", "n_granules_i", "n_granules_success_i",
-        "n_granules_failed_i", "harvester_type_s",
+        "n_granules_failed_i", "harvester_type_s", "ecco_variable_s",
     ]:
         if col not in df.columns:
             df[col] = None
     for col in ["last_checked_dt", "last_transformation_dt", "last_aggregation_dt"]:
         df[col] = pd.to_datetime(df[col], errors="coerce", utc=True)
+    return df
+
+
+# ---------------------------------------------------------------------------
+# Pipeline-wide aggregates
+# ---------------------------------------------------------------------------
+
+def _count(fq: list[str]) -> int:
+    """Number of docs matching fq, without fetching any docs."""
+    params = {"q": "*:*", "fq": fq, "rows": 0}
+    url = f"{SOLR_HOST}{SOLR_COLLECTION}/select?"
+    try:
+        resp = requests.get(url, params=params, headers={"Connection": "close"}, timeout=10)
+        resp.raise_for_status()
+        return resp.json()["response"]["numFound"]
+    except Exception:
+        return 0
+
+
+def get_total_counts() -> dict:
+    """All-time document counts per pipeline stage."""
+    return {
+        "granules": _count(["type_s:granule"]),
+        "transformations": _count(["type_s:transformation"]),
+        "aggregations": _count(["type_s:aggregation"]),
+        "datasets": _count(["type_s:dataset"]),
+    }
+
+
+def get_harvest_coverage() -> pd.DataFrame:
+    """
+    First and last successfully-harvested granule date per dataset, plus a
+    granule count. Resolved in a single Solr JSON Facet query rather than
+    pulling every granule doc.
+    """
+    facet = {
+        "datasets": {
+            "type": "terms",
+            "field": "dataset_s",
+            "limit": -1,
+            "facet": {"first": "min(date_dt)", "last": "max(date_dt)"},
+        }
+    }
+    params = {
+        "q": "*:*",
+        "fq": ["type_s:granule", "harvest_success_b:true"],
+        "rows": 0,
+        "json.facet": json.dumps(facet),
+    }
+    url = f"{SOLR_HOST}{SOLR_COLLECTION}/select?"
+    cols = ["dataset_s", "start", "end", "count"]
+    try:
+        resp = requests.get(url, params=params, headers={"Connection": "close"}, timeout=10)
+        resp.raise_for_status()
+        buckets = resp.json()["facets"]["datasets"]["buckets"]
+    except Exception:
+        return pd.DataFrame(columns=cols)
+    if not buckets:
+        return pd.DataFrame(columns=cols)
+    df = pd.DataFrame(
+        [
+            {
+                "dataset_s": b["val"],
+                "start": b.get("first"),
+                "end": b.get("last"),
+                "count": b.get("count", 0),
+            }
+            for b in buckets
+        ]
+    )
+    df["start"] = pd.to_datetime(df["start"], errors="coerce", utc=True)
+    df["end"] = pd.to_datetime(df["end"], errors="coerce", utc=True)
     return df
 
 

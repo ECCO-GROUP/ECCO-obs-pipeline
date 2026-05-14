@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import streamlit as st
 
 from dashboard import solr_client
-from dashboard.views import dataset_inspector, recent_activity
+from dashboard.views import coverage_timeline, dataset_inspector, recent_activity
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -41,7 +41,7 @@ with st.sidebar:
     solr_client.configure(host, collection)
 
     st.divider()
-    page = st.radio("View", ["Recent Activity", "Dataset Inspector"])
+    page = st.radio("View", ["Recent Activity", "Coverage Timeline", "Dataset Inspector"])
 
     st.divider()
     if st.button("Refresh data"):
@@ -62,5 +62,7 @@ datasets_df = load_datasets()
 # ---------------------------------------------------------------------------
 if page == "Recent Activity":
     recent_activity.render()
+elif page == "Coverage Timeline":
+    coverage_timeline.render(datasets_df)
 elif page == "Dataset Inspector":
     dataset_inspector.render(datasets_df)
