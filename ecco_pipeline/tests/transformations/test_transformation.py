@@ -298,8 +298,11 @@ class TransformationPrepopulateSolrTestCase(unittest.TestCase):
     @patch("transformations.grid_transformation.solr_utils.solr_query")
     def test_prepopulate_solr_existing_entry(self, mock_query, mock_update):
         """Test prepopulating Solr with existing transformation entry."""
-        # Existing transformation entry
-        mock_query.return_value = [{"id": "existing_id"}]
+        # prepopulate_solr queries twice per field: existing transformation, then granule
+        mock_query.side_effect = [
+            [{"id": "existing_id"}],  # Existing transformation entry
+            [{"checksum_s": "abc123"}],  # Granule entry
+        ]
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -313,6 +316,7 @@ class TransformationPrepopulateSolrTestCase(unittest.TestCase):
         mock_update.assert_called_once()
         update_body = mock_update.call_args[0][0]
         self.assertEqual(update_body[0]["id"], "existing_id")
+        self.assertEqual(update_body[0]["origin_checksum_s"], {"set": "abc123"})
 
     @patch("transformations.grid_transformation.solr_utils.solr_update")
     @patch("transformations.grid_transformation.solr_utils.solr_query")
