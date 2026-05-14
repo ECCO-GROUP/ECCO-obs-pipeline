@@ -261,6 +261,9 @@ class Transformation(Dataset):
                     logger.exception(f"Transformation failed: {e}")
                     error_message = str(e)
                     field_DA = records.make_empty_record(record_date, model_grid)
+                    # Name must match perform_mapping's output so downstream
+                    # hemisphere merging (open_and_concat) sees a consistent var.
+                    field_DA.name = f"{field.name}_interpolated_to_{model_grid.name}"
                     field_DA.attrs["long_name"] = field.long_name
                     field_DA.attrs["standard_name"] = field.standard_name
                     field_DA.attrs["units"] = field.units
@@ -275,6 +278,9 @@ class Transformation(Dataset):
                 # the data-quality issue so it surfaces on the dashboard as a warning.
                 error_message = f"Field '{field.name}' missing from source data — empty record created"
                 field_DA = records.make_empty_record(record_date, model_grid)
+                # Name must match perform_mapping's output so downstream
+                # hemisphere merging (open_and_concat) sees a consistent var.
+                field_DA.name = f"{field.name}_interpolated_to_{model_grid.name}"
                 field_DA.attrs["long_name"] = field.long_name
                 field_DA.attrs["standard_name"] = field.standard_name
                 field_DA.attrs["units"] = field.units
@@ -296,6 +302,9 @@ class Transformation(Dataset):
                     logger.exception(f"Post-transformation failed: {e}")
                     error_message = str(e)
                     field_DA = records.make_empty_record(record_date, model_grid)
+                    # Name must match perform_mapping's output so downstream
+                    # hemisphere merging (open_and_concat) sees a consistent var.
+                    field_DA.name = f"{field.name}_interpolated_to_{model_grid.name}"
                     field_DA.attrs["long_name"] = field.long_name
                     field_DA.attrs["standard_name"] = field.standard_name
                     field_DA.attrs["units"] = field.units
@@ -530,11 +539,6 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
                         "error_message_s": {"set": error_message},
                     }
                 ]
-
-                if success and "Default empty model grid record" in field_DS.variables:
-                    update_body[0]["transformation_note"] = {
-                        "set": "Field not found in source data. Defaulting to empty record."
-                    }
 
                 r = solr_utils.solr_update(update_body, r=True)
 
