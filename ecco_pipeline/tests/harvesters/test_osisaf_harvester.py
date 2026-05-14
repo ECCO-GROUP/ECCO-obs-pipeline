@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch, Mock
 
 from harvesters.osisaf_harvester import OSISAF_Harvester, harvester
 from harvesters.enumeration.osisaf_enumerator import OSISAFGranule
+from tests.conftest import make_mock_download_response
 
 
 def get_mock_config():
@@ -81,7 +82,7 @@ class OSISAFHarvesterTestCase(unittest.TestCase):
 
                 self.assertEqual(len(h.updated_solr_docs), 0)
 
-    @patch("harvesters.osisaf_harvester.requests.get")
+    @patch("harvesters.harvesterclasses.requests.get")
     def test_fetch_downloads_file(self, mock_requests, mock_search, mock_clean, mock_query):
         """Test fetch downloads files correctly."""
         mock_query.return_value = []
@@ -92,10 +93,7 @@ class OSISAFHarvesterTestCase(unittest.TestCase):
         )
         mock_search.return_value = [mock_granule]
 
-        mock_response = MagicMock()
-        mock_response.content = b"mock netcdf content"
-        mock_response.raise_for_status = MagicMock()
-        mock_requests.return_value = mock_response
+        mock_requests.return_value = make_mock_download_response()
 
         config = get_mock_config()
 
@@ -107,7 +105,7 @@ class OSISAFHarvesterTestCase(unittest.TestCase):
                 mock_requests.assert_called_once()
                 self.assertEqual(len(h.updated_solr_docs), 1)  # granule only
 
-    @patch("harvesters.osisaf_harvester.requests.get")
+    @patch("harvesters.harvesterclasses.requests.get")
     def test_fetch_skips_icdrft_files(self, mock_requests, mock_search, mock_clean, mock_query):
         """Test fetch skips fast track (icdrft) files."""
         mock_query.return_value = []
@@ -129,7 +127,7 @@ class OSISAFHarvesterTestCase(unittest.TestCase):
                 # Should not download icdrft files
                 mock_requests.assert_not_called()
 
-    @patch("harvesters.osisaf_harvester.requests.get")
+    @patch("harvesters.harvesterclasses.requests.get")
     def test_fetch_handles_download_failure(self, mock_requests, mock_search, mock_clean, mock_query):
         """Test fetch handles download failures gracefully."""
         mock_query.return_value = []

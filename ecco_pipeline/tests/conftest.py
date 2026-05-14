@@ -4,12 +4,30 @@ Pytest configuration and shared fixtures for harvester tests.
 import os
 import sys
 import tempfile
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 # Add ecco_pipeline to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def make_mock_download_response(content: bytes = b"mock netcdf file content"):
+    """
+    Build a mock requests response for Harvester._stream_download.
+
+    Behaves as a context manager whose streamed chunks match its declared
+    Content-Length, so a download through it passes the size-verification check.
+    Tests that want to simulate a truncated download can override .headers or
+    .iter_content on the returned object.
+    """
+    response = MagicMock()
+    response.__enter__.return_value = response
+    response.__exit__.return_value = False
+    response.raise_for_status = MagicMock()
+    response.headers = {"Content-Length": str(len(content))}
+    response.iter_content = MagicMock(return_value=[content])
+    return response
 
 
 @pytest.fixture

@@ -8,7 +8,6 @@ import time
 from typing import Iterable
 
 import numpy as np
-import requests
 import xarray as xr
 from harvesters.enumeration.cmr_enumerator import CMRGranule, CMRQuery
 from harvesters.harvesterclasses import Granule, Harvester
@@ -18,7 +17,6 @@ from utils.processing_utils.records import TimeBound
 logger = logging.getLogger("pipeline")
 
 MAX_WORKERS = 3
-CHUNK_SIZE = 1024 * 1024  # 1 MB
 
 
 class CMR_Harvester(Harvester):
@@ -29,11 +27,7 @@ class CMR_Harvester(Harvester):
     def dl_file(self, src: str, dst: str):
         for attempt in range(2):
             try:
-                with requests.get(src, stream=True, timeout=120) as r:
-                    r.raise_for_status()
-                    with open(dst, "wb") as f:
-                        for chunk in r.iter_content(chunk_size=CHUNK_SIZE):
-                            f.write(chunk)
+                self._stream_download(src, dst)
                 return
             except Exception:
                 if attempt == 0:

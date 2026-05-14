@@ -2,11 +2,15 @@ import logging
 import os
 from datetime import datetime
 
+import requests
+
 from baseclasses import Dataset
 from conf.global_settings import OUTPUT_DIR
 from utils.pipeline_utils import file_utils, solr_utils
 
 logger = logging.getLogger("pipeline")
+
+CHUNK_SIZE = 1024 * 1024  # 1 MB
 
 
 class Granule:
@@ -103,6 +107,35 @@ class Harvester(Dataset):
 
     def dl_file(self):
         raise NotImplementedError
+
+    def _stream_download(self, src: str, dst: str):
+        """
+        Stream a file to disk and verify the transfer completed in full.
+
+        The server's Content-Length is the source of truth for expected size:
+        if the bytes written don't match it, the download was truncated and we
+        raise so the caller records a harvest failure. When the server sends no
+        Content-Length (e.g. chunked encoding) we can't know the expected size,
+        so we fall back to rejecting only a genuinely empty file.
+        """
+        with requests.get(src, stream=True, timeout=120) as r:
+            r.raise_for_status()
+            declared = r.headers.get("Content-Length")
+            expected_size = int(declared) if declared is not None else None
+            bytes_written = 0
+            with open(dst, "wb") as f:
+                for chunk in r.iter_content(chunk_size=CHUNK_SIZE):
+                    f.write(chunk)
+                    bytes_written += len(chunk)
+
+        if expected_size is not None:
+            if bytes_written != expected_size:
+                raise IOError(
+                    f"Truncated download: wrote {bytes_written} of "
+                    f"{expected_size} bytes for {src}"
+                )
+        elif bytes_written == 0:
+            raise IOError(f"Empty download: server returned no data for {src}")
 
     def ensure_target_dir(self):
         os.makedirs(self.target_dir, exist_ok=True)

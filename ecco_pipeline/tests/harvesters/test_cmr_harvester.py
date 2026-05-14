@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch, Mock
 
 from harvesters.cmr_harvester import CMR_Harvester, harvester
 from harvesters.enumeration.cmr_enumerator import CMRGranule
+from tests.conftest import make_mock_download_response
 
 
 def get_mock_config():
@@ -98,7 +99,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
 
                 self.assertEqual(len(h.updated_solr_docs), 0)
 
-    @patch("harvesters.cmr_harvester.requests.get")
+    @patch("harvesters.harvesterclasses.requests.get")
     def test_fetch_downloads_file(self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query):
         """Test fetch downloads files correctly."""
         mock_solr_query.return_value = []
@@ -113,10 +114,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
         mock_cmr_query.return_value = mock_query_instance
 
         # Mock successful download
-        mock_response = MagicMock()
-        mock_response.content = b"mock netcdf content"
-        mock_response.raise_for_status = MagicMock()
-        mock_requests.return_value = mock_response
+        mock_requests.return_value = make_mock_download_response()
 
         config = get_mock_config()
 
@@ -129,7 +127,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
                 mock_requests.assert_called_once()
                 self.assertEqual(len(h.updated_solr_docs), 1)  # granule only
 
-    @patch("harvesters.cmr_harvester.requests.get")
+    @patch("harvesters.harvesterclasses.requests.get")
     def test_fetch_skips_nrt_files(self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query):
         """Test fetch skips NRT (Near Real Time) files."""
         mock_solr_query.return_value = []
@@ -153,7 +151,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
                 # Should not download NRT files
                 mock_requests.assert_not_called()
 
-    @patch("harvesters.cmr_harvester.requests.get")
+    @patch("harvesters.harvesterclasses.requests.get")
     def test_fetch_skips_out_of_range_dates(self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query):
         """Test fetch skips granules outside date range."""
         mock_solr_query.return_value = []
@@ -177,7 +175,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
                 # Should not download
                 mock_requests.assert_not_called()
 
-    @patch("harvesters.cmr_harvester.requests.get")
+    @patch("harvesters.harvesterclasses.requests.get")
     def test_fetch_handles_download_failure(self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query):
         """Test fetch handles download failures gracefully."""
         mock_solr_query.return_value = []
@@ -205,7 +203,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
                 granule_doc = [d for d in h.updated_solr_docs if d.get("type_s") == "granule"][0]
                 self.assertFalse(granule_doc["harvest_success_b"])
 
-    @patch("harvesters.cmr_harvester.requests.get")
+    @patch("harvesters.harvesterclasses.requests.get")
     def test_fetch_skips_existing_up_to_date_files(self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query):
         """Test fetch skips files that are already up to date."""
         mock_solr_query.return_value = []
@@ -235,7 +233,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
                 # Should not download
                 mock_requests.assert_not_called()
 
-    @patch("harvesters.cmr_harvester.requests.get")
+    @patch("harvesters.harvesterclasses.requests.get")
     def test_fetch_multiple_granules(self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query):
         """Test fetch handles multiple granules."""
         mock_solr_query.return_value = []
@@ -251,10 +249,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
         mock_query_instance.query.return_value = mock_granules
         mock_cmr_query.return_value = mock_query_instance
 
-        mock_response = MagicMock()
-        mock_response.content = b"mock netcdf content"
-        mock_response.raise_for_status = MagicMock()
-        mock_requests.return_value = mock_response
+        mock_requests.return_value = make_mock_download_response()
 
         config = get_mock_config()
 
@@ -268,7 +263,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
                 self.assertEqual(len(h.updated_solr_docs), 3)
 
     @patch("harvesters.cmr_harvester.time.sleep")
-    @patch("harvesters.cmr_harvester.requests.get")
+    @patch("harvesters.harvesterclasses.requests.get")
     def test_dl_file_retries_on_failure(self, mock_requests, mock_sleep, mock_cmr_query, mock_clean, mock_solr_query):
         """Test dl_file retries on initial failure."""
         mock_solr_query.return_value = []
@@ -285,10 +280,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
         mock_fail.__exit__ = MagicMock(return_value=False)
         mock_fail.raise_for_status.side_effect = Exception("First attempt failed")
 
-        mock_success = MagicMock()
-        mock_success.__enter__ = MagicMock(return_value=mock_success)
-        mock_success.__exit__ = MagicMock(return_value=False)
-        mock_success.iter_content.return_value = [b"content"]
+        mock_success = make_mock_download_response(b"content")
 
         mock_requests.side_effect = [mock_fail, mock_success]
 
@@ -418,7 +410,7 @@ class CMRHarvesterSpecialFetchTestCase(unittest.TestCase):
     @patch("harvesters.harvesterclasses.solr_utils.solr_query")
     @patch("harvesters.harvesterclasses.solr_utils.clean_solr")
     @patch("harvesters.cmr_harvester.CMRQuery")
-    @patch("harvesters.cmr_harvester.requests.get")
+    @patch("harvesters.harvesterclasses.requests.get")
     def test_fetch_rdeft4_filters_end_of_month(self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query):
         """Test fetch_rdeft4 filters to end-of-month granules."""
         mock_solr_query.return_value = []
@@ -433,10 +425,7 @@ class CMRHarvesterSpecialFetchTestCase(unittest.TestCase):
         mock_query_instance.query.return_value = mock_granules
         mock_cmr_query.return_value = mock_query_instance
 
-        mock_response = MagicMock()
-        mock_response.content = b"mock content"
-        mock_response.raise_for_status = MagicMock()
-        mock_requests.return_value = mock_response
+        mock_requests.return_value = make_mock_download_response()
 
         config = get_mock_config()
         config["ds_name"] = "RDEFT4"
