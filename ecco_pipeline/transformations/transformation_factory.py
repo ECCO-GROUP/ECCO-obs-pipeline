@@ -305,9 +305,10 @@ class TxJobFactory(baseclasses.Dataset):
     def need_to_transform(self, granule: dict, grid_name: str, field) -> bool:
         """
         Filesystem fallback used when no Solr transformation doc exists for a
-        granule/grid/field combination.  Mirrors the harvester's need_to_download()
-        logic: skip reprocessing if the transformed output file already exists and
-        is newer than the source granule file.
+        granule/grid/field combination.  Skip reprocessing only if the transformed
+        output file already exists, is newer than the source granule file, and was
+        produced by the current transformation version — the same version contract
+        need_to_update() applies to the Solr-doc path.
         """
         stem = os.path.splitext(granule["filename_s"])[0]
         output_path = os.path.join(
@@ -324,7 +325,37 @@ class TxJobFactory(baseclasses.Dataset):
         source_path = granule.get("pre_transformation_file_path_s")
         if not source_path or not os.path.exists(source_path):
             return True
-        return os.path.getmtime(output_path) <= os.path.getmtime(source_path)
+        if os.path.getmtime(output_path) <= os.path.getmtime(source_path):
+            return True
+        # mtime says the file is current, but only trust it if it was produced by
+        # the current transformation version. Bumping t_version in config is the
+        # single lever that forces re-transformation after any output-affecting
+        # code change — keeps this path consistent with need_to_update().
+        if self._file_transformation_version(output_path) != self.t_version:
+            logger.info(
+                f"Existing transformed file {output_path} was produced by a "
+                f"different transformation version — will re-transform."
+            )
+            return True
+        return False
+
+    def _file_transformation_version(self, output_path: str):
+        """
+        Read the transformation_version global attribute baked into a transformed
+        netCDF by grid_transformation.transform(). Returns None if the file can't
+        be read or carries no version (treated as a version mismatch by callers).
+        """
+        try:
+            with xr.open_dataset(output_path) as ds:
+                version = ds.attrs.get("transformation_version")
+        except Exception:
+            return None
+        if version is None:
+            return None
+        try:
+            return float(version)
+        except (TypeError, ValueError):
+            return version
 
     def reconstruct_tx_solr_doc(self, granule: dict, grid_name: str, field) -> None:
         """
