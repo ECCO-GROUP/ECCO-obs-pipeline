@@ -179,62 +179,81 @@ def _aggregation_panel(ds_name: str):
     c2.metric("Successful", success)
     c3.metric("Failed", failed, delta=f"-{failed}" if failed else None, delta_color="inverse")
 
-    # Year × grid matrix — one cell per combination, coloured success/fail
-    if "grid_name_s" in agg.columns and "year_i" in agg.columns:
-        # Build status string for colour mapping
-        agg["status"] = agg["aggregation_success_b"].map({True: "Success", False: "Failed"})
+    # Coverage strip: one row per (grid, field), one cell per year.
+    needed = {"grid_name_s", "field_s", "year_i"}
+    if needed.issubset(agg.columns):
+        valid = agg.dropna(subset=["year_i"]).copy()
+        valid["year_i"] = valid["year_i"].astype(int)
+        valid["gf"] = valid["grid_name_s"].astype(str) + " / " + valid["field_s"].astype(str)
 
-        grids = sorted(agg["grid_name_s"].unique())
-        years = sorted(agg["year_i"].dropna().unique(), reverse=True)
+        if not valid.empty:
+            all_years = list(range(int(valid["year_i"].min()), int(valid["year_i"].max()) + 1))
+            gfs = sorted(valid["gf"].unique())
 
-        # Pivot: rows=year (descending), cols=grid, value=status
-        matrix = []
-        annotations = []
-        for yi, year in enumerate(years):
-            row = []
-            for xi, grid in enumerate(grids):
-                cell = agg[(agg["year_i"] == year) & (agg["grid_name_s"] == grid)]
-                if cell.empty:
-                    row.append(0.5)  # missing — grey
-                    annotations.append(dict(x=xi, y=yi, text="—", showarrow=False,
-                                            font=dict(color="white")))
-                elif cell.iloc[0]["aggregation_success_b"]:
-                    row.append(1.0)
-                    annotations.append(dict(x=xi, y=yi, text="✓", showarrow=False,
-                                            font=dict(color="white")))
-                else:
-                    row.append(0.0)
-                    annotations.append(dict(x=xi, y=yi, text="✗", showarrow=False,
-                                            font=dict(color="white")))
-            matrix.append(row)
+            z, hover = [], []
+            for gf in gfs:
+                # Last-write-wins if multiple records exist for the same year.
+                status_map = dict(
+                    zip(
+                        valid[valid["gf"] == gf]["year_i"],
+                        valid[valid["gf"] == gf]["aggregation_success_b"].astype(bool),
+                    )
+                )
+                z_row, hover_row = [], []
+                for y in all_years:
+                    if y in status_map:
+                        z_row.append(1.0 if status_map[y] else 0.0)
+                        hover_row.append("success" if status_map[y] else "failed")
+                    else:
+                        z_row.append(0.5)
+                        hover_row.append("no aggregation")
+                z.append(z_row)
+                hover.append(hover_row)
 
-        fig = go.Figure(
-            go.Heatmap(
-                z=matrix,
-                x=grids,
-                y=[str(int(y)) for y in years],
-                colorscale=[
-                    [0.0, FAIL_COLOR],
-                    [0.49, FAIL_COLOR],
-                    [0.5, MISSING_COLOR],
-                    [0.51, MISSING_COLOR],
-                    [0.52, SUCCESS_COLOR],
-                    [1.0, SUCCESS_COLOR],
-                ],
-                showscale=False,
-                zmin=0,
-                zmax=1,
+            fig = go.Figure(
+                go.Heatmap(
+                    z=z,
+                    x=all_years,
+                    y=gfs,
+                    customdata=hover,
+                    colorscale=[
+                        [0.0, FAIL_COLOR], [0.49, FAIL_COLOR],
+                        [0.5, MISSING_COLOR], [0.51, MISSING_COLOR],
+                        [0.52, SUCCESS_COLOR], [1.0, SUCCESS_COLOR],
+                    ],
+                    showscale=False,
+                    zmin=0, zmax=1,
+                    xgap=1, ygap=4,
+                    hovertemplate="%{y}<br>%{x}: %{customdata}<extra></extra>",
+                )
             )
-        )
-        fig.update_layout(
-            title="Aggregation Status by Year × Grid",
-            annotations=annotations,
-            margin=dict(t=40, b=0),
-            height=max(200, 30 * len(years) + 80),
-            xaxis_title="Grid",
-            yaxis_title="Year",
-        )
-        st.plotly_chart(fig, use_container_width=True)
+            fig.update_layout(
+                title="Coverage by Grid / Field",
+                margin=dict(t=40, b=0),
+                height=max(180, 36 * len(gfs) + 100),
+                xaxis_title="Year",
+                yaxis_title="",
+            )
+            fig.update_xaxes(dtick=1 if len(all_years) <= 20 else 5)
+            st.plotly_chart(fig, use_container_width=True)
+            st.caption(
+                f"Green = success · red = failed · grey = no aggregation record for that year"
+            )
+
+            # Per (grid, field) summary
+            summary_rows = []
+            for gf in gfs:
+                sub = valid[valid["gf"] == gf]
+                last_run = pd.to_datetime(sub.get("aggregation_time_dt"), errors="coerce", utc=True).max()
+                summary_rows.append({
+                    "Grid / Field": gf,
+                    "Span": f"{int(sub['year_i'].min())} – {int(sub['year_i'].max())}",
+                    "Years": int(sub["year_i"].nunique()),
+                    "Successful": int(sub["aggregation_success_b"].sum()),
+                    "Failed": int((~sub["aggregation_success_b"]).sum()),
+                    "Last run": "—" if pd.isna(last_run) else str(last_run)[:19],
+                })
+            st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
 
     # Failed aggregations
     failures = agg[~agg["aggregation_success_b"]][
