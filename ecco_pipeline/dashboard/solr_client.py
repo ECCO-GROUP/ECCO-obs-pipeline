@@ -4,10 +4,14 @@ All Solr field names are normalised here so views don't need to know them.
 """
 import json
 from datetime import datetime, timedelta, timezone
+from glob import glob
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 import requests
+
+_CONF_DIR = Path(__file__).resolve().parent.parent / "conf" / "ds_configs"
 
 SOLR_HOST = None  # set at import time by calling configure()
 SOLR_COLLECTION = None
@@ -17,6 +21,22 @@ def configure(host: str, collection: str):
     global SOLR_HOST, SOLR_COLLECTION
     SOLR_HOST = host
     SOLR_COLLECTION = collection
+
+
+def get_active_dataset_names() -> set[str]:
+    """
+    Names of datasets with an active (non-deprecated) config. The pipeline
+    uses the same top-level glob to drive harvest/transform/aggregate, so
+    presence here is the canonical "is this dataset active" signal — Solr
+    docs for deprecated datasets stay around but aren't shown in the dashboard.
+    """
+    return {Path(f).stem for f in glob(str(_CONF_DIR / "*.yaml"))}
+
+
+def _filter_active(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or "dataset_s" not in df.columns:
+        return df
+    return df[df["dataset_s"].isin(get_active_dataset_names())]
 
 
 def _query(fq: list[str], fl: str = "") -> list[dict]:
@@ -52,7 +72,7 @@ def get_datasets() -> pd.DataFrame:
             df[col] = None
     for col in ["last_checked_dt", "last_transformation_dt", "last_aggregation_dt"]:
         df[col] = pd.to_datetime(df[col], errors="coerce", utc=True)
-    return df
+    return _filter_active(df)
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +144,7 @@ def get_harvest_coverage() -> pd.DataFrame:
     )
     df["start"] = pd.to_datetime(df["start"], errors="coerce", utc=True)
     df["end"] = pd.to_datetime(df["end"], errors="coerce", utc=True)
-    return df
+    return _filter_active(df)
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +178,7 @@ def get_recent_granules(days: int = 7) -> pd.DataFrame:
     df["last_attempt_dt"] = pd.to_datetime(df["last_attempt_dt"], errors="coerce", utc=True)
     df["date_dt"] = pd.to_datetime(df["date_dt"], errors="coerce", utc=True)
     df["harvest_success_b"] = df["harvest_success_b"].astype(bool)
-    return df
+    return _filter_active(df)
 
 
 def get_recent_transformations(days: int = 7) -> pd.DataFrame:
@@ -181,7 +201,7 @@ def get_recent_transformations(days: int = 7) -> pd.DataFrame:
         df["transformation_started_dt"], errors="coerce", utc=True
     )
     df["success_b"] = df["success_b"].astype(bool)
-    return df
+    return _filter_active(df)
 
 
 def get_recent_aggregations(days: int = 7) -> pd.DataFrame:
@@ -204,7 +224,7 @@ def get_recent_aggregations(days: int = 7) -> pd.DataFrame:
         df["aggregation_time_dt"], errors="coerce", utc=True
     )
     df["aggregation_success_b"] = df["aggregation_success_b"].astype(bool)
-    return df
+    return _filter_active(df)
 
 
 # ---------------------------------------------------------------------------

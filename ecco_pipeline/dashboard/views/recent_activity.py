@@ -180,6 +180,7 @@ def render():
     t2.metric("Transformations", totals["transformations"])
     t3.metric("Aggregations", totals["aggregations"])
     t4.metric("Datasets", totals["datasets"])
+    st.caption("Counts include legacy data from deprecated datasets still present in Solr.")
 
     st.divider()
 
