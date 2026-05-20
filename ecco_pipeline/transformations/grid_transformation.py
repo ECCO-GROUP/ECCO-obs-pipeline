@@ -222,14 +222,18 @@ class Transformation(Dataset):
 
         return data_DA
 
-    def transform(self, model_grid: xr.Dataset, factors: Tuple, ds: xr.Dataset) -> Iterable[Tuple[xr.Dataset, bool]]:
+    def transform(self, model_grid: xr.Dataset, factors: Tuple, ds: xr.Dataset, fields: Iterable["Field"] = None) -> Iterable[Tuple[xr.Dataset, bool]]:
         """
         Function that actually performs the transformations. Returns a list of transformed
         xarray datasets, one dataset for each field being transformed for the given grid.
+        If `fields` is provided, only those fields are transformed (must be a subset of
+        self.fields). The returned list is aligned with the `fields` argument.
         """
         logger = logging.getLogger(str(current_process().pid))
 
-        logger.info(f"Transforming {len(self.fields)} fields on {self.date} to {model_grid.name}")
+        fields_iter = fields if fields is not None else self.fields
+
+        logger.info(f"Transforming {len(fields_iter)} fields on {self.date} to {model_grid.name}")
 
         record_date = self.date.replace("Z", "")
 
@@ -238,7 +242,7 @@ class Transformation(Dataset):
         # =====================================================
         # Loop through fields to transform
         # =====================================================
-        for field in self.fields:
+        for field in fields_iter:
             logger.debug(f"Transforming {self.file_name} for field {field.name}")
 
             if field.pre_transformations:
@@ -257,16 +261,26 @@ class Transformation(Dataset):
                     logger.exception(f"Transformation failed: {e}")
                     error_message = str(e)
                     field_DA = records.make_empty_record(record_date, model_grid)
+                    # Name must match perform_mapping's output so downstream
+                    # hemisphere merging (open_and_concat) sees a consistent var.
+                    field_DA.name = f"{field.name}_interpolated_to_{model_grid.name}"
                     field_DA.attrs["long_name"] = field.long_name
                     field_DA.attrs["standard_name"] = field.standard_name
                     field_DA.attrs["units"] = field.units
                     field_DA.attrs["empty_record_note"] = "Transformation failed"
                     mapping_success = False
             else:
-                logger.error(
-                    f"Transformation failed: key {field.name} is missing from source data. Making empty record."
+                logger.warning(
+                    f"Field {field.name} is missing from source data. Making empty record."
                 )
+                # mapping_success stays True: an empty record is valid output and we
+                # don't want to re-transform this every run. The error_message carries
+                # the data-quality issue so it surfaces on the dashboard as a warning.
+                error_message = f"Field '{field.name}' missing from source data — empty record created"
                 field_DA = records.make_empty_record(record_date, model_grid)
+                # Name must match perform_mapping's output so downstream
+                # hemisphere merging (open_and_concat) sees a consistent var.
+                field_DA.name = f"{field.name}_interpolated_to_{model_grid.name}"
                 field_DA.attrs["long_name"] = field.long_name
                 field_DA.attrs["standard_name"] = field.standard_name
                 field_DA.attrs["units"] = field.units
@@ -288,6 +302,9 @@ class Transformation(Dataset):
                     logger.exception(f"Post-transformation failed: {e}")
                     error_message = str(e)
                     field_DA = records.make_empty_record(record_date, model_grid)
+                    # Name must match perform_mapping's output so downstream
+                    # hemisphere merging (open_and_concat) sees a consistent var.
+                    field_DA.name = f"{field.name}_interpolated_to_{model_grid.name}"
                     field_DA.attrs["long_name"] = field.long_name
                     field_DA.attrs["standard_name"] = field.standard_name
                     field_DA.attrs["units"] = field.units
@@ -364,12 +381,16 @@ class Transformation(Dataset):
         ds.attrs["original_file_name"] = self.file_name
         return ds
 
-    def prepopulate_solr(self, source_file_path: str, grid_name: str):
+    def prepopulate_solr(self, source_file_path: str, grid_name: str, fields: Iterable["Field"] = None):
         """
-        Populate Solr with transformation entries prior to attempting transformation
+        Populate Solr with transformation entries prior to attempting transformation.
+        Only operates on the given `fields` subset (defaults to self.fields). Passing a
+        subset is required when only some fields need re-transformation — otherwise
+        docs for fields not in the per-field update loop get stuck at success_b=False.
         """
         update_body = []
-        for field in self.fields:
+        fields_iter = fields if fields is not None else self.fields
+        for field in fields_iter:
             logger.debug(f"Transforming {field.name}")
 
             # Query if grid/field combination transformation entry exists
@@ -385,19 +406,29 @@ class Transformation(Dataset):
 
             # If grid/field combination transformation exists, update transformation status
             # Otherwise initialize new transformation entry
+            # Query for granule entry to get current checksum
+            granule_fq = [
+                f"dataset_s:{self.ds_name}",
+                "type_s:granule",
+                f'pre_transformation_file_path_s:"{source_file_path}"',
+            ]
+            granule_docs = solr_utils.solr_query(granule_fq)
+
+            # Sentinel error_message — if the per-field update never runs (worker crash,
+            # process kill, etc.) the doc shows this instead of an empty field.
+            in_progress_msg = "Transformation in progress (or interrupted before completion)"
+
             if len(docs) > 0:
-                # Reset status fields
+                # Reset status fields and update checksum in case granule was re-harvested
                 transform["id"] = docs[0]["id"]
                 transform["transformation_in_progress_b"] = {"set": True}
                 transform["success_b"] = {"set": False}
+                transform["transformation_started_dt"] = {"set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")}
+                transform["error_message_s"] = {"set": in_progress_msg}
+                if granule_docs:
+                    transform["origin_checksum_s"] = {"set": granule_docs[0]["checksum_s"]}
             else:
-                # Query for granule entry to get checksum
-                query_fq = [
-                    f"dataset_s:{self.ds_name}",
-                    "type_s:granule",
-                    f'pre_transformation_file_path_s:"{source_file_path}"',
-                ]
-                docs = solr_utils.solr_query(query_fq)
+                docs = granule_docs
 
                 # Initialize new transformation entry
                 transform["type_s"] = "transformation"
@@ -411,6 +442,7 @@ class Transformation(Dataset):
                 transform["field_s"] = field.name
                 transform["transformation_in_progress_b"] = True
                 transform["success_b"] = False
+                transform["error_message_s"] = in_progress_msg
             update_body.append(transform)
         r = solr_utils.solr_update(update_body, r=True)
         try:
@@ -441,83 +473,107 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
     for grid_name in tx_jobs.keys():
         fields: Iterable[Field] = tx_jobs[grid_name]
 
-        logger.debug(f"Loading {grid_name} model grid")
-        grid_ds = xr.open_dataset(f"grids/{grid_name}.nc").reset_coords()
-        factors = T.make_factors(grid_ds)
-        T.prepopulate_solr(source_file_path, grid_name)
+        try:
+            logger.debug(f"Loading {grid_name} model grid")
+            grid_ds = xr.open_dataset(f"grids/{grid_name}.nc").reset_coords()
+            factors = T.make_factors(grid_ds)
+            T.prepopulate_solr(source_file_path, grid_name, fields)
 
-        # =====================================================
-        # Run transformation
-        # =====================================================
-        logger.debug(f"Running transformations for {T.file_name}")
+            # =====================================================
+            # Run transformation
+            # =====================================================
+            logger.debug(f"Running transformations for {T.file_name}")
 
-        # Returns list of transformed DSs, one for each field in fields
-        field_DSs = T.transform(grid_ds, factors, ds)
+            # Returns list of transformed DSs, one per entry in `fields` (subset of
+            # self.fields). Must match the same `fields` we just prepopulated so the
+            # zip below pairs correctly.
+            field_DSs = T.transform(grid_ds, factors, ds, fields)
 
-        # =====================================================
-        # Save the output in netCDF format
-        # =====================================================
-        # Save each transformed granule for the current field
-        for field, (field_DS, success, error_message) in zip(fields, field_DSs):
-            output_filename = f"{grid_name}_{field.name}_{T.file_name}.nc"
+            # =====================================================
+            # Save the output in netCDF format
+            # =====================================================
+            # Save each transformed granule for the current field
+            for field, (field_DS, success, error_message) in zip(fields, field_DSs):
+                output_filename = f"{grid_name}_{field.name}_{T.file_name}.nc"
 
-            output_path = os.path.join(
-                OUTPUT_DIR,
-                T.ds_name,
-                "transformed_products",
-                grid_name,
-                "transformed",
-                field.name,
-            )
-            os.makedirs(output_path, exist_ok=True)
-
-            transformed_location = os.path.join(output_path, output_filename)
-
-            # save field_DS
-            records.save_netcdf(field_DS, output_filename, output_path)
-
-            # Query Solr for transformation entry
-            query_fq = [
-                f"dataset_s:{T.ds_name}",
-                "type_s:transformation",
-                f"grid_name_s:{grid_name}",
-                f"field_s:{field.name}",
-                f'pre_transformation_file_path_s:"{source_file_path}"',
-            ]
-
-            doc_id = solr_utils.solr_query(query_fq)[0]["id"]
-
-            transformation_successes = transformation_successes and success
-            transformation_file_paths[f"{grid_name}_{field.name}_transformation_file_path_s"] = transformed_location
-
-            # Update Solr transformation entry with file paths and status
-            update_body = [
-                {
-                    "id": doc_id,
-                    "filename_s": {"set": output_filename},
-                    "transformation_file_path_s": {"set": transformed_location},
-                    "transformation_completed_dt": {"set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")},
-                    "transformation_in_progress_b": {"set": False},
-                    "success_b": {"set": success},
-                    "transformation_checksum_s": {"set": file_utils.md5(transformed_location)},
-                    "transformation_version_f": {"set": T.transformation_version},
-                    "error_message_s": {"set": error_message},
-                }
-            ]
-
-            if success and "Default empty model grid record" in field_DS.variables:
-                update_body[0]["transformation_note"] = {
-                    "set": "Field not found in source data. Defaulting to empty record."
-                }
-
-            r = solr_utils.solr_update(update_body, r=True)
-
-            if r.status_code != 200:
-                logger.exception(
-                    f'Failed to update Solr transformation entry for {field["name"]} in {T.ds_name} on {T.date}'
+                output_path = os.path.join(
+                    OUTPUT_DIR,
+                    T.ds_name,
+                    "transformed_products",
+                    grid_name,
+                    "transformed",
+                    field.name,
                 )
+                os.makedirs(output_path, exist_ok=True)
 
-            if success and grid_name not in grids_updated:
-                grids_updated.append(grid_name)
+                transformed_location = os.path.join(output_path, output_filename)
+
+                # save field_DS
+                records.save_netcdf(field_DS, output_filename, output_path)
+
+                # Query Solr for transformation entry
+                query_fq = [
+                    f"dataset_s:{T.ds_name}",
+                    "type_s:transformation",
+                    f"grid_name_s:{grid_name}",
+                    f"field_s:{field.name}",
+                    f'pre_transformation_file_path_s:"{source_file_path}"',
+                ]
+
+                doc_id = solr_utils.solr_query(query_fq)[0]["id"]
+
+                transformation_successes = transformation_successes and success
+                transformation_file_paths[f"{grid_name}_{field.name}_transformation_file_path_s"] = transformed_location
+
+                # Update Solr transformation entry with file paths and status
+                update_body = [
+                    {
+                        "id": doc_id,
+                        "filename_s": {"set": output_filename},
+                        "transformation_file_path_s": {"set": transformed_location},
+                        "transformation_completed_dt": {"set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")},
+                        "transformation_in_progress_b": {"set": False},
+                        "success_b": {"set": success},
+                        "transformation_checksum_s": {"set": file_utils.md5(transformed_location)},
+                        "transformation_version_f": {"set": T.transformation_version},
+                        "error_message_s": {"set": error_message},
+                    }
+                ]
+
+                r = solr_utils.solr_update(update_body, r=True)
+
+                if r.status_code != 200:
+                    logger.exception(
+                        f'Failed to update Solr transformation entry for {field["name"]} in {T.ds_name} on {T.date}'
+                    )
+
+                if success and grid_name not in grids_updated:
+                    grids_updated.append(grid_name)
+
+        except Exception as e:
+            error_str = str(e) or repr(e)
+            logger.exception(f"Transformation failed for {T.file_name} on grid {grid_name}: {error_str}")
+            transformation_successes = False
+            completed_dt = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+            failed_updates = []
+            for field in fields:
+                query_fq = [
+                    f"dataset_s:{T.ds_name}",
+                    "type_s:transformation",
+                    f"grid_name_s:{grid_name}",
+                    f"field_s:{field.name}",
+                    f'pre_transformation_file_path_s:"{source_file_path}"',
+                ]
+                docs = solr_utils.solr_query(query_fq)
+                if docs:
+                    failed_updates.append({
+                        "id": docs[0]["id"],
+                        "success_b": {"set": False},
+                        "transformation_in_progress_b": {"set": False},
+                        "transformation_completed_dt": {"set": completed_dt},
+                        "error_message_s": {"set": error_str},
+                    })
+            if failed_updates:
+                solr_utils.solr_update(failed_updates)
 
         logger.debug(f"CPU id {os.getpid()} saving {T.file_name} output file for grid {grid_name}")

@@ -5,7 +5,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Iterable
 
-import requests
 from harvesters.enumeration.catds_enumerator import CATDSGranule, search_catds
 from harvesters.harvesterclasses import Granule, Harvester
 from utils.pipeline_utils.file_utils import get_date
@@ -13,7 +12,6 @@ from utils.pipeline_utils.file_utils import get_date
 logger = logging.getLogger("pipeline")
 
 MAX_WORKERS = 3
-CHUNK_SIZE = 1024 * 1024  # 1 MB
 
 
 class CATDS_Harvester(Harvester):
@@ -78,11 +76,7 @@ class CATDS_Harvester(Harvester):
         logger.info(f"Downloading {self.ds_name} complete")
 
     def dl_file(self, src: str, dst: str):
-        with requests.get(src, stream=True, timeout=120) as r:
-            r.raise_for_status()
-            with open(dst, "wb") as f:
-                for chunk in r.iter_content(chunk_size=CHUNK_SIZE):
-                    f.write(chunk)
+        self._stream_download(src, dst)
 
 
 def harvester(config: dict) -> str:

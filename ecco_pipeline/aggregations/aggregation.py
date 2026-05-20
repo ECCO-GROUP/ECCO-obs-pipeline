@@ -13,7 +13,7 @@ import numpy as np
 import xarray as xr
 from baseclasses import Dataset, Field
 from conf.global_settings import OUTPUT_DIR
-from utils.pipeline_utils import solr_utils
+from utils.pipeline_utils import file_utils, solr_utils
 from utils.processing_utils import records
 
 logger = logging.getLogger(str(current_process().pid))
@@ -38,8 +38,10 @@ class Aggregation(Dataset):
         self.transformations: Iterable[dict] = defaultdict(list)
         self._set_ds_meta()
         self.grid: dict = grid
-        self.year: str = year
+        self.year: int = year
         self.field: Field = field
+        # Canonical name of the interpolated data variable in transformed files.
+        self.var_name: str = f"{field.name}_interpolated_to_{grid['grid_name_s']}"
 
     def __str__(self) -> str:
         return f'"{self.grid["grid_name_s"]} {self.field.name} {self.year}"'
@@ -77,14 +79,17 @@ class Aggregation(Dataset):
         return data_ds
 
     def generate_provenance(
-        self, grid_name, solr_output_filepaths, aggregation_successes
-    ):
+        self, grid_name: str, solr_output_filepaths: dict, aggregation_successes: bool
+    ) -> None:
+        if not aggregation_successes:
+            return
+
         fq = [
             f"dataset_s:{self.ds_name}",
             "type_s:aggregation",
             f"grid_name_s:{grid_name}",
             f"field_s:{self.field.name}",
-            f"year_s:{self.year}",
+            f"year_i:{self.year}",
         ]
         docs = solr_utils.solr_query(fq)
 
@@ -96,6 +101,7 @@ class Aggregation(Dataset):
         json_output["dataset"] = self.ds_meta
         json_output["aggregation"] = docs
         json_output["transformations"] = self.transformations[self.field.name]
+        json_output["output_filepaths"] = solr_output_filepaths
 
         json_filename = (
             f"{self.ds_name}_{self.field.name}_{grid_name}_{self.year}_descendants.json"
@@ -140,17 +146,32 @@ class Aggregation(Dataset):
             self.transformations[self.field.name].append(transformation_metadata)
         return filepaths
 
+    def _open_transformed(self, filepath: str) -> xr.Dataset:
+        """
+        Open a transformed file and normalise its single data variable to the
+        canonical {field}_interpolated_to_{grid} name. Files produced by older code
+        (or the empty-record fallbacks before they were renamed) may carry the
+        generic 'Default empty model grid record' name — normalising here lets
+        open_and_concat merge and concat hemispheres/dates without depending on
+        what name happens to be on disk.
+        """
+        ds = xr.open_dataset(filepath)
+        data_vars = list(ds.data_vars)
+        if self.var_name not in data_vars and len(data_vars) == 1:
+            ds = ds.rename({data_vars[0]: self.var_name})
+        return ds
+
     def open_and_concat(self, filepaths: dict):
+        var = self.var_name
         opened_files = []
         dates = sorted(list(filepaths.keys()))
         for date in dates:
             files = filepaths[date]
             if len(files) == 1:
-                opened_files.append(xr.open_dataset(files[0]))
+                opened_files.append(self._open_transformed(files[0]))
             else:
-                f1 = xr.open_dataset(files[0])
-                f2 = xr.open_dataset(files[1])
-                var = list(f1.keys())[0]
+                f1 = self._open_transformed(files[0])
+                f2 = self._open_transformed(files[1])
                 if np.isnan(f1[var].values).all():
                     if np.isnan(f2[var].values).all():
                         opened_files.append(f1)
@@ -279,133 +300,162 @@ class Aggregation(Dataset):
         aggregation_successes = True
         aggregation_started_dt = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
         # Construct list of dates corresponding to data time scale
-        grid_path = self.grid["grid_path_s"]
         grid_name = self.grid["grid_name_s"]
-        grid_type = self.grid["grid_type_s"]
-
-        model_grid_ds = xr.open_dataset(grid_path, decode_times=True)
-
-        logger.info(f"Aggregating {str(self.year)}_{grid_name}_{self.field.name}")
-
-        logger.info("Collecting filepaths from Solr")
-        transformation_fps = self.get_filepaths()
-        logger.info(
-            f"Opening and concatenating {len(transformation_fps)} transformation files..."
-        )
-        daily_annual_ds = self.open_and_concat(transformation_fps)
-
-        logger.info(
-            "Polling for missing dates, creating ds of empty records, and combining with concatenated transformation files..."
-        )
-        missing_dates = self.get_missing_dates()
-        logger.debug(f"Making empty records for {missing_dates}")
-        if missing_dates:
-            empty_records = [
-                self.make_empty_date(date, model_grid_ds, self.grid)
-                for date in sorted(missing_dates)
-            ]
-            missing_dates_ds = xr.concat(empty_records, dim="time")
-            daily_annual_ds = xr.concat([daily_annual_ds, missing_dates_ds], dim="time")
-        daily_annual_ds = daily_annual_ds.sortby(daily_annual_ds.time)
-
-        data_var = list(daily_annual_ds.keys())[0]
-
-        daily_annual_ds.attrs["aggregation_version"] = self.version
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=RuntimeWarning)
-            daily_annual_ds[data_var].attrs["valid_min"] = np.nanmin(
-                daily_annual_ds[data_var].values
-            )
-            daily_annual_ds[data_var].attrs["valid_max"] = np.nanmax(
-                daily_annual_ds[data_var].values
-            )
-
-        remove_keys = [
-            k
-            for k in daily_annual_ds[data_var].attrs.keys()
-            if "original" in k and k != "original_field_name"
-        ]
-        for key in remove_keys:
-            del daily_annual_ds[data_var].attrs[key]
-
         data_time_scale = self.ds_meta.get("data_time_scale_s")
-
-        # Create filenames based on date time scale
-        # If data time scale is monthly, shortest_filename is monthly
-        shortest_filename = f"{self.ds_name}_{grid_name}_{data_time_scale.upper()}_{self.field.name}_{self.year}"
-        monthly_filename = (
-            f"{self.ds_name}_{grid_name}_MONTHLY_{self.field.name}_{self.year}"
-        )
-
-        output_path = f"{OUTPUT_DIR}/{self.ds_name}/transformed_products/{grid_name}/aggregated/{self.field.name}/"
-
-        bin_output_dir = os.path.join(output_path, "bin")
-        os.makedirs(bin_output_dir, exist_ok=True)
-
-        netCDF_output_dir = os.path.join(output_path, "netCDF")
-        os.makedirs(netCDF_output_dir, exist_ok=True)
-
         uuids = [str(uuid.uuid1()), str(uuid.uuid1())]
 
         success = True
         empty_year = False
+        error_message = ""
+        solr_output_filepaths = {
+            "daily_bin": "",
+            "daily_netCDF": "",
+            "monthly_bin": "",
+            "monthly_netCDF": "",
+        }
+        shortest_filename = ""
+        monthly_filename = ""
 
-        # Save
-        if np.isnan(daily_annual_ds[data_var].values).all():
-            empty_year = True
-        else:
-            if self.do_monthly_aggregation:
-                logger.info(
-                    f"Aggregating monthly {str(self.year)}_{grid_name}_{self.field.name}"
+        try:
+            grid_path = self.grid["grid_path_s"]
+            grid_type = self.grid["grid_type_s"]
+
+            model_grid_ds = xr.open_dataset(grid_path, decode_times=True)
+
+            logger.info(f"Aggregating {str(self.year)}_{grid_name}_{self.field.name}")
+
+            logger.info("Collecting filepaths from Solr")
+            transformation_fps = self.get_filepaths()
+            logger.info(
+                f"Opening and concatenating {len(transformation_fps)} transformation files..."
+            )
+            daily_annual_ds = self.open_and_concat(transformation_fps)
+
+            logger.info(
+                "Polling for missing dates, creating ds of empty records, and combining with concatenated transformation files..."
+            )
+            missing_dates = self.get_missing_dates()
+            logger.debug(f"Making empty records for {missing_dates}")
+            if missing_dates:
+                empty_records = [
+                    self.make_empty_date(date, model_grid_ds, self.grid)
+                    for date in sorted(missing_dates)
+                ]
+                missing_dates_ds = xr.concat(empty_records, dim="time")
+                daily_annual_ds = xr.concat([daily_annual_ds, missing_dates_ds], dim="time")
+            daily_annual_ds = daily_annual_ds.sortby(daily_annual_ds.time)
+
+            data_var = list(daily_annual_ds.keys())[0]
+
+            daily_annual_ds.attrs["aggregation_version"] = self.version
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                daily_annual_ds[data_var].attrs["valid_min"] = np.nanmin(
+                    daily_annual_ds[data_var].values
                 )
-                try:
-                    mon_DS_year_merged = self.monthly_aggregation(
-                        daily_annual_ds, data_var, uuids[1]
-                    )
-                    mon_DS_year_merged[data_var] = mon_DS_year_merged[data_var].fillna(
-                        NETCDF_FILL_VALUE
-                    )
+                daily_annual_ds[data_var].attrs["valid_max"] = np.nanmax(
+                    daily_annual_ds[data_var].values
+                )
 
-                    records.save_binary(
-                        mon_DS_year_merged,
-                        monthly_filename,
-                        bin_output_dir,
-                        grid_type,
-                        data_var,
-                    )
-                    records.save_netcdf(
-                        mon_DS_year_merged, f"{monthly_filename}.nc", netCDF_output_dir
-                    )
+            remove_keys = [
+                k
+                for k in daily_annual_ds[data_var].attrs.keys()
+                if "original" in k and k != "original_field_name"
+            ]
+            for key in remove_keys:
+                del daily_annual_ds[data_var].attrs[key]
 
-                except Exception as e:
-                    logger.exception(f"Error aggregating {self.ds_name}. {e}")
-                    empty_year = True
-                    success = False
-
-            daily_annual_ds.attrs["uuid"] = uuids[0]
-            daily_annual_ds.attrs["time_coverage_duration"] = "P1Y"
-            daily_annual_ds.attrs["time_coverage_start"] = str(
-                daily_annual_ds.time_bnds.values[0][0]
-            )[0:19]
-            daily_annual_ds.attrs["time_coverage_end"] = str(
-                daily_annual_ds.time_bnds.values[-1][-1]
-            )[0:19]
-            if data_time_scale.upper() == "DAILY":
-                daily_annual_ds.attrs["time_coverage_resolution"] = "P1D"
-            elif data_time_scale.upper() == "MONTHLY":
-                daily_annual_ds.attrs["time_coverage_resolution"] = "P1M"
-
-            daily_annual_ds[data_var] = daily_annual_ds[data_var].fillna(
-                NETCDF_FILL_VALUE
+            # Create filenames based on date time scale
+            # If data time scale is monthly, shortest_filename is monthly
+            shortest_filename = f"{self.ds_name}_{grid_name}_{data_time_scale.upper()}_{self.field.name}_{self.year}"
+            monthly_filename = (
+                f"{self.ds_name}_{grid_name}_MONTHLY_{self.field.name}_{self.year}"
             )
 
-            records.save_binary(
-                daily_annual_ds, shortest_filename, bin_output_dir, grid_type, data_var
+            output_path = f"{OUTPUT_DIR}/{self.ds_name}/transformed_products/{grid_name}/aggregated/{self.field.name}/"
+
+            bin_output_dir = os.path.join(output_path, "bin")
+            os.makedirs(bin_output_dir, exist_ok=True)
+
+            netCDF_output_dir = os.path.join(output_path, "netCDF")
+            os.makedirs(netCDF_output_dir, exist_ok=True)
+
+            # Save
+            if np.isnan(daily_annual_ds[data_var].values).all():
+                empty_year = True
+            else:
+                if self.do_monthly_aggregation:
+                    logger.info(
+                        f"Aggregating monthly {str(self.year)}_{grid_name}_{self.field.name}"
+                    )
+                    try:
+                        mon_DS_year_merged = self.monthly_aggregation(
+                            daily_annual_ds, data_var, uuids[1]
+                        )
+                        mon_DS_year_merged[data_var] = mon_DS_year_merged[data_var].fillna(
+                            NETCDF_FILL_VALUE
+                        )
+
+                        records.save_binary(
+                            mon_DS_year_merged,
+                            monthly_filename,
+                            bin_output_dir,
+                            grid_type,
+                            data_var,
+                        )
+                        records.save_netcdf(
+                            mon_DS_year_merged, f"{monthly_filename}.nc", netCDF_output_dir
+                        )
+
+                    except Exception as e:
+                        logger.exception(f"Error aggregating {self.ds_name}. {e}")
+                        error_message = str(e) or repr(e)
+                        empty_year = True
+                        success = False
+
+                daily_annual_ds.attrs["uuid"] = uuids[0]
+                daily_annual_ds.attrs["time_coverage_duration"] = "P1Y"
+                daily_annual_ds.attrs["time_coverage_start"] = str(
+                    daily_annual_ds.time_bnds.values[0][0]
+                )[0:19]
+                daily_annual_ds.attrs["time_coverage_end"] = str(
+                    daily_annual_ds.time_bnds.values[-1][-1]
+                )[0:19]
+                if data_time_scale.upper() == "DAILY":
+                    daily_annual_ds.attrs["time_coverage_resolution"] = "P1D"
+                elif data_time_scale.upper() == "MONTHLY":
+                    daily_annual_ds.attrs["time_coverage_resolution"] = "P1M"
+
+                daily_annual_ds[data_var] = daily_annual_ds[data_var].fillna(
+                    NETCDF_FILL_VALUE
+                )
+
+                records.save_binary(
+                    daily_annual_ds, shortest_filename, bin_output_dir, grid_type, data_var
+                )
+                records.save_netcdf(
+                    daily_annual_ds, f"{shortest_filename}.nc", netCDF_output_dir
+                )
+
+            if not empty_year:
+                solr_output_filepaths = {
+                    "daily_bin": os.path.join(output_path, "bin", f"{shortest_filename}"),
+                    "daily_netCDF": os.path.join(
+                        output_path, "netCDF", f"{shortest_filename}.nc"
+                    ),
+                    "monthly_bin": os.path.join(output_path, "bin", f"{monthly_filename}"),
+                    "monthly_netCDF": os.path.join(
+                        output_path, "netCDF", f"{monthly_filename}.nc"
+                    ),
+                }
+        except Exception as e:
+            logger.exception(
+                f"Aggregation failed for {self.ds_name} {self.year} {grid_name} {self.field.name}: {e}"
             )
-            records.save_netcdf(
-                daily_annual_ds, f"{shortest_filename}.nc", netCDF_output_dir
-            )
+            error_message = str(e) or repr(e)
+            success = False
+            empty_year = True
 
         aggregation_successes = aggregation_successes and success
         empty_year = empty_year and success
@@ -417,17 +467,12 @@ class Aggregation(Dataset):
                 "monthly_bin": "",
                 "monthly_netCDF": "",
             }
-        else:
-            solr_output_filepaths = {
-                "daily_bin": os.path.join(output_path, "bin", f"{shortest_filename}"),
-                "daily_netCDF": os.path.join(
-                    output_path, "netCDF", f"{shortest_filename}.nc"
-                ),
-                "monthly_bin": os.path.join(output_path, "bin", f"{monthly_filename}"),
-                "monthly_netCDF": os.path.join(
-                    output_path, "netCDF", f"{monthly_filename}.nc"
-                ),
-            }
+
+        checksums = {}
+        if success and not empty_year:
+            for key, path in solr_output_filepaths.items():
+                if path and os.path.exists(path):
+                    checksums[f"{key}_checksum_s"] = file_utils.md5(path)
 
         # Query Solr for existing aggregation
         fq = [
@@ -435,7 +480,7 @@ class Aggregation(Dataset):
             "type_s:aggregation",
             f"grid_name_s:{grid_name}",
             f"field_s:{self.field.name}",
-            f"year_s:{self.year}",
+            f"year_i:{self.year}",
         ]
         docs = solr_utils.solr_query(fq)
 
@@ -450,22 +495,23 @@ class Aggregation(Dataset):
                 "aggregation_version_s": {"set": self.version},
                 "aggregation_success_b": {"set": success},
                 "aggregation_started_dt": {"set": aggregation_started_dt},
-                "year_i": {"set": int(self.year)},
-                "error_message_s": {"set": "" if success else "Aggregation failed"},
+                "year_i": {"set": self.year},
+                "error_message_s": {"set": "" if success else (error_message or "Aggregation failed")},
+                **{k: {"set": v} for k, v in checksums.items()},
             }
         else:
             update_doc = {
                 "type_s": "aggregation",
                 "dataset_s": self.ds_name,
-                "year_s": self.year,
-                "year_i": int(self.year),
+                "year_i": self.year,
                 "grid_name_s": grid_name,
                 "field_s": self.field.name,
                 "aggregation_time_dt": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "aggregation_started_dt": aggregation_started_dt,
                 "aggregation_success_b": success,
                 "aggregation_version_s": self.version,
-                "error_message_s": "" if success else "Aggregation failed",
+                "error_message_s": "" if success else (error_message or "Aggregation failed"),
+                **checksums,
             }
 
         # Update file paths according to the data time scale and do monthly aggregation config field

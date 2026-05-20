@@ -2,11 +2,15 @@ import logging
 import os
 from datetime import datetime
 
+import requests
+
 from baseclasses import Dataset
 from conf.global_settings import OUTPUT_DIR
 from utils.pipeline_utils import file_utils, solr_utils
 
 logger = logging.getLogger("pipeline")
+
+CHUNK_SIZE = 1024 * 1024  # 1 MB
 
 
 class Granule:
@@ -41,6 +45,12 @@ class Granule:
         if self.filename in solr_docs.keys():
             self.solr_item["id"] = solr_docs[self.filename]["id"]
 
+        # last_attempt_dt records every harvest attempt (success or failure) so the
+        # dashboard can surface first-time failures that have no download_time_dt.
+        self.solr_item["last_attempt_dt"] = datetime.utcnow().strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+
         if success:
             # calculate checksum and expected file size
             self.solr_item["checksum_s"] = file_utils.md5(self.local_fp)
@@ -48,14 +58,17 @@ class Granule:
             self.solr_item["harvest_success_b"] = True
             self.solr_item["file_size_l"] = os.path.getsize(self.local_fp)
             self.solr_item["error_message_s"] = ""
+            self.solr_item["download_time_dt"] = datetime.fromtimestamp(
+                os.path.getmtime(self.local_fp)
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
         else:
             self.solr_item["harvest_success_b"] = False
             self.solr_item["pre_transformation_file_path_s"] = ""
             self.solr_item["file_size_l"] = 0
             self.solr_item["error_message_s"] = error_message
-        self.solr_item["download_time_dt"] = datetime.utcnow().strftime(
-            "%Y-%m-%dT00:00:00Z"
-        )
+            existing = solr_docs.get(self.filename, {})
+            if "download_time_dt" in existing:
+                self.solr_item["download_time_dt"] = existing["download_time_dt"]
         self.solr_item["download_duration_i"] = download_duration
 
     def get_solr_docs(self):
@@ -95,6 +108,35 @@ class Harvester(Dataset):
     def dl_file(self):
         raise NotImplementedError
 
+    def _stream_download(self, src: str, dst: str):
+        """
+        Stream a file to disk and verify the transfer completed in full.
+
+        The server's Content-Length is the source of truth for expected size:
+        if the bytes written don't match it, the download was truncated and we
+        raise so the caller records a harvest failure. When the server sends no
+        Content-Length (e.g. chunked encoding) we can't know the expected size,
+        so we fall back to rejecting only a genuinely empty file.
+        """
+        with requests.get(src, stream=True, timeout=120) as r:
+            r.raise_for_status()
+            declared = r.headers.get("Content-Length")
+            expected_size = int(declared) if declared is not None else None
+            bytes_written = 0
+            with open(dst, "wb") as f:
+                for chunk in r.iter_content(chunk_size=CHUNK_SIZE):
+                    f.write(chunk)
+                    bytes_written += len(chunk)
+
+        if expected_size is not None:
+            if bytes_written != expected_size:
+                raise IOError(
+                    f"Truncated download: wrote {bytes_written} of "
+                    f"{expected_size} bytes for {src}"
+                )
+        elif bytes_written == 0:
+            raise IOError(f"Empty download: server returned no data for {src}")
+
     def ensure_target_dir(self):
         os.makedirs(self.target_dir, exist_ok=True)
 
@@ -132,6 +174,7 @@ class Harvester(Dataset):
         ]
         ds_meta["original_dataset_doi_s"] = self.og_ds_metadata["original_dataset_doi"]
         ds_meta["harvester_type_s"] = self.harvester_type
+        ds_meta["ecco_variable_s"] = self.ecco_variable
         ds_meta["t_version_f"] = self.t_version
         return ds_meta
 
@@ -154,7 +197,7 @@ class Harvester(Dataset):
         return False
 
     def post_fetch(self, source: str) -> str:
-        check_time = datetime.utcnow().strftime("%Y-%m-%dT00:00:00Z")
+        check_time = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
         if self.updated_solr_docs:
             r = solr_utils.solr_update(self.updated_solr_docs, r=True)
@@ -195,6 +238,7 @@ class Harvester(Dataset):
             ds_meta = {}
             ds_meta["id"] = dataset_metadata["id"]
             ds_meta["last_checked_dt"] = {"set": check_time}
+            ds_meta["ecco_variable_s"] = {"set": self.ecco_variable}
             ds_meta["n_granules_i"] = {"set": n_failed + n_success}
             ds_meta["n_granules_success_i"] = {"set": n_success}
             ds_meta["n_granules_failed_i"] = {"set": n_failed}

@@ -18,6 +18,9 @@
                 "harvester_type": {
                     "type": "string"
                 },
+                "ecco_variable": {
+                    "type": "string"
+                },
                 "host": {
                     "type": "string"
                 },
@@ -132,6 +135,7 @@
                 "data_time_scale",
                 "do_monthly_aggregation",
                 "ds_name",
+                "ecco_variable",
                 "end",
                 "fields",
                 "filename_date_fmt",

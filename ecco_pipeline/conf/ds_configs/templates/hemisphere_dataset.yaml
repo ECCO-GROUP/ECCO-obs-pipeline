@@ -1,4 +1,5 @@
 ds_name: "" # Name for dataset
+ecco_variable: "" # ECCO variable grouping: sea_ice, sst, sss, ssh, mass
 start: "" # yyyymmddThh:mm:ssZ
 end: "" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 

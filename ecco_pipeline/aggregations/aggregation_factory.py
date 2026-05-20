@@ -175,7 +175,7 @@ class AgJobFactory(baseclasses.Dataset):
         """
         start_year = int(ds_metadata.get("start_date_dt")[:4])
         end_year = int(ds_metadata.get("end_date_dt")[:4])
-        years = [str(year) for year in range(start_year, end_year + 1)]
+        years = list(range(start_year, end_year + 1))
         jobs = []
         for grid in self.grids:
             for field in self.fields:
@@ -204,7 +204,7 @@ class AgJobFactory(baseclasses.Dataset):
                 ]
                 transformation_docs = solr_utils.solr_query(fq)
                 transformation_years = list(
-                    set([t["date_dt"][:4] for t in transformation_docs])
+                    set([int(t["date_dt"][:4]) for t in transformation_docs])
                 )
                 transformation_years.sort()
                 years_to_aggregate = []
@@ -216,7 +216,7 @@ class AgJobFactory(baseclasses.Dataset):
                         "aggregation_success_b:true",
                         f"field_s:{field.name}",
                         f"grid_name_s:{grid_name}",
-                        f"year_s:{year}",
+                        f"year_i:{year}",
                     ]
                     aggregation_docs = solr_utils.solr_query(fq)
 
@@ -225,7 +225,8 @@ class AgJobFactory(baseclasses.Dataset):
                         agg_time = aggregation_docs[0]["aggregation_time_dt"]
                         needs_reaggregate = False
                         for t in transformation_docs:
-                            if t["date_dt"][:4] != year:
+                            # year is an int; date_dt[:4] is a string — coerce to compare
+                            if int(t["date_dt"][:4]) != year:
                                 continue
                             if t["transformation_completed_dt"] > agg_time:
                                 years_to_aggregate.append(year)
@@ -234,7 +235,7 @@ class AgJobFactory(baseclasses.Dataset):
                         if not needs_reaggregate:
                             self._ensure_provenance(grid, field, year)
                     else:
-                        year_tx_docs = [t for t in transformation_docs if t["date_dt"][:4] == year]
+                        year_tx_docs = [t for t in transformation_docs if int(t["date_dt"][:4]) == year]
                         if self.need_to_aggregate(grid_name, field, year, year_tx_docs):
                             years_to_aggregate.append(year)
                         else:
@@ -247,7 +248,7 @@ class AgJobFactory(baseclasses.Dataset):
                 )
         return all_jobs
 
-    def need_to_aggregate(self, grid_name: str, field, year: str, year_tx_docs: list) -> bool:
+    def need_to_aggregate(self, grid_name: str, field, year: int, year_tx_docs: list) -> bool:
         """
         Filesystem fallback used when no Solr aggregation doc exists for a
         grid/field/year combination.  Skip re-aggregation if the output netCDF
@@ -282,7 +283,7 @@ class AgJobFactory(baseclasses.Dataset):
 
         return False
 
-    def reconstruct_agg_solr_doc(self, grid: dict, field, year: str) -> None:
+    def reconstruct_agg_solr_doc(self, grid: dict, field, year: int) -> None:
         """
         Creates a Solr aggregation doc from existing output files when the doc is
         missing but processing was determined to be unnecessary.  Mirrors the fields
@@ -311,8 +312,7 @@ class AgJobFactory(baseclasses.Dataset):
         doc = {
             "type_s": "aggregation",
             "dataset_s": self.ds_name,
-            "year_s": year,
-            "year_i": int(year),
+            "year_i": year,
             "grid_name_s": grid_name,
             "field_s": field.name,
             "aggregation_time_dt": agg_time,
@@ -355,7 +355,7 @@ class AgJobFactory(baseclasses.Dataset):
 
         self._ensure_provenance(grid, field, year)
 
-    def _ensure_provenance(self, grid: dict, field, year: str) -> None:
+    def _ensure_provenance(self, grid: dict, field, year: int) -> None:
         """
         Generate the provenance JSON for a grid/field/year if it does not already exist.
         Called in all skip paths so that provenance files are always present even when

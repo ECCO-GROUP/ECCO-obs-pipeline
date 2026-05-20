@@ -8,7 +8,6 @@ import time
 from typing import Iterable
 
 import numpy as np
-import requests
 import xarray as xr
 from harvesters.enumeration.cmr_enumerator import CMRGranule, CMRQuery
 from harvesters.harvesterclasses import Granule, Harvester
@@ -18,7 +17,6 @@ from utils.processing_utils.records import TimeBound
 logger = logging.getLogger("pipeline")
 
 MAX_WORKERS = 3
-CHUNK_SIZE = 1024 * 1024  # 1 MB
 
 
 class CMR_Harvester(Harvester):
@@ -29,11 +27,7 @@ class CMR_Harvester(Harvester):
     def dl_file(self, src: str, dst: str):
         for attempt in range(2):
             try:
-                with requests.get(src, stream=True, timeout=120) as r:
-                    r.raise_for_status()
-                    with open(dst, "wb") as f:
-                        for chunk in r.iter_content(chunk_size=CHUNK_SIZE):
-                            f.write(chunk)
+                self._stream_download(src, dst)
                 return
             except Exception:
                 if attempt == 0:
@@ -122,13 +116,18 @@ class CMR_Harvester(Harvester):
             )
 
             dl_success = True
+            dl_error_message = ""
+            download_duration = 0
             if self.need_to_download(native_granule):
                 logger.info(f"Downloading {filename} to {local_fp}")
+                download_start = datetime.utcnow()
                 try:
                     self.dl_file(cmr_granule.url, local_fp)
                 except Exception as e:
                     logger.warning(e)
                     dl_success = False
+                    dl_error_message = str(e) or repr(e)
+                download_duration = int((datetime.utcnow() - download_start).total_seconds())
             else:
                 logger.info(
                     f"{year}-{str(month).zfill(2)} monthly file up to date. Slicing to ensure entries in Solr..."
@@ -136,7 +135,10 @@ class CMR_Harvester(Harvester):
 
             solr_docs = []
             if not dl_success:
-                return solr_docs
+                native_granule.update_item(
+                    self.solr_docs, False, dl_error_message, download_duration
+                )
+                return native_granule.get_solr_docs()
 
             # Determine which days are missing from Solr before opening any files
             days_needing_update = []
@@ -172,6 +174,7 @@ class CMR_Harvester(Harvester):
                     continue
 
                 success = True
+                slice_error_message = ""
                 try:
                     mid_date = (
                         var_ds.delta_time_beg.values[0]
@@ -189,6 +192,12 @@ class CMR_Harvester(Harvester):
                     merged_ds = xr.merge([base_ds, time_var_ds])
                     merged_ds.to_netcdf(daily_local_fp)
                     merged_ds.close()
+                except Exception as e:
+                    logger.exception(
+                        f"Slicing {year}-{str(month).zfill(2)}-{day_number} failed: {e}"
+                    )
+                    success = False
+                    slice_error_message = str(e) or repr(e)
                 finally:
                     var_ds.close()
 
@@ -201,7 +210,9 @@ class CMR_Harvester(Harvester):
                         cmr_granule.mod_time,
                         cmr_granule.url,
                     )
-                    daily_granule.update_item(self.solr_docs, success)
+                    daily_granule.update_item(
+                        self.solr_docs, success, slice_error_message, download_duration
+                    )
                     solr_docs.extend(daily_granule.get_solr_docs())
                 except Exception:
                     logger.debug(
@@ -242,13 +253,27 @@ class CMR_Harvester(Harvester):
             os.makedirs(self.target_dir, exist_ok=True)
 
             download_start = datetime.utcnow()
+            download_duration = 0
             if (
                 not os.path.exists(local_fp)
                 or datetime.fromtimestamp(os.path.getmtime(local_fp)) < cmr_granule.mod_time
             ):
                 logger.info(f"Downloading {filename} to {local_fp}")
-                self.dl_file(cmr_granule.url, local_fp)
-                downloaded = True
+                try:
+                    self.dl_file(cmr_granule.url, local_fp)
+                    downloaded = True
+                except Exception as e:
+                    logger.exception(f"Download failed for {filename}: {e}")
+                    download_duration = int(
+                        (datetime.utcnow() - download_start).total_seconds()
+                    )
+                    parent_granule = Granule(
+                        self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url
+                    )
+                    parent_granule.update_item(
+                        self.solr_docs, False, str(e) or repr(e), download_duration
+                    )
+                    return parent_granule.get_solr_docs()
             else:
                 logger.info("File up to date. Slicing to ensure entries in Solr...")
                 downloaded = False
@@ -271,6 +296,7 @@ class CMR_Harvester(Harvester):
 
             solr_docs = []
             for monthly_center in monthly_cts:
+                slice_error_message = ""
                 try:
                     success = True
                     sub_ds = ds.sel(time=np.datetime64(monthly_center), method="nearest")
@@ -300,6 +326,7 @@ class CMR_Harvester(Harvester):
                 except Exception as e:
                     logger.error(f"Error making granule slice: {e}")
                     success = False
+                    slice_error_message = str(e) or repr(e)
 
                 logger.debug(
                     f"Monthly center: {monthly_center}, data_slice_time: {sub_ds_time}, time for solr: {str(time_dt)}"
@@ -311,7 +338,12 @@ class CMR_Harvester(Harvester):
                     cmr_granule.mod_time,
                     cmr_granule.url,
                 )
-                monthly_granule.update_item(self.solr_docs, success, download_duration=download_duration)
+                monthly_granule.update_item(
+                    self.solr_docs,
+                    success,
+                    error_message=slice_error_message,
+                    download_duration=download_duration,
+                )
                 solr_docs.extend(monthly_granule.get_solr_docs())
             return solr_docs
 

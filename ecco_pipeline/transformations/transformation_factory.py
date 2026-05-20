@@ -29,10 +29,59 @@ def multiprocess_transformation(
     granule_date = granule.get("date_dt")
 
     # Skips granules that weren't harvested properly
-    if not granule_filepath or granule.get("file_size_l") < 100:
-        logger.exception(
-            f"Granule {granule_filepath} was not harvested properly. Skipping."
+    file_size = granule.get("file_size_l") or 0
+    if not granule_filepath or file_size < 100:
+        if not granule_filepath:
+            error_msg = "Granule not harvested properly: no source file path recorded."
+        else:
+            error_msg = (
+                f"Granule not harvested properly: source file missing or too small "
+                f"({file_size} bytes)."
+            )
+        logger.error(
+            f"{granule.get('filename_s', granule_filepath)}: {error_msg} Skipping."
         )
+
+        completed_dt = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        updates = []
+        for grid_name, fields in tx_jobs.items():
+            for field in fields:
+                docs = []
+                if granule_filepath:
+                    fq = [
+                        f"dataset_s:{config['ds_name']}",
+                        "type_s:transformation",
+                        f"grid_name_s:{grid_name}",
+                        f"field_s:{field.name}",
+                        f'pre_transformation_file_path_s:"{granule_filepath}"',
+                    ]
+                    docs = solr_utils.solr_query(fq)
+                if docs:
+                    updates.append({
+                        "id": docs[0]["id"],
+                        "success_b": {"set": False},
+                        "transformation_in_progress_b": {"set": False},
+                        "transformation_completed_dt": {"set": completed_dt},
+                        "error_message_s": {"set": error_msg},
+                    })
+                else:
+                    # No transformation doc exists yet — create one so the failure
+                    # is visible on the dashboard instead of silently skipped.
+                    updates.append({
+                        "type_s": "transformation",
+                        "dataset_s": config["ds_name"],
+                        "date_dt": granule_date,
+                        "grid_name_s": grid_name,
+                        "field_s": field.name,
+                        "pre_transformation_file_path_s": granule_filepath or "",
+                        "transformation_started_dt": completed_dt,
+                        "transformation_completed_dt": completed_dt,
+                        "transformation_in_progress_b": False,
+                        "success_b": False,
+                        "error_message_s": error_msg,
+                    })
+        if updates:
+            solr_utils.solr_update(updates)
         return
 
     # Perform remaining transformations
@@ -256,9 +305,10 @@ class TxJobFactory(baseclasses.Dataset):
     def need_to_transform(self, granule: dict, grid_name: str, field) -> bool:
         """
         Filesystem fallback used when no Solr transformation doc exists for a
-        granule/grid/field combination.  Mirrors the harvester's need_to_download()
-        logic: skip reprocessing if the transformed output file already exists and
-        is newer than the source granule file.
+        granule/grid/field combination.  Skip reprocessing only if the transformed
+        output file already exists, is newer than the source granule file, and was
+        produced by the current transformation version — the same version contract
+        need_to_update() applies to the Solr-doc path.
         """
         stem = os.path.splitext(granule["filename_s"])[0]
         output_path = os.path.join(
@@ -275,7 +325,37 @@ class TxJobFactory(baseclasses.Dataset):
         source_path = granule.get("pre_transformation_file_path_s")
         if not source_path or not os.path.exists(source_path):
             return True
-        return os.path.getmtime(output_path) <= os.path.getmtime(source_path)
+        if os.path.getmtime(output_path) <= os.path.getmtime(source_path):
+            return True
+        # mtime says the file is current, but only trust it if it was produced by
+        # the current transformation version. Bumping t_version in config is the
+        # single lever that forces re-transformation after any output-affecting
+        # code change — keeps this path consistent with need_to_update().
+        if self._file_transformation_version(output_path) != self.t_version:
+            logger.info(
+                f"Existing transformed file {output_path} was produced by a "
+                f"different transformation version — will re-transform."
+            )
+            return True
+        return False
+
+    def _file_transformation_version(self, output_path: str):
+        """
+        Read the transformation_version global attribute baked into a transformed
+        netCDF by grid_transformation.transform(). Returns None if the file can't
+        be read or carries no version (treated as a version mismatch by callers).
+        """
+        try:
+            with xr.open_dataset(output_path) as ds:
+                version = ds.attrs.get("transformation_version")
+        except Exception:
+            return None
+        if version is None:
+            return None
+        try:
+            return float(version)
+        except (TypeError, ValueError):
+            return version
 
     def reconstruct_tx_solr_doc(self, granule: dict, grid_name: str, field) -> None:
         """

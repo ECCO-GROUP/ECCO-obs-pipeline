@@ -1,4 +1,5 @@
 ds_name: L3_DEBIAS_LOCEAN_v10_q18
+ecco_variable: sss # ECCO variable grouping: sea_ice, sst, sss, ssh, mass
 start: 19800101T00:00:01Z # yyyymmddThh:mm:ssZ
 end: "NOW" # yyyymmddThh:mm:ssZ
 

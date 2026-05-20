@@ -1,6 +1,7 @@
 #v2.1 supercedes v2.0 but only contains granules post 2016
 #keep v2.0 for pre-2016 data
 ds_name: "AVHRR_OI-NCEI-L4-GLOB-v2.1" # Name for dataset
+ecco_variable: sst # ECCO variable grouping: sea_ice, sst, sss, ssh, mass
 start: "20160101T00:00:00Z" # yyyymmddThh:mm:ssZ
 end: "NOW" # yyyymmddThh:mm:ssZ for specific date or "NOW" for...now
 
