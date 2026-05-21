@@ -12,6 +12,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 
 ## [Unreleased]
 
+### Bug Fixes
+
+- **RDEFT4**: updated CMR concept ID to `C3205181648-NSIDC_CPRD` and provider host to `data.nsidc.earthdatacloud.nasa.gov`; the previous `NSIDC_ECS` collection no longer returns granules.
+
 ---
 
 ## [v2.0.0] — 2026-05-21 — _Architeuthis dux_
