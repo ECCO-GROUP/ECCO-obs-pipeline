@@ -1,0 +1,94 @@
+# Changelog
+
+All notable changes to ECCO-obs-pipeline are documented here.
+
+Each release is named after a marine animal, in the spirit of the ocean data this pipeline serves.
+Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`):
+- **MAJOR** — breaking changes (incompatible config or schema changes)
+- **MINOR** — new features, backwards-compatible
+- **PATCH** — bug fixes and small improvements
+
+---
+
+## [Unreleased]
+
+---
+
+## [v2.0.0] — 2026-05-21 — _Architeuthis dux_
+
+### Breaking Changes
+
+- **Solr schema migration required**: `date_dt` field migration, removal of `descendants` fields, and addition of observability fields. Existing Solr cores must be updated before running — see Migration Notes below. ([#106](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/106))
+- **Globally shared runtime config**: pipeline configuration is now managed via a shared runtime config object rather than passed through individual function calls. Any code or scripts that directly call internal pipeline functions will need to be updated. ([#69](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/69))
+
+### New Features
+
+- **Pipeline Status Dashboard**: new dashboard for monitoring pipeline run status ([#109](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/109))
+- **Parallelized harvesting**: enumeration and downloads are now parallelized across all web-scraped harvesters, significantly reducing harvest time ([#103](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/103))
+- **Unit test suites**: full test coverage added for the harvester, transformation, utility, and aggregation modules ([#94](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/94), [#95](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/95), [#96](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/96))
+- **ATL21 support**: added harvesting and processing support for the ATL21 dataset
+- **AVHRR ice removal**: added support for AVHRR-based sea ice removal during transformation
+- **Dataset config templates**: added reusable templates to simplify adding new dataset configurations
+- **Improved CLI**: better argument parsing configuration to allow bypassing the interactive menu more reliably ([#68](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/68))
+
+### Dataset Updates
+
+- **G10016**: updated to v3 ([#86](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/86))
+- **G02202**: updated to v5 ([#80](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/80))
+- **LOCEAN**: deprecated v8, implemented support for v10 ([#85](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/85))
+- **Sea ice dataset**: updated to v6.3, deprecated v6.2 ([#77](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/77))
+- **MASCON**: deprecated in favor of updated version ([#74](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/74))
+
+### Improvements
+
+- Improved handling of loss of Solr data to reduce re-processing on recovery ([#101](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/101))
+- Sea ice processing updates ([#99](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/99))
+- Full logging overhaul for cleaner, more consistent output ([#58](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/58))
+- Reduced redundant work in ATL daily and GRACE mascon harvesters
+- Pinned versions for compute-related packages for reproducibility
+- Applied `ruff` code formatting across the codebase ([#75](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/75))
+- Tweaked default pipeline run order when not using the interactive menu
+- Added `CITATION.cff` for academic citation support ([#76](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/76))
+
+### Bug Fixes
+
+- Fixed stale `grid_file_path` variable in `grids_to_solr` ([#102](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/102))
+- Fixed incorrect date window logic ([#97](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/97))
+- Fixed incorrect netCDF path being written to Solr aggregation docs
+- Fixed incorrect start and end dates in dataset records
+- Fixed ATL daily harvesting bug
+- Fixed projection error in grid handling ([#73](https://github.com/ECCO-GROUP/ECCO-obs-pipeline/pull/73))
+- Fixed missing endianness in binary output
+- Fixed extraction of daily files from monthly granules
+- Fixed hemispherical descendants handling
+- Fixed units bug for GRACE datasets (incorrect conversion to cm)
+- Fixed single-processor aggregation crash
+- Fixed issue where a large number of log files would slow down git commands
+- Added filter to skip `icdrft` files during harvesting
+
+### Migration Notes
+
+Upgrading from v1.0.0 requires a **Solr schema change**. The easiest path forwrad is:
+- Wipe Solr
+- Rerun pipeline - the pipeline will pick up the local files and repopulate Solr
+
+---
+
+## [v1.0.0] — 2024-03-26 — _Aurelia aurita_ 
+
+First official release of the ECCO obs pipeline.
+
+Named after the moon jellyfish (*Aurelia aurita*) — like the pipeline, it gracefully glides through the ocean.
+
+### Features
+- Framework for harvesting and transforming datasets used as ECCO model inputs
+- Data sources: PO.DAAC, NSIDC, OSISAF, iFremer
+- Output formats: binary and netCDF, daily and monthly average
+- Solr database integration for maintaining dataset state between pipeline runs
+- CLI with `--dataset`, `--step`, `--grids_to_use`, `--log_level`, and `--menu` flags
+
+---
+
+[Unreleased]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.0.0...HEAD
+[v2.0.0]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v1.0.0...v2.0.0
+[v1.0.0]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/releases/tag/v1.0.0
