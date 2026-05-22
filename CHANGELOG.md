@@ -14,11 +14,19 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 
 ### Bug Fixes
 
+### Dataset Updates
+
+---
+
+## [v2.1.0] — 2026-05-22
+
+### Bug Fixes
+
 - **RDEFT4**: updated CMR concept ID to `C3205181648-NSIDC_CPRD` and provider host to `data.nsidc.earthdatacloud.nasa.gov`; the previous `NSIDC_ECS` collection no longer returns granules.
 
 - **ATL20_V004**: bug fix in validation notebooks for improper opening of sample granules
 
-### Dataset Versioning
+### Dataset Updates
 
 - **ATL21_V004_daily/monthly**: updated CMR concept ID to `C3826284331-NSIDC_CPRD` and provider host to `data.nsidc.earthdatacloud.nasa.gov`; the previous `NSIDC_ECS` collection no longer returns granules. Also created validation notebooks.
 
