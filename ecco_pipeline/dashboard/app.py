@@ -18,7 +18,7 @@ from dashboard.views import coverage_timeline, dataset_inspector, recent_activit
 # ---------------------------------------------------------------------------
 st.set_page_config(
     page_title="ECCO Observation Pipeline Dashboard",
-    page_icon="🌊",
+    page_icon="ecco_pipeline/dashboard/assets/favicon.ico",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -52,7 +52,7 @@ def load_total_counts():
 # Sidebar
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.title("ECCO Pipeline")
+    st.title("ECCO Observation Pipeline")
 
     totals = load_total_counts()
     r1c1, r1c2 = st.columns(2)
