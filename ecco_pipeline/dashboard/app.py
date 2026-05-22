@@ -13,12 +13,14 @@ import streamlit as st
 from dashboard import solr_client
 from dashboard.views import coverage_timeline, dataset_inspector, recent_activity
 
+ICON_PATH = Path(__file__).parent / "assets" / "favicon.png"
+
 # ---------------------------------------------------------------------------
 # Page config
 # ---------------------------------------------------------------------------
 st.set_page_config(
     page_title="ECCO Observation Pipeline Dashboard",
-    page_icon="ecco_pipeline/dashboard/assets/favicon.ico",
+    page_icon=str(ICON_PATH),
     layout="wide",
     initial_sidebar_state="expanded",
 )
