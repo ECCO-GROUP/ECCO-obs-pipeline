@@ -39,6 +39,28 @@ def _filter_active(df: pd.DataFrame) -> pd.DataFrame:
     return df[df["dataset_s"].isin(get_active_dataset_names())]
 
 
+def ping() -> Optional[str]:
+    """
+    Return None if Solr is reachable and the configured collection exists,
+    otherwise a short human-readable error string. Pings the per-core
+    /admin/ping endpoint so an unreachable host AND a missing collection
+    both surface as errors.
+    """
+    url = f"{SOLR_HOST}{SOLR_COLLECTION}/admin/ping"
+    try:
+        resp = requests.get(url, headers={"Connection": "close"}, timeout=3)
+        resp.raise_for_status()
+        return None
+    except requests.exceptions.ConnectionError:
+        return "connection refused"
+    except requests.exceptions.Timeout:
+        return "request timed out"
+    except requests.exceptions.HTTPError as e:
+        return f"HTTP {e.response.status_code}"
+    except Exception as e:
+        return f"{type(e).__name__}: {e}"
+
+
 def _query(fq: list[str], fl: str = "") -> list[dict]:
     params = {"q": "*:*", "fq": fq, "rows": 300000}
     if fl:
@@ -92,12 +114,17 @@ def _count(fq: list[str]) -> int:
 
 
 def get_total_counts() -> dict:
-    """All-time document counts per pipeline stage."""
+    """All-time document counts per pipeline stage, restricted to active datasets."""
+    names = get_active_dataset_names()
+    if not names:
+        return {"granules": 0, "transformations": 0, "aggregations": 0, "datasets": 0}
+    quoted = " OR ".join(f'"{n}"' for n in sorted(names))
+    fq_ds = f"dataset_s:({quoted})"
     return {
-        "granules": _count(["type_s:granule"]),
-        "transformations": _count(["type_s:transformation"]),
-        "aggregations": _count(["type_s:aggregation"]),
-        "datasets": _count(["type_s:dataset"]),
+        "granules": _count(["type_s:granule", fq_ds]),
+        "transformations": _count(["type_s:transformation", fq_ds]),
+        "aggregations": _count(["type_s:aggregation", fq_ds]),
+        "datasets": _count(["type_s:dataset", fq_ds]),
     }
 
 

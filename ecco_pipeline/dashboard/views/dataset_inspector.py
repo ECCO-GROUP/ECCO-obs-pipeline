@@ -17,8 +17,11 @@ MISSING_COLOR = "#B0BEC5"
 # Harvest panel
 # ---------------------------------------------------------------------------
 
-def _harvest_panel(ds_name: str):
-    st.subheader("Harvest")
+def _harvest_panel(ds_name: str, compact: bool = False):
+    if compact:
+        st.markdown("**Harvest**")
+    else:
+        st.subheader("Harvest")
     granules = solr_client.get_granules(ds_name)
 
     if granules.empty:
@@ -35,11 +38,17 @@ def _harvest_panel(ds_name: str):
     else:
         latest_date = "—"
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total granules", total)
-    c2.metric("Successful", success)
-    c3.metric("Failed", failed, delta=f"-{failed}" if failed else None, delta_color="inverse")
-    c4.metric("Latest granule date", latest_date)
+    if compact:
+        c1, c2 = st.columns(2)
+        c1.metric("Granules", total)
+        c2.metric("Failed", failed, delta=f"-{failed}" if failed else None, delta_color="inverse")
+        st.caption(f"Latest: {latest_date}")
+    else:
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total granules", total)
+        c2.metric("Successful", success)
+        c3.metric("Failed", failed, delta=f"-{failed}" if failed else None, delta_color="inverse")
+        c4.metric("Latest granule date", latest_date)
 
     # Timeline: one bar per date coloured by outcome
     granules["date"] = granules["date_dt"].dt.date
@@ -52,17 +61,28 @@ def _harvest_panel(ds_name: str):
     color_map = {"Success": SUCCESS_COLOR, "Failed": FAIL_COLOR}
 
     if not daily.empty:
-        fig = px.bar(
-            daily,
+        bar_kwargs = dict(
             x="date",
             y="count",
             color="status",
             color_discrete_map=color_map,
             labels={"date": "Date", "count": "Granules", "status": ""},
-            title="Granules by Date",
         )
-        fig.update_layout(margin=dict(t=40, b=0), height=250, legend_title_text="")
+        if not compact:
+            bar_kwargs["title"] = "Granules by Date"
+        fig = px.bar(daily, **bar_kwargs)
+        fig.update_layout(
+            margin=dict(t=10 if compact else 40, b=0),
+            height=180 if compact else 250,
+            legend_title_text="",
+            showlegend=not compact,
+            xaxis_title="",
+            yaxis_title="",
+        )
         st.plotly_chart(fig, use_container_width=True)
+
+    if compact:
+        return
 
     # Failed granules table
     failures = granules[~granules["harvest_success_b"]][
@@ -79,8 +99,11 @@ def _harvest_panel(ds_name: str):
 # Transformation panel
 # ---------------------------------------------------------------------------
 
-def _transformation_panel(ds_name: str):
-    st.subheader("Transformation")
+def _transformation_panel(ds_name: str, compact: bool = False):
+    if compact:
+        st.markdown("**Transformation**")
+    else:
+        st.subheader("Transformation")
     tx = solr_client.get_transformations(ds_name)
 
     if tx.empty:
@@ -91,10 +114,17 @@ def _transformation_panel(ds_name: str):
     success = int(tx["success_b"].sum())
     failed = total - success
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total", total)
-    c2.metric("Successful", success)
-    c3.metric("Failed", failed, delta=f"-{failed}" if failed else None, delta_color="inverse")
+    if compact:
+        c1, c2 = st.columns(2)
+        c1.metric("Runs", total)
+        c2.metric("Failed", failed, delta=f"-{failed}" if failed else None, delta_color="inverse")
+        rate = (success / total * 100) if total else 0
+        st.caption(f"Success rate: {rate:.0f}%")
+    else:
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total", total)
+        c2.metric("Successful", success)
+        c3.metric("Failed", failed, delta=f"-{failed}" if failed else None, delta_color="inverse")
 
     # Per-grid × per-field success rate heatmap
     if "grid_name_s" in tx.columns and "field_s" in tx.columns:
@@ -106,28 +136,35 @@ def _transformation_panel(ds_name: str):
         pivot["success_rate"] = (pivot["success"] / pivot["total"] * 100).round(1)
         heatmap_data = pivot.pivot(index="grid_name_s", columns="field_s", values="success_rate")
 
-        fig = go.Figure(
-            go.Heatmap(
-                z=heatmap_data.values,
-                x=heatmap_data.columns.tolist(),
-                y=heatmap_data.index.tolist(),
-                colorscale=[[0, FAIL_COLOR], [0.5, "#FFF176"], [1, SUCCESS_COLOR]],
-                zmin=0,
-                zmax=100,
-                text=[[f"{v:.0f}%" for v in row] for row in heatmap_data.values],
-                texttemplate="%{text}",
-                showscale=True,
-                colorbar=dict(title="Success %"),
-            )
+        heatmap_kwargs = dict(
+            z=heatmap_data.values,
+            x=heatmap_data.columns.tolist(),
+            y=heatmap_data.index.tolist(),
+            colorscale=[[0, FAIL_COLOR], [0.5, "#FFF176"], [1, SUCCESS_COLOR]],
+            zmin=0,
+            zmax=100,
+            text=[[f"{v:.0f}%" for v in row] for row in heatmap_data.values],
+            texttemplate="%{text}",
+            showscale=not compact,
         )
-        fig.update_layout(
-            title="Success Rate by Grid × Field",
-            margin=dict(t=40, b=0),
-            height=max(200, 60 * len(heatmap_data)),
-            xaxis_title="Field",
-            yaxis_title="Grid",
+        if not compact:
+            heatmap_kwargs["colorbar"] = dict(title="Success %")
+        fig = go.Figure(go.Heatmap(**heatmap_kwargs))
+        layout_kwargs = dict(
+            margin=dict(t=10 if compact else 40, b=0),
+            xaxis_title="" if compact else "Field",
+            yaxis_title="" if compact else "Grid",
         )
+        if compact:
+            layout_kwargs["height"] = 180
+        else:
+            layout_kwargs["height"] = max(200, 60 * len(heatmap_data))
+            layout_kwargs["title"] = "Success Rate by Grid × Field"
+        fig.update_layout(**layout_kwargs)
         st.plotly_chart(fig, use_container_width=True)
+
+    if compact:
+        return
 
     # Failed transformations
     failures = tx[~tx["success_b"]][
@@ -162,8 +199,11 @@ def _transformation_panel(ds_name: str):
 # Aggregation panel
 # ---------------------------------------------------------------------------
 
-def _aggregation_panel(ds_name: str):
-    st.subheader("Aggregation")
+def _aggregation_panel(ds_name: str, compact: bool = False):
+    if compact:
+        st.markdown("**Aggregation**")
+    else:
+        st.subheader("Aggregation")
     agg = solr_client.get_aggregations(ds_name)
 
     if agg.empty:
@@ -174,10 +214,18 @@ def _aggregation_panel(ds_name: str):
     success = int(agg["aggregation_success_b"].sum())
     failed = total - success
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total", total)
-    c2.metric("Successful", success)
-    c3.metric("Failed", failed, delta=f"-{failed}" if failed else None, delta_color="inverse")
+    if compact:
+        c1, c2 = st.columns(2)
+        c1.metric("Runs", total)
+        c2.metric("Failed", failed, delta=f"-{failed}" if failed else None, delta_color="inverse")
+        last_run = pd.to_datetime(agg.get("aggregation_time_dt"), errors="coerce", utc=True).max()
+        last_str = "—" if pd.isna(last_run) else str(last_run)[:10]
+        st.caption(f"Latest: {last_str}")
+    else:
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total", total)
+        c2.metric("Successful", success)
+        c3.metric("Failed", failed, delta=f"-{failed}" if failed else None, delta_color="inverse")
 
     # Coverage strip: one row per (grid, field), one cell per year.
     needed = {"grid_name_s", "field_s", "year_i"}
@@ -227,33 +275,42 @@ def _aggregation_panel(ds_name: str):
                     hovertemplate="%{y}<br>%{x}: %{customdata}<extra></extra>",
                 )
             )
-            fig.update_layout(
-                title="Coverage by Grid / Field",
-                margin=dict(t=40, b=0),
-                height=max(180, 36 * len(gfs) + 100),
-                xaxis_title="Year",
+            agg_layout_kwargs = dict(
+                margin=dict(t=10 if compact else 40, b=0),
+                xaxis_title="" if compact else "Year",
                 yaxis_title="",
             )
+            if compact:
+                agg_layout_kwargs["height"] = 180
+            else:
+                agg_layout_kwargs["height"] = max(180, 36 * len(gfs) + 60)
+                agg_layout_kwargs["title"] = "Coverage by Grid / Field"
+            fig.update_layout(**agg_layout_kwargs)
             fig.update_xaxes(dtick=1 if len(all_years) <= 20 else 5)
             st.plotly_chart(fig, use_container_width=True)
-            st.caption(
-                f"Green = success · red = failed · grey = no aggregation record for that year"
-            )
+            if not compact:
+                st.caption(
+                    f"Green = success · red = failed · grey = no aggregation record for that year"
+                )
 
-            # Per (grid, field) summary
-            summary_rows = []
-            for gf in gfs:
-                sub = valid[valid["gf"] == gf]
-                last_run = pd.to_datetime(sub.get("aggregation_time_dt"), errors="coerce", utc=True).max()
-                summary_rows.append({
-                    "Grid / Field": gf,
-                    "Span": f"{int(sub['year_i'].min())} – {int(sub['year_i'].max())}",
-                    "Years": int(sub["year_i"].nunique()),
-                    "Successful": int(sub["aggregation_success_b"].sum()),
-                    "Failed": int((~sub["aggregation_success_b"]).sum()),
-                    "Last run": "—" if pd.isna(last_run) else str(last_run)[:19],
-                })
-            st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+            if not compact:
+                # Per (grid, field) summary
+                summary_rows = []
+                for gf in gfs:
+                    sub = valid[valid["gf"] == gf]
+                    last_run = pd.to_datetime(sub.get("aggregation_time_dt"), errors="coerce", utc=True).max()
+                    summary_rows.append({
+                        "Grid / Field": gf,
+                        "Span": f"{int(sub['year_i'].min())} – {int(sub['year_i'].max())}",
+                        "Years": int(sub["year_i"].nunique()),
+                        "Successful": int(sub["aggregation_success_b"].sum()),
+                        "Failed": int((~sub["aggregation_success_b"]).sum()),
+                        "Last run": "—" if pd.isna(last_run) else str(last_run)[:19],
+                    })
+                st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+
+    if compact:
+        return
 
     # Failed aggregations
     failures = agg[~agg["aggregation_success_b"]][
@@ -280,7 +337,11 @@ def render(datasets_df: pd.DataFrame):
         return
 
     ds_names = sorted(datasets_df["dataset_s"].dropna().unique().tolist())
-    selected = st.selectbox("Select dataset", ds_names, key="dataset_selector")
+    sel_col, mode_col = st.columns([3, 1])
+    with sel_col:
+        selected = st.selectbox("Select dataset", ds_names, key="dataset_selector")
+    with mode_col:
+        compact = st.toggle("Compact view", value=True, key="inspector_compact")
 
     if not selected:
         return
@@ -312,8 +373,17 @@ def render(datasets_df: pd.DataFrame):
         )
         st.divider()
 
-    _harvest_panel(selected)
-    st.divider()
-    _transformation_panel(selected)
-    st.divider()
-    _aggregation_panel(selected)
+    if compact:
+        col_h, col_t, col_a = st.columns(3)
+        with col_h:
+            _harvest_panel(selected, compact=True)
+        with col_t:
+            _transformation_panel(selected, compact=True)
+        with col_a:
+            _aggregation_panel(selected, compact=True)
+    else:
+        _harvest_panel(selected)
+        st.divider()
+        _transformation_panel(selected)
+        st.divider()
+        _aggregation_panel(selected)
