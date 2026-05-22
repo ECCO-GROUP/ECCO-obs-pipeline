@@ -15,17 +15,23 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 
 ### Bug Fixes
 
-- **Dashboard**: All-time totals now exclude deprecated datasets.
-
 ### Improvements
-
-- **Dashboard**: deprecated datasets excluded from counts, Solr outage banner, data-freshness caption,
-  Recent Activity → Dataset Inspector cross-link, Compact view for the inspector, hidden Streamlit Deploy
-  button, ECCO favicon added.
 
 ### Dataset Updates
 
 ### New Features
+
+---
+
+## [v2.1.1] — 2026-05-22
+
+### Bug Fixes
+
+- **Dashboard**: All-time totals now exclude deprecated datasets.
+
+### Improvements
+
+- **Dashboard**: deprecated datasets excluded from counts, Solr outage banner, data-freshness caption, Recent Activity → Dataset Inspector cross-link, Compact view for the inspector, hidden Streamlit Deploy button, ECCO favicon added.
 
 ---
 
