@@ -61,18 +61,19 @@ def _harvest_panel(ds_name: str, compact: bool = False):
     color_map = {"Success": SUCCESS_COLOR, "Failed": FAIL_COLOR}
 
     if not daily.empty:
-        fig = px.bar(
-            daily,
+        bar_kwargs = dict(
             x="date",
             y="count",
             color="status",
             color_discrete_map=color_map,
             labels={"date": "Date", "count": "Granules", "status": ""},
-            title=None if compact else "Granules by Date",
         )
+        if not compact:
+            bar_kwargs["title"] = "Granules by Date"
+        fig = px.bar(daily, **bar_kwargs)
         fig.update_layout(
             margin=dict(t=10 if compact else 40, b=0),
-            height=160 if compact else 250,
+            height=180 if compact else 250,
             legend_title_text="",
             showlegend=not compact,
             xaxis_title="",
@@ -135,27 +136,31 @@ def _transformation_panel(ds_name: str, compact: bool = False):
         pivot["success_rate"] = (pivot["success"] / pivot["total"] * 100).round(1)
         heatmap_data = pivot.pivot(index="grid_name_s", columns="field_s", values="success_rate")
 
-        fig = go.Figure(
-            go.Heatmap(
-                z=heatmap_data.values,
-                x=heatmap_data.columns.tolist(),
-                y=heatmap_data.index.tolist(),
-                colorscale=[[0, FAIL_COLOR], [0.5, "#FFF176"], [1, SUCCESS_COLOR]],
-                zmin=0,
-                zmax=100,
-                text=[[f"{v:.0f}%" for v in row] for row in heatmap_data.values],
-                texttemplate="%{text}",
-                showscale=not compact,
-                colorbar=dict(title="Success %") if not compact else None,
-            )
+        heatmap_kwargs = dict(
+            z=heatmap_data.values,
+            x=heatmap_data.columns.tolist(),
+            y=heatmap_data.index.tolist(),
+            colorscale=[[0, FAIL_COLOR], [0.5, "#FFF176"], [1, SUCCESS_COLOR]],
+            zmin=0,
+            zmax=100,
+            text=[[f"{v:.0f}%" for v in row] for row in heatmap_data.values],
+            texttemplate="%{text}",
+            showscale=not compact,
         )
-        fig.update_layout(
-            title=None if compact else "Success Rate by Grid × Field",
+        if not compact:
+            heatmap_kwargs["colorbar"] = dict(title="Success %")
+        fig = go.Figure(go.Heatmap(**heatmap_kwargs))
+        layout_kwargs = dict(
             margin=dict(t=10 if compact else 40, b=0),
-            height=max(140 if compact else 200, (40 if compact else 60) * len(heatmap_data)),
             xaxis_title="" if compact else "Field",
             yaxis_title="" if compact else "Grid",
         )
+        if compact:
+            layout_kwargs["height"] = 180
+        else:
+            layout_kwargs["height"] = max(200, 60 * len(heatmap_data))
+            layout_kwargs["title"] = "Success Rate by Grid × Field"
+        fig.update_layout(**layout_kwargs)
         st.plotly_chart(fig, use_container_width=True)
 
     if compact:
@@ -213,6 +218,9 @@ def _aggregation_panel(ds_name: str, compact: bool = False):
         c1, c2 = st.columns(2)
         c1.metric("Runs", total)
         c2.metric("Failed", failed, delta=f"-{failed}" if failed else None, delta_color="inverse")
+        last_run = pd.to_datetime(agg.get("aggregation_time_dt"), errors="coerce", utc=True).max()
+        last_str = "—" if pd.isna(last_run) else str(last_run)[:10]
+        st.caption(f"Latest: {last_str}")
     else:
         c1, c2, c3 = st.columns(3)
         c1.metric("Total", total)
@@ -267,13 +275,17 @@ def _aggregation_panel(ds_name: str, compact: bool = False):
                     hovertemplate="%{y}<br>%{x}: %{customdata}<extra></extra>",
                 )
             )
-            fig.update_layout(
-                title=None if compact else "Coverage by Grid / Field",
+            agg_layout_kwargs = dict(
                 margin=dict(t=10 if compact else 40, b=0),
-                height=max(140 if compact else 180, (24 if compact else 36) * len(gfs) + 60),
                 xaxis_title="" if compact else "Year",
                 yaxis_title="",
             )
+            if compact:
+                agg_layout_kwargs["height"] = 180
+            else:
+                agg_layout_kwargs["height"] = max(180, 36 * len(gfs) + 60)
+                agg_layout_kwargs["title"] = "Coverage by Grid / Field"
+            fig.update_layout(**agg_layout_kwargs)
             fig.update_xaxes(dtick=1 if len(all_years) <= 20 else 5)
             st.plotly_chart(fig, use_container_width=True)
             if not compact:
