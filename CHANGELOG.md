@@ -4,6 +4,7 @@ All notable changes to ECCO-obs-pipeline are documented here.
 
 Each release is named after a marine animal, in the spirit of the ocean data this pipeline serves.
 Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`):
+
 - **MAJOR** — breaking changes (incompatible config or schema changes)
 - **MINOR** — new features, backwards-compatible
 - **PATCH** — bug fixes and small improvements
@@ -14,7 +15,17 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 
 ### Bug Fixes
 
+- **Dashboard**: All-time totals now exclude deprecated datasets.
+
+### Improvements
+
+- **Dashboard**: deprecated datasets excluded from counts, Solr outage banner, data-freshness caption,
+  Recent Activity → Dataset Inspector cross-link, Compact view for the inspector, hidden Streamlit Deploy
+  button, ECCO favicon added.
+
 ### Dataset Updates
+
+### New Features
 
 ---
 
@@ -89,18 +100,20 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 ### Migration Notes
 
 Upgrading from v1.0.0 requires a **Solr schema change**. The easiest path forwrad is:
+
 - Wipe Solr
 - Rerun pipeline - the pipeline will pick up the local files and repopulate Solr
 
 ---
 
-## [v1.0.0] — 2024-03-26 — _Aurelia aurita_ 
+## [v1.0.0] — 2024-03-26 — _Aurelia aurita_
 
 First official release of the ECCO obs pipeline.
 
-Named after the moon jellyfish (*Aurelia aurita*) — like the pipeline, it gracefully glides through the ocean.
+Named after the moon jellyfish (_Aurelia aurita_) — like the pipeline, it gracefully glides through the ocean.
 
 ### Features
+
 - Framework for harvesting and transforming datasets used as ECCO model inputs
 - Data sources: PO.DAAC, NSIDC, OSISAF, iFremer
 - Output formats: binary and netCDF, daily and monthly average
