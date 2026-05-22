@@ -60,6 +60,12 @@ def check_solr_connection():
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
+# Apply any pending programmatic view change (e.g. from a Recent Activity
+# cross-link) before the radio widget instantiates — Streamlit rejects writes
+# to a widget's session_state key once the widget has rendered.
+if "_pending_view" in st.session_state:
+    st.session_state["view"] = st.session_state.pop("_pending_view")
+
 solr_error = check_solr_connection()
 
 with st.sidebar:

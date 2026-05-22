@@ -158,9 +158,15 @@ def _selected_rows(event) -> list:
 
 
 def _jump_to_inspector(ds_name: str):
-    """Switch to the Dataset Inspector view preselecting `ds_name`."""
+    """Switch to the Dataset Inspector view preselecting `ds_name`.
+
+    Writes to `_pending_view` rather than `view` directly because the radio
+    widget has already been instantiated this render — Streamlit rejects
+    direct writes to a live widget's key. The pending value is applied at
+    the top of app.py on the next run, before the radio re-instantiates.
+    """
     st.session_state["dataset_selector"] = ds_name
-    st.session_state["view"] = "Dataset Inspector"
+    st.session_state["_pending_view"] = "Dataset Inspector"
     st.rerun()
 
 
