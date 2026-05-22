@@ -24,28 +24,16 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
-# Solr connection — reads from conf/global_settings if available, else sidebar
+# Solr connection — read from conf/global_settings (no user-facing controls)
 # ---------------------------------------------------------------------------
 try:
     from conf.global_settings import SOLR_HOST, SOLR_COLLECTION
 except ImportError:
-    SOLR_HOST = None
-    SOLR_COLLECTION = None
+    SOLR_HOST = "http://localhost:8983/solr/"
+    SOLR_COLLECTION = "ecco_datasets"
 
-with st.sidebar:
-    st.title("ECCO Pipeline")
-    st.divider()
+solr_client.configure(SOLR_HOST, SOLR_COLLECTION)
 
-    host = st.text_input("Solr host", value=SOLR_HOST or "http://localhost:8983/solr/")
-    collection = st.text_input("Collection", value=SOLR_COLLECTION or "ecco_datasets")
-    solr_client.configure(host, collection)
-
-    st.divider()
-    page = st.radio("View", ["Recent Activity", "Coverage Timeline", "Dataset Inspector"])
-
-    st.divider()
-    if st.button("Refresh data"):
-        st.cache_data.clear()
 
 # ---------------------------------------------------------------------------
 # Data loading (cached so switching views doesn't re-query)
@@ -60,18 +48,33 @@ def load_total_counts():
     return solr_client.get_total_counts()
 
 
-datasets_df = load_datasets()
+# ---------------------------------------------------------------------------
+# Sidebar
+# ---------------------------------------------------------------------------
+with st.sidebar:
+    st.title("ECCO Pipeline")
 
-# ---------------------------------------------------------------------------
-# Global state strip — shown above every view
-# ---------------------------------------------------------------------------
-totals = load_total_counts()
-t1, t2, t3, t4 = st.columns(4)
-t1.metric("Datasets", totals["datasets"])
-t2.metric("Granules", totals["granules"])
-t3.metric("Transformations", totals["transformations"])
-t4.metric("Aggregations", totals["aggregations"])
-st.divider()
+    totals = load_total_counts()
+    r1c1, r1c2 = st.columns(2)
+    r1c1.metric("Datasets", totals["datasets"])
+    r1c2.metric("Granules", totals["granules"])
+    r2c1, r2c2 = st.columns(2)
+    r2c1.metric("Transformations", totals["transformations"])
+    r2c2.metric("Aggregations", totals["aggregations"])
+
+    st.divider()
+    page = st.radio("View", ["Recent Activity", "Coverage Timeline", "Dataset Inspector"])
+
+    st.divider()
+    if st.button("Refresh data"):
+        st.cache_data.clear()
+
+    st.divider()
+    st.caption(f"Solr: {SOLR_HOST}")
+    st.caption(f"Collection: {SOLR_COLLECTION}")
+
+
+datasets_df = load_datasets()
 
 # ---------------------------------------------------------------------------
 # Routing
