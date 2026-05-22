@@ -374,6 +374,7 @@ class Transformation(Dataset):
 
     def load_file(self, source_file_path: str) -> xr.Dataset:
         if self.preprocessing_function:
+            logging.info(f"Applying preprocessing function {self.preprocessing_function}")            
             func_machine = PreprocessingFuncs()
             ds = func_machine.call_function(self.preprocessing_function, source_file_path, self.fields)
         else:
