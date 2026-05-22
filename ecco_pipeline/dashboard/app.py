@@ -3,6 +3,7 @@ ECCO Pipeline Dashboard
 Run with:  streamlit run ecco_pipeline/dashboard/app.py
 """
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Allow imports from ecco_pipeline root
@@ -38,45 +39,71 @@ solr_client.configure(SOLR_HOST, SOLR_COLLECTION)
 
 
 # ---------------------------------------------------------------------------
-# Data loading (cached so switching views doesn't re-query)
+# Data loading (cached so switching views doesn't re-query). Each cached
+# function returns (value, loaded_at) so the sidebar can show data freshness.
 # ---------------------------------------------------------------------------
 @st.cache_data(ttl=300)  # 5-minute cache
 def load_datasets():
-    return solr_client.get_datasets()
+    return solr_client.get_datasets(), datetime.now(timezone.utc)
 
 
 @st.cache_data(ttl=300)
 def load_total_counts():
-    return solr_client.get_total_counts()
+    return solr_client.get_total_counts(), datetime.now(timezone.utc)
+
+
+@st.cache_data(ttl=60)  # short TTL so outages surface quickly
+def check_solr_connection():
+    return solr_client.ping()
 
 
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
+solr_error = check_solr_connection()
+
 with st.sidebar:
     st.title("ECCO Observation Pipeline")
 
-    totals = load_total_counts()
-    r1c1, r1c2 = st.columns(2)
-    r1c1.metric("Datasets", totals["datasets"])
-    r1c2.metric("Granules", totals["granules"])
-    r2c1, r2c2 = st.columns(2)
-    r2c1.metric("Transformations", totals["transformations"])
-    r2c2.metric("Aggregations", totals["aggregations"])
+    if solr_error:
+        st.error(f"Solr unreachable — {solr_error}")
+    else:
+        totals, totals_loaded_at = load_total_counts()
+        r1c1, r1c2 = st.columns(2)
+        r1c1.metric("Datasets", totals["datasets"])
+        r1c2.metric("Granules", totals["granules"])
+        r2c1, r2c2 = st.columns(2)
+        r2c1.metric("Transformations", totals["transformations"])
+        r2c2.metric("Aggregations", totals["aggregations"])
+        st.caption(f"Updated {totals_loaded_at.strftime('%H:%M UTC')}")
 
     st.divider()
-    page = st.radio("View", ["Recent Activity", "Coverage Timeline", "Dataset Inspector"])
+    page = st.radio(
+        "View",
+        ["Recent Activity", "Coverage Timeline", "Dataset Inspector"],
+        key="view",
+    )
 
     st.divider()
     if st.button("Refresh data"):
         st.cache_data.clear()
+        st.rerun()
 
     st.divider()
     st.caption(f"Solr: {SOLR_HOST}")
     st.caption(f"Collection: {SOLR_COLLECTION}")
 
 
-datasets_df = load_datasets()
+# ---------------------------------------------------------------------------
+# Main area
+# ---------------------------------------------------------------------------
+if solr_error:
+    st.error(
+        f"Can't reach Solr at `{SOLR_HOST}{SOLR_COLLECTION}` — {solr_error}. "
+        "Views below will show empty data until the connection is restored."
+    )
+
+datasets_df, _ = load_datasets()
 
 # ---------------------------------------------------------------------------
 # Routing

@@ -39,6 +39,28 @@ def _filter_active(df: pd.DataFrame) -> pd.DataFrame:
     return df[df["dataset_s"].isin(get_active_dataset_names())]
 
 
+def ping() -> Optional[str]:
+    """
+    Return None if Solr is reachable and the configured collection exists,
+    otherwise a short human-readable error string. Pings the per-core
+    /admin/ping endpoint so an unreachable host AND a missing collection
+    both surface as errors.
+    """
+    url = f"{SOLR_HOST}{SOLR_COLLECTION}/admin/ping"
+    try:
+        resp = requests.get(url, headers={"Connection": "close"}, timeout=3)
+        resp.raise_for_status()
+        return None
+    except requests.exceptions.ConnectionError:
+        return "connection refused"
+    except requests.exceptions.Timeout:
+        return "request timed out"
+    except requests.exceptions.HTTPError as e:
+        return f"HTTP {e.response.status_code}"
+    except Exception as e:
+        return f"{type(e).__name__}: {e}"
+
+
 def _query(fq: list[str], fl: str = "") -> list[dict]:
     params = {"q": "*:*", "fq": fq, "rows": 300000}
     if fl:

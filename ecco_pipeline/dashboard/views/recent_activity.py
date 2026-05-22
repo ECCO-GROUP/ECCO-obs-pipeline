@@ -146,6 +146,24 @@ def _warnings_table(
     )
 
 
+def _selected_rows(event) -> list:
+    selection = getattr(event, "selection", None)
+    if selection is None:
+        return []
+    return (
+        selection.get("rows", [])
+        if isinstance(selection, dict)
+        else getattr(selection, "rows", [])
+    )
+
+
+def _jump_to_inspector(ds_name: str):
+    """Switch to the Dataset Inspector view preselecting `ds_name`."""
+    st.session_state["dataset_selector"] = ds_name
+    st.session_state["view"] = "Dataset Inspector"
+    st.rerun()
+
+
 def _error_summary(failures: pd.DataFrame) -> pd.DataFrame:
     """Group failures by error message so repeated failures roll up."""
     if failures.empty:
@@ -191,14 +209,22 @@ def render():
     if summary.empty:
         st.info("No activity in the last 7 days.")
     else:
-        st.dataframe(
-            summary.style.applymap(
-                lambda v: f"color: {FAIL_COLOR}; font-weight: bold" if isinstance(v, int) and v > 0 else "",
-                subset=["Harvest failures", "Transform failures", "Agg failures"],
-            ),
+        st.caption("Click a row to open the dataset in the Inspector.")
+        styled = summary.style.applymap(
+            lambda v: f"color: {FAIL_COLOR}; font-weight: bold" if isinstance(v, int) and v > 0 else "",
+            subset=["Harvest failures", "Transform failures", "Agg failures"],
+        )
+        summary_event = st.dataframe(
+            styled,
             use_container_width=True,
             hide_index=True,
+            on_select="rerun",
+            selection_mode="single-row",
+            key="summary_table",
         )
+        rows = _selected_rows(summary_event)
+        if rows:
+            _jump_to_inspector(summary.iloc[rows[0]]["Dataset"])
 
     # ── Failures detail ────────────────────────────────────────────────────
     failures = _failures_table(granules, transformations, aggregations)
@@ -233,14 +259,7 @@ def render():
                 "Detail": st.column_config.TextColumn(width="medium"),
             },
         )
-        selection = getattr(event, "selection", None)
-        selected_rows = []
-        if selection is not None:
-            selected_rows = (
-                selection.get("rows", [])
-                if isinstance(selection, dict)
-                else getattr(selection, "rows", [])
-            )
+        selected_rows = _selected_rows(event)
         if selected_rows:
             row = failures.iloc[selected_rows[0]]
             with st.container(border=True):
@@ -250,6 +269,11 @@ def render():
                 )
                 st.markdown("**Error message:**")
                 st.code(row["Error"] or "(empty)", language=None)
+                if st.button(
+                    f"Open {row['Dataset']} in Inspector",
+                    key=f"jump_{selected_rows[0]}",
+                ):
+                    _jump_to_inspector(row["Dataset"])
 
     # ── Warnings detail ────────────────────────────────────────────────────
     # Stages that "succeeded" but recorded a message — e.g. a transformation that
