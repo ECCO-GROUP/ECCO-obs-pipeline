@@ -92,12 +92,17 @@ def _count(fq: list[str]) -> int:
 
 
 def get_total_counts() -> dict:
-    """All-time document counts per pipeline stage."""
+    """All-time document counts per pipeline stage, restricted to active datasets."""
+    names = get_active_dataset_names()
+    if not names:
+        return {"granules": 0, "transformations": 0, "aggregations": 0, "datasets": 0}
+    quoted = " OR ".join(f'"{n}"' for n in sorted(names))
+    fq_ds = f"dataset_s:({quoted})"
     return {
-        "granules": _count(["type_s:granule"]),
-        "transformations": _count(["type_s:transformation"]),
-        "aggregations": _count(["type_s:aggregation"]),
-        "datasets": _count(["type_s:dataset"]),
+        "granules": _count(["type_s:granule", fq_ds]),
+        "transformations": _count(["type_s:transformation", fq_ds]),
+        "aggregations": _count(["type_s:aggregation", fq_ds]),
+        "datasets": _count(["type_s:dataset", fq_ds]),
     }
 
 

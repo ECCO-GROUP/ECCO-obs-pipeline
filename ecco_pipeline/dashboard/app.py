@@ -55,7 +55,23 @@ def load_datasets():
     return solr_client.get_datasets()
 
 
+@st.cache_data(ttl=300)
+def load_total_counts():
+    return solr_client.get_total_counts()
+
+
 datasets_df = load_datasets()
+
+# ---------------------------------------------------------------------------
+# Global state strip — shown above every view
+# ---------------------------------------------------------------------------
+totals = load_total_counts()
+t1, t2, t3, t4 = st.columns(4)
+t1.metric("Datasets", totals["datasets"])
+t2.metric("Granules", totals["granules"])
+t3.metric("Transformations", totals["transformations"])
+t4.metric("Aggregations", totals["aggregations"])
+st.divider()
 
 # ---------------------------------------------------------------------------
 # Routing
