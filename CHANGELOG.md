@@ -17,9 +17,13 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 
 ### Improvements
 
+- **environment.yml**: install `ecco-v4-py` via pip.
+
 ### Dataset Updates
 
 ### New Features
+
+- **NASA_SSH_REF_SIMPLE_GRID_V11**: added processing support with a quicklook validation notebook.
 
 ---
 
