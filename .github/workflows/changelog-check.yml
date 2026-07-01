@@ -2,7 +2,7 @@ name: Changelog Check
 
 on:
   pull_request:
-    branches: [master]
+    branches: [main]
 
 jobs:
   check:
@@ -13,5 +13,5 @@ jobs:
           fetch-depth: 0
       - name: Check CHANGELOG.md was modified
         run: |
-          git diff --name-only origin/master...HEAD | grep -q "^CHANGELOG.md$" \
+          git diff --name-only origin/main...HEAD | grep -q "^CHANGELOG.md$" \
             || (echo "CHANGELOG.md must be updated in this PR" && exit 1)
