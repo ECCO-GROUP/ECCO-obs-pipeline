@@ -21,6 +21,8 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 
 ### Dataset Updates
 
+- **AMSR-2_OSI-408**: Removed the `confidence_level` field, which is no longer included in the product.
+
 ### New Features
 
 - **NASA_SSH_REF_SIMPLE_GRID_V11**: added processing support with a quicklook validation notebook.
