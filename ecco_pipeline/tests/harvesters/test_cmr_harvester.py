@@ -417,9 +417,9 @@ class CMRHarvesterSpecialFetchTestCase(unittest.TestCase):
 
         # Create granules for different days
         mock_granules = [
-            create_mock_cmr_granule(f"RDEFT4_20200115.nc", datetime(2020, 1, 16)),
-            create_mock_cmr_granule(f"RDEFT4_20200131.nc", datetime(2020, 2, 1)),  # End of month
-            create_mock_cmr_granule(f"RDEFT4_20200220.nc", datetime(2020, 2, 21)),
+            create_mock_cmr_granule("RDEFT4_20200115.nc", datetime(2020, 1, 16)),
+            create_mock_cmr_granule("RDEFT4_20200131.nc", datetime(2020, 2, 1)),  # End of month
+            create_mock_cmr_granule("RDEFT4_20200220.nc", datetime(2020, 2, 21)),
         ]
         mock_query_instance = MagicMock()
         mock_query_instance.query.return_value = mock_granules

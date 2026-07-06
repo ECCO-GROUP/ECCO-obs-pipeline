@@ -6,7 +6,7 @@ import os
 import tempfile
 import unittest
 from datetime import datetime
-from unittest.mock import MagicMock, patch, Mock
+from unittest.mock import patch, Mock
 
 from harvesters.harvesterclasses import Granule, Harvester
 
