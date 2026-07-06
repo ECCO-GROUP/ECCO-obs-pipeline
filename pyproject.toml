@@ -32,6 +32,7 @@ dev = [
     "ipykernel",
     "pip>=26.1.2",
     "ruff==0.15.11",
+    "pre-commit",
 ]
 
 # The pipeline is run as a script (`python ecco_pipeline/run_pipeline.py`) with
