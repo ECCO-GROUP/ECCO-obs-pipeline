@@ -20,6 +20,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 - **Tests**: added a golden-output characterization test for the transformation step (`test_golden_transformation.py`) that runs the real (un-mocked) NASA-SSH → ECCO_llc90 regrid and compares against a committed baseline. Guards against numerical drift when bumping numpy/xarray/pyresample/pyproj/netcdf4.
 - **Dependency management**: migrated from Conda (`environment.yml`) to `uv` + `pyproject.toml`. Runtime dependency pins are unchanged; `pytest` and `jupyter` moved to a `dev` dependency group. Install with `uv sync`; run with `uv run ...`.
 - **Dependencies (Stage A)**: modernized the core scientific pins to their latest within the numpy 1.x era — `numpy` `>=1.26,<2`, `xarray` `>=2024.6`, `pyresample` `>=1.28,<2`, `pyproj` `>=3.6,<4`, `netcdf4` `>=1.6,<2`. Hard `==` pins are now abstract ranges in `pyproject.toml`, with exact versions recorded in `uv.lock`. Python stays 3.10; the numpy 2.x / Python 3.12 jump is deferred to Stage B.
+- **CI**: added a `Tests` GitHub Actions workflow that runs `ruff` and `pytest` on pull requests to `main` (Python 3.10, via `uv`). Added `ruff` and `pre-commit` to the `dev` group and scoped `ruff` to Python sources (notebooks excluded, matching the pre-commit hook). The test suite now bootstraps a `conf/global_settings.py` from the committed template when absent, so tests run on a fresh checkout without manual setup.
 
 ### Dataset Updates
 
