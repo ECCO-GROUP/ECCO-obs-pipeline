@@ -2,6 +2,7 @@
 Pytest configuration and shared fixtures for harvester tests.
 """
 import os
+import shutil
 import sys
 import tempfile
 from unittest.mock import MagicMock, patch
@@ -9,7 +10,17 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # Add ecco_pipeline to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_ECCO_PIPELINE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _ECCO_PIPELINE_DIR)
+
+# conf/global_settings.py is gitignored (it holds machine-specific paths like
+# OUTPUT_DIR), so on a fresh checkout — CI or a new clone — it does not exist. The
+# pipeline modules import it at module load, so collection would fail before any
+# test runs. Seed it from the committed template if absent; tests patch OUTPUT_DIR
+# wherever they touch the filesystem, so the placeholder paths are sufficient.
+_SETTINGS = os.path.join(_ECCO_PIPELINE_DIR, "conf", "global_settings.py")
+if not os.path.exists(_SETTINGS) and os.path.exists(_SETTINGS + ".example"):
+    shutil.copyfile(_SETTINGS + ".example", _SETTINGS)
 
 
 def make_mock_download_response(content: bytes = b"mock netcdf file content"):
