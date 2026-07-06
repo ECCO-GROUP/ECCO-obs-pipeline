@@ -30,6 +30,8 @@ dependencies = [
 dev = [
     "pytest",
     "jupyter",
+    "ipykernel",
+    "pip>=26.1.2",
 ]
 
 # The pipeline is run as a script (`python ecco_pipeline/run_pipeline.py`) with
