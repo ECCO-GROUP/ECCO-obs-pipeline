@@ -13,6 +13,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 
 ## [Unreleased]
 
+---
+
+## [v2.2.0] — 2026-07-06
+
 ### Bug Fixes
 
 - **Transformation (radius bin averaging)**: fixed a bug in `find_mappings_from_source_to_target` where the within-radius mask was compared with `is True` against a NumPy array, which always evaluated `False`. As a result no source points were ever recorded as falling within a target cell's radius, and every transformation silently fell back to single nearest-neighbor resampling instead of averaging all source points within the cell radius. Regridded outputs will now differ (true radius bin averaging), so all non-deprecated dataset `t_version`s were bumped to force re-transformation (see Dataset Updates).
@@ -141,6 +145,9 @@ Named after the moon jellyfish (_Aurelia aurita_) — like the pipeline, it grac
 
 ---
 
-[Unreleased]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.2.0...HEAD
+[v2.2.0]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.1.1...v2.2.0
+[v2.1.1]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.1.0...v2.1.1
+[v2.1.0]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.0.0...v2.1.0
 [v2.0.0]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v1.0.0...v2.0.0
 [v1.0.0]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/releases/tag/v1.0.0
