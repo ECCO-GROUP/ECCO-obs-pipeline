@@ -28,7 +28,7 @@ original_dataset_reference: "https://osisaf-hl.met.no/sites/osisaf-hl.met.no/fil
 original_dataset_doi: "10.15770/EUM_SAF_OSI_0014"
 
 # Transformation
-t_version: 1.7 # Update this value if any changes are made to this file
+t_version: 1.8 # Update this value if any changes are made to this file
 time_bounds_var: time_bnds
 data_res: 25/111 # Resolution of dataset
 

@@ -234,7 +234,7 @@ def find_mappings_from_source_to_target(
                 src_indicies_here = Ax_max_target_grid_r[2][current_valid_target_i]
 
             source_indices_within_target_radius_i[i] = src_indicies_here[
-                dist_within_target_r is True
+                dist_within_target_r
             ]
 
             # count the # source indices here

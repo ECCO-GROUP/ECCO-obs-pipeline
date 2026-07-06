@@ -42,7 +42,7 @@ original_dataset_doi: 10.5067/GHAAO-4BC02
 #original_dataset_doi: 10.5067/GHAAO-4BC21
 
 # Transformation
-t_version: 1.4 # Update this value if any changes are made to this portion
+t_version: 1.5 # Update this value if any changes are made to this portion
 data_res: 0.25 # Resolution of dataset
 
 # Values for non split datasets (for datasets split into nh/sh, append '_nh'/'_sh')

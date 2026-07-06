@@ -30,7 +30,7 @@ original_dataset_reference: https://nsidc.org/sites/default/files/atl20-v004-use
 original_dataset_doi: 10.5067/ATLAS/ATL20.004
 
 # Transformation
-t_version: 1.3 # Update this value if any changes are made to this file
+t_version: 1.4 # Update this value if any changes are made to this file
 data_res: 25/111 # Resolution of dataset
 
 # Values for non split datasets (for datasets split into nh/sh, append '_nh'/'_sh')
