@@ -1,0 +1,40 @@
+[project]
+name = "ecco-pipeline"
+version = "1.0.0"
+description = "ECCO Observation Pipeline"
+readme = "README.md"
+requires-python = ">=3.10,<3.11"
+authors = [{ name = "Ian Fenty" }]
+
+# Runtime dependencies. Pins mirror the previous environment.yml exactly so this
+# change is a tooling swap only; version bumps are intentionally left separate.
+dependencies = [
+    "pyresample==1.26.1",
+    "numpy==1.24.3",
+    "pyyaml",
+    "netcdf4==1.6.3",
+    "python-dateutil",
+    "python-cmr",
+    "requests",
+    "xarray==2023.11.0",
+    "jsonschema",
+    "lxml",
+    "pyproj==3.5.0",
+    "streamlit",
+    "plotly",
+    "pandas",
+    "ecco-v4-py",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "jupyter",
+]
+
+# The pipeline is run as a script (`python ecco_pipeline/run_pipeline.py`) with
+# top-level modules resolved from the ecco_pipeline/ directory, not as an
+# installed package. Tell uv to manage the environment without building/installing
+# this source tree.
+[tool.uv]
+package = false

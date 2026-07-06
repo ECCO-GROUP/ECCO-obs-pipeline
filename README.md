@@ -12,7 +12,7 @@ Documentation is in the process of being overhauled. Legacy documentation can be
 
 ### Requirements
 - Solr (metadata server/database)
-- Conda (package management)
+- [uv](https://docs.astral.sh/uv/) (package/environment management)
 - .netrc file containing valid Earthdata login credentials
 
 ### Standup Solr Server
@@ -32,12 +32,14 @@ bin/solr create -c ecco_datasets
 git clone https://github.com/ECCO-GROUP/ECCO-obs-pipeline.git
 ```
 
-### Install dependencies via Conda envrionment 
+### Install dependencies via uv
 ```
 cd <path/to/cloned/repo>
-conda env create -f environment.yml
-conda activate ecco_pipeline
+uv sync
 ```
+This creates a `.venv` in the repo and installs the locked dependencies (including
+dev tools like `pytest`). Prefix commands with `uv run` to use the environment, or
+activate it with `source .venv/bin/activate`.
 
 ### Setup global_settings.py
 ```
@@ -47,7 +49,7 @@ Fill in variables.
 
 ### Running pipeline
 ```
-python ecco_pipeline/run_pipeline.py
+uv run python ecco_pipeline/run_pipeline.py
 ```
 The above command will execute the pipeline by iterating through all currently supported datasets, running the harvesting, transformation, and aggregation steps for each. If you want to run the pipeline on a single dataset or step, you can use the `--dataset` and `--step` flags, respectively. ex:
 

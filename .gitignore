@@ -10,6 +10,11 @@ __pycache__/
 
 *.egg-info
 
+.pytest_cache
+
+# uv-managed virtual environment
+.venv/
+
 ecco_pipeline/logs
 
 *.ipynb_checkpoints/
