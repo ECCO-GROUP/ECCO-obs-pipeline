@@ -410,7 +410,7 @@ class HarvesterTestCase(unittest.TestCase):
                         }
                     ]
 
-                    status = harvester.post_fetch("https://example.com/source")
+                    harvester.post_fetch("https://example.com/source")
 
                     # Verify solr_update was called
                     self.assertTrue(mock_update.called)

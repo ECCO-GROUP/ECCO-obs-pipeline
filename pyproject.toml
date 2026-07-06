@@ -38,5 +38,13 @@ dev = [
 # top-level modules resolved from the ecco_pipeline/ directory, not as an
 # installed package. Tell uv to manage the environment without building/installing
 # this source tree.
+[tool.ruff]
+# Scope ruff to Python source only, matching the pre-commit hook
+# (`types_or: [python, pyi]`), which never linted notebooks. The validation /
+# quicklook .ipynb files are exploratory artifacts — many carry intentional
+# cell-by-cell state (e.g. `plt` defined elsewhere) that a per-cell linter
+# misreads. Keep `ruff check .` (CI + local) consistent with pre-commit.
+extend-exclude = ["*.ipynb"]
+
 [tool.uv]
 package = false

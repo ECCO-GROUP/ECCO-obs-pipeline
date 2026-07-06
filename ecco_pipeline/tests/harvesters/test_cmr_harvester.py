@@ -343,7 +343,7 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
                 with patch.object(CMR_Harvester, 'fetch_atl_daily') as mock_fetch:
-                    status = harvester(config)
+                    harvester(config)
                     mock_fetch.assert_called_once()
 
     def test_harvester_function_tellus_grac_grfo(self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query):
@@ -362,7 +362,7 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
                 with patch.object(CMR_Harvester, 'fetch_tellus_grac_grfo') as mock_fetch:
-                    status = harvester(config)
+                    harvester(config)
                     mock_fetch.assert_called_once()
 
     def test_harvester_function_rdeft4(self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query):
@@ -381,7 +381,7 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
                 with patch.object(CMR_Harvester, 'fetch_rdeft4') as mock_fetch:
-                    status = harvester(config)
+                    harvester(config)
                     mock_fetch.assert_called_once()
 
     def test_harvester_function_tellus_tolerance(self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query):
@@ -400,7 +400,7 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
                 with patch.object(CMR_Harvester, 'fetch_tolerance_filter') as mock_fetch:
-                    status = harvester(config)
+                    harvester(config)
                     mock_fetch.assert_called_once()
 
 
