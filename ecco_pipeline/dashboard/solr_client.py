@@ -70,7 +70,7 @@ def _query(fq: list[str], fl: str = "") -> list[dict]:
         resp = requests.get(url, params=params, headers={"Connection": "close"}, timeout=10)
         resp.raise_for_status()
         return resp.json()["response"]["docs"]
-    except Exception as e:
+    except Exception:
         return []
 
 

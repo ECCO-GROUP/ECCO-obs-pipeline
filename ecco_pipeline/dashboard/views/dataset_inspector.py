@@ -290,7 +290,7 @@ def _aggregation_panel(ds_name: str, compact: bool = False):
             st.plotly_chart(fig, use_container_width=True)
             if not compact:
                 st.caption(
-                    f"Green = success · red = failed · grey = no aggregation record for that year"
+                    "Green = success · red = failed · grey = no aggregation record for that year"
                 )
 
             if not compact:

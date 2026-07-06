@@ -6,20 +6,19 @@ readme = "README.md"
 requires-python = ">=3.10,<3.11"
 authors = [{ name = "Ian Fenty" }]
 
-# Runtime dependencies. Pins mirror the previous environment.yml exactly so this
-# change is a tooling swap only; version bumps are intentionally left separate.
+# Runtime dependencies.
 dependencies = [
-    "pyresample==1.26.1",
-    "numpy==1.24.3",
+    "pyresample>=1.28,<2",
+    "numpy>=1.26,<2",
     "pyyaml",
-    "netcdf4==1.6.3",
+    "netcdf4>=1.6,<2",
     "python-dateutil",
     "python-cmr",
     "requests",
-    "xarray==2023.11.0",
+    "xarray>=2024.6",
     "jsonschema",
     "lxml",
-    "pyproj==3.5.0",
+    "pyproj>=3.6,<4",
     "streamlit",
     "plotly",
     "pandas",
@@ -32,11 +31,21 @@ dev = [
     "jupyter",
     "ipykernel",
     "pip>=26.1.2",
+    "ruff==0.15.11",
+    "pre-commit",
 ]
 
 # The pipeline is run as a script (`python ecco_pipeline/run_pipeline.py`) with
 # top-level modules resolved from the ecco_pipeline/ directory, not as an
 # installed package. Tell uv to manage the environment without building/installing
 # this source tree.
+[tool.ruff]
+# Scope ruff to Python source only, matching the pre-commit hook
+# (`types_or: [python, pyi]`), which never linted notebooks. The validation /
+# quicklook .ipynb files are exploratory artifacts — many carry intentional
+# cell-by-cell state (e.g. `plt` defined elsewhere) that a per-cell linter
+# misreads. Keep `ruff check .` (CI + local) consistent with pre-commit.
+extend-exclude = ["*.ipynb"]
+
 [tool.uv]
 package = false

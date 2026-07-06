@@ -2,7 +2,6 @@
 Recent Activity view — last 7 days across all datasets, no user input required.
 """
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
 from dashboard import solr_client

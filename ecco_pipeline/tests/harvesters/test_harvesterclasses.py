@@ -6,7 +6,7 @@ import os
 import tempfile
 import unittest
 from datetime import datetime
-from unittest.mock import MagicMock, patch, Mock
+from unittest.mock import patch, Mock
 
 from harvesters.harvesterclasses import Granule, Harvester
 
@@ -410,7 +410,7 @@ class HarvesterTestCase(unittest.TestCase):
                         }
                     ]
 
-                    status = harvester.post_fetch("https://example.com/source")
+                    harvester.post_fetch("https://example.com/source")
 
                     # Verify solr_update was called
                     self.assertTrue(mock_update.called)

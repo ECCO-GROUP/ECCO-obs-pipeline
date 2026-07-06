@@ -3,7 +3,6 @@ Unit tests for aggregation_factory module (AgJobFactory class).
 All Solr calls and multiprocessing are mocked.
 """
 
-import logging
 import unittest
 from unittest.mock import patch, MagicMock
 

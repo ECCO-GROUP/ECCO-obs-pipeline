@@ -343,7 +343,7 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
                 with patch.object(CMR_Harvester, 'fetch_atl_daily') as mock_fetch:
-                    status = harvester(config)
+                    harvester(config)
                     mock_fetch.assert_called_once()
 
     def test_harvester_function_tellus_grac_grfo(self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query):
@@ -362,7 +362,7 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
                 with patch.object(CMR_Harvester, 'fetch_tellus_grac_grfo') as mock_fetch:
-                    status = harvester(config)
+                    harvester(config)
                     mock_fetch.assert_called_once()
 
     def test_harvester_function_rdeft4(self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query):
@@ -381,7 +381,7 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
                 with patch.object(CMR_Harvester, 'fetch_rdeft4') as mock_fetch:
-                    status = harvester(config)
+                    harvester(config)
                     mock_fetch.assert_called_once()
 
     def test_harvester_function_tellus_tolerance(self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query):
@@ -400,7 +400,7 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
                 with patch.object(CMR_Harvester, 'fetch_tolerance_filter') as mock_fetch:
-                    status = harvester(config)
+                    harvester(config)
                     mock_fetch.assert_called_once()
 
 
@@ -417,9 +417,9 @@ class CMRHarvesterSpecialFetchTestCase(unittest.TestCase):
 
         # Create granules for different days
         mock_granules = [
-            create_mock_cmr_granule(f"RDEFT4_20200115.nc", datetime(2020, 1, 16)),
-            create_mock_cmr_granule(f"RDEFT4_20200131.nc", datetime(2020, 2, 1)),  # End of month
-            create_mock_cmr_granule(f"RDEFT4_20200220.nc", datetime(2020, 2, 21)),
+            create_mock_cmr_granule("RDEFT4_20200115.nc", datetime(2020, 1, 16)),
+            create_mock_cmr_granule("RDEFT4_20200131.nc", datetime(2020, 2, 1)),  # End of month
+            create_mock_cmr_granule("RDEFT4_20200220.nc", datetime(2020, 2, 21)),
         ]
         mock_query_instance = MagicMock()
         mock_query_instance.query.return_value = mock_granules

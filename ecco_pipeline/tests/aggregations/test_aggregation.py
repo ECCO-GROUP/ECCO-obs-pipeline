@@ -6,7 +6,6 @@ All Solr calls and file I/O are mocked.
 import json
 import unittest
 from collections import defaultdict
-from datetime import datetime
 from unittest.mock import patch, MagicMock, mock_open
 
 import numpy as np
@@ -615,7 +614,7 @@ class AggregationMonthlyAggregationTestCase(unittest.TestCase):
     def create_daily_annual_dataset(self):
         """Create a mock daily dataset for a year."""
         # Create 365 days of data
-        times = [np.datetime64(f"2020-01-01", "ns") + np.timedelta64(i, "D") for i in range(365)]
+        times = [np.datetime64("2020-01-01", "ns") + np.timedelta64(i, "D") for i in range(365)]
         time_bnds = np.array([[t, t + np.timedelta64(1, "D")] for t in times])
         data = np.random.rand(365, 10, 10).astype(np.float32)
 

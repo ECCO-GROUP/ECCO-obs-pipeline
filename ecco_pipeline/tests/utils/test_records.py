@@ -10,7 +10,7 @@ import unittest
 import numpy as np
 import xarray as xr
 
-from unittest.mock import patch, mock_open, MagicMock
+from unittest.mock import patch
 
 from utils.processing_utils.records import (
     TimeBound,

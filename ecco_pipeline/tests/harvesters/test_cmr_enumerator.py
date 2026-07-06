@@ -4,7 +4,7 @@ All external calls (CMR API) are mocked - no external dependencies required.
 """
 import unittest
 from datetime import datetime
-from unittest.mock import MagicMock, patch, Mock
+from unittest.mock import MagicMock, patch
 
 from harvesters.enumeration.cmr_enumerator import CMRGranule, CMRQuery, URLNotFound
 
