@@ -2,11 +2,10 @@
 Unit tests for CATDS harvester.
 All Solr and HTTP calls are mocked - no external dependencies required.
 """
-import os
 import tempfile
 import unittest
 from datetime import datetime
-from unittest.mock import MagicMock, patch, Mock
+from unittest.mock import patch, Mock
 
 from harvesters.catds_harvester import CATDS_Harvester, harvester
 from harvesters.enumeration.catds_enumerator import CATDSGranule
