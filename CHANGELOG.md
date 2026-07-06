@@ -17,6 +17,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 
 ### Improvements
 
+- **Tests**: added a golden-output characterization test for the transformation step (`test_golden_transformation.py`) that runs the real (un-mocked) NASA-SSH → ECCO_llc90 regrid and compares against a committed baseline. Guards against numerical drift when bumping numpy/xarray/pyresample/pyproj/netcdf4.
 - **Dependency management**: migrated from Conda (`environment.yml`) to `uv` + `pyproject.toml`. Runtime dependency pins are unchanged; `pytest` and `jupyter` moved to a `dev` dependency group. Install with `uv sync`; run with `uv run ...`.
 
 ### Dataset Updates
