@@ -26,7 +26,7 @@ original_dataset_reference: "https://archive.podaac.earthdata.nasa.gov/podaac-op
 original_dataset_doi: 10.5067/NSREF-SG0V11
 
 # Transformation
-t_version: 1.0 # Update this value if any changes are made to this file
+t_version: 1.1 # Update this value if any changes are made to this file
 time_bounds_var: ""
 transpose: False
 data_res: 1/2 # Resolution of dataset
