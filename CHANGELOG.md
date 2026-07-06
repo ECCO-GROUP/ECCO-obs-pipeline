@@ -15,6 +15,14 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 
 ---
 
+## [v2.2.1] — 2026-07-06
+
+### Bug Fixes
+
+- **Dependencies**: pinned `netcdf4>=1.6.4` (was `>=1.6`), which the lock had resolved to 1.6.3. That wheel bundles libnetcdf 4.9.0, which noisily probes every variable for quantization attributes and makes HDF5 dump `can't locate attribute: '_Quantize…'` diagnostics on files not written with quantization. netcdf4 ≥ 1.6.4 ships libnetcdf ≥ 4.9.2 (and HDF5 1.14), silencing the diagnostics. The messages were harmless stderr noise — no output was affected — but cluttered pipeline logs.
+
+---
+
 ## [v2.2.0] — 2026-07-06
 
 ### Bug Fixes
@@ -145,7 +153,8 @@ Named after the moon jellyfish (_Aurelia aurita_) — like the pipeline, it grac
 
 ---
 
-[Unreleased]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.2.1...HEAD
+[v2.2.1]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.2.0...v2.2.1
 [v2.2.0]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.1.1...v2.2.0
 [v2.1.1]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.1.0...v2.1.1
 [v2.1.0]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.0.0...v2.1.0
