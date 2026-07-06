@@ -17,7 +17,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 
 ### Improvements
 
-- **environment.yml**: install `ecco-v4-py` via pip.
+- **Dependency management**: migrated from Conda (`environment.yml`) to `uv` + `pyproject.toml`. Runtime dependency pins are unchanged; `pytest` and `jupyter` moved to a `dev` dependency group. Install with `uv sync`; run with `uv run ...`.
 
 ### Dataset Updates
 
