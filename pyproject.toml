@@ -11,7 +11,7 @@ dependencies = [
     "pyresample>=1.28,<2",
     "numpy>=1.26,<2",
     "pyyaml",
-    "netcdf4>=1.6,<2",
+    "netcdf4>=1.6.4,<2",
     "python-dateutil",
     "python-cmr",
     "requests",
