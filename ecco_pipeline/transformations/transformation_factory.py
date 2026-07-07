@@ -113,6 +113,10 @@ class TxJobFactory(baseclasses.Dataset):
         super().__init__(config)
         self.config = config
         self.user_cpus = baseclasses.Config.user_cpus
+        # Count of transformation docs rebuilt from existing outputs during job
+        # generation (get_tx_jobs); surfaced so a reconstruction-only run reports
+        # its status instead of "No transformations performed".
+        self.reconstructed_count = 0
         # fl scoped to the granule fields consumed downstream (get_tx_jobs,
         # need_to_update/need_to_transform, find_data_for_factors,
         # reconstruct_tx_solr_doc, and the file_size_l harvest-quality check in
@@ -139,9 +143,14 @@ class TxJobFactory(baseclasses.Dataset):
         self.initialize_jobs()
         if self.job_params:
             self.execute_jobs()
-        else:
+        elif not self.reconstructed_count:
+            # No new transformations and nothing reconstructed — genuinely nothing
+            # changed, so skip the cleanup queries.
             return "No transformations performed"
 
+        # Either new transformations ran or docs were reconstructed from existing
+        # outputs during job generation; run cleanup so the dataset status and
+        # counts reflect the actual Solr state (and refresh the dashboard).
         pipeline_status = self.pipeline_cleanup()
         return pipeline_status
 
@@ -323,6 +332,7 @@ class TxJobFactory(baseclasses.Dataset):
             tx_dict[tx["pre_transformation_file_path_s"].split("/")[-1]].append(tx)
 
         all_jobs = []
+        reconstructed = 0
         for granule in self.harvested_granules:
             grid_fields = {}
             for grid in self.grids:
@@ -337,12 +347,31 @@ class TxJobFactory(baseclasses.Dataset):
                         update = self.need_to_transform(granule, grid, field)
                         if not update:
                             self.reconstruct_tx_solr_doc(granule, grid, field)
+                            reconstructed += 1
+                            # Reconstruction hashes each output file, so a large
+                            # backlog takes minutes — log progress so job generation
+                            # doesn't look hung.
+                            if reconstructed % 250 == 0:
+                                logger.info(
+                                    f"Reconstructed {reconstructed} missing transformation "
+                                    f"docs from existing outputs so far..."
+                                )
                     if update:
                         fields_for_grid.append(field)
                 if fields_for_grid:
                     grid_fields[grid] = fields_for_grid
             if grid_fields:
                 all_jobs.append((granule, grid_fields))
+
+        self.reconstructed_count = reconstructed
+        if reconstructed:
+            logger.info(
+                f"Reconstructed {reconstructed} missing transformation Solr doc(s) from "
+                f"existing outputs (no re-transformation needed)."
+            )
+            # reconstruct_tx_solr_doc uses commitWithin; flush the batch now so the
+            # docs are searchable before pipeline_cleanup counts them.
+            solr_utils.commit_solr()
         return all_jobs
 
     def need_to_update(self, granule: dict, tx: dict) -> bool:
@@ -466,7 +495,12 @@ class TxJobFactory(baseclasses.Dataset):
             "error_message_s": "",
         }
 
-        r = solr_utils.solr_update([doc], r=True)
+        # commit=False: these are written in bulk from get_tx_jobs (one per missing
+        # grid/field/granule doc) and are not read back within the same run. A hard
+        # commit per doc was a commit/searcher-warming storm that made job generation
+        # hang for minutes on datasets with many existing outputs. get_tx_jobs issues
+        # a single commit after the batch.
+        r = solr_utils.solr_update([doc], r=True, commit=False)
         if r.status_code == 200:
             logger.debug(f"Reconstructed missing Solr transformation doc for {output_filename}")
         else:
