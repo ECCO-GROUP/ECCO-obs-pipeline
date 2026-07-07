@@ -272,10 +272,11 @@ class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
             "notes": "",
         }
 
+    @patch("transformations.transformation_factory.solr_utils.solr_count")
     @patch("transformations.transformation_factory.solr_utils.solr_update")
     @patch("transformations.transformation_factory.solr_utils.solr_query")
     @patch("transformations.transformation_factory.baseclasses.Config")
-    def test_pipeline_cleanup_all_successful(self, mock_config, mock_query, mock_update):
+    def test_pipeline_cleanup_all_successful(self, mock_config, mock_query, mock_update, mock_count):
         """Test cleanup when all transformations successful."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = ["grid"]
@@ -284,9 +285,9 @@ class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
         mock_query.side_effect = [
             [],  # harvested granules
             [{"id": "dataset_id"}],  # dataset metadata
-            [{"id": "tx1"}],  # successful transformations
-            [],  # failed transformations
         ]
+        # pipeline_cleanup counts successful then failed transformations.
+        mock_count.side_effect = [1, 0]
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -299,10 +300,11 @@ class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
 
         self.assertEqual(result, "All transformations successful")
 
+    @patch("transformations.transformation_factory.solr_utils.solr_count")
     @patch("transformations.transformation_factory.solr_utils.solr_update")
     @patch("transformations.transformation_factory.solr_utils.solr_query")
     @patch("transformations.transformation_factory.baseclasses.Config")
-    def test_pipeline_cleanup_some_failed(self, mock_config, mock_query, mock_update):
+    def test_pipeline_cleanup_some_failed(self, mock_config, mock_query, mock_update, mock_count):
         """Test cleanup when some transformations failed."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = ["grid"]
@@ -310,9 +312,8 @@ class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
         mock_query.side_effect = [
             [],  # harvested granules
             [{"id": "dataset_id"}],  # dataset metadata
-            [{"id": "tx1"}],  # successful transformations
-            [{"id": "tx2"}, {"id": "tx3"}],  # failed transformations
         ]
+        mock_count.side_effect = [1, 2]  # successful, failed
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -325,10 +326,11 @@ class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
 
         self.assertEqual(result, "2 transformations failed")
 
+    @patch("transformations.transformation_factory.solr_utils.solr_count")
     @patch("transformations.transformation_factory.solr_utils.solr_update")
     @patch("transformations.transformation_factory.solr_utils.solr_query")
     @patch("transformations.transformation_factory.baseclasses.Config")
-    def test_pipeline_cleanup_none_performed(self, mock_config, mock_query, mock_update):
+    def test_pipeline_cleanup_none_performed(self, mock_config, mock_query, mock_update, mock_count):
         """Test cleanup when no transformations performed."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = ["grid"]
@@ -336,9 +338,8 @@ class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
         mock_query.side_effect = [
             [],  # harvested granules
             [{"id": "dataset_id"}],  # dataset metadata
-            [],  # successful transformations
-            [],  # failed transformations
         ]
+        mock_count.side_effect = [0, 0]  # successful, failed
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -380,9 +381,35 @@ class MultiprocessTransformationTestCase(unittest.TestCase):
         granule = {"pre_transformation_file_path_s": "/data/test.nc", "file_size_l": 1000, "date_dt": "2020-01-01"}
         tx_jobs = {"grid": ["field"]}
 
-        multiprocess_transformation(config, granule, tx_jobs, "INFO", "/logs")
+        result = multiprocess_transformation(config, granule, tx_jobs, "INFO", "/logs")
 
         mock_transform.assert_called_once_with("/data/test.nc", tx_jobs, config, "2020-01-01")
+        # No filename_s on the granule, so the marker falls back to the file path.
+        self.assertEqual(result, ("/data/test.nc", "ok", ""))
+
+    @patch("transformations.transformation_factory.transform")
+    @patch("transformations.transformation_factory.log_config.mp_logging")
+    def test_multiprocess_returns_error_marker_on_exception(self, mock_logging, mock_transform):
+        """A granule that raises (e.g. in load_file) returns an error marker, not an exception."""
+        mock_logger = MagicMock()
+        mock_logging.return_value = mock_logger
+        mock_transform.side_effect = RuntimeError("load_file blew up")
+
+        config = {"ds_name": "TEST"}
+        granule = {
+            "filename_s": "bad.nc",
+            "pre_transformation_file_path_s": "/data/bad.nc",
+            "file_size_l": 1000,
+            "date_dt": "2020-01-01",
+        }
+        tx_jobs = {"grid": ["field"]}
+
+        # Must not raise — the whole batch would abort otherwise.
+        result = multiprocess_transformation(config, granule, tx_jobs, "INFO", "/logs")
+
+        self.assertEqual(result[0], "bad.nc")
+        self.assertEqual(result[1], "error")
+        self.assertIn("load_file blew up", result[2])
 
 
 if __name__ == "__main__":

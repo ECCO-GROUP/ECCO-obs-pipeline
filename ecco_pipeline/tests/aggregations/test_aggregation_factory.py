@@ -447,9 +447,10 @@ class AgJobFactoryGetAggStatusTestCase(unittest.TestCase):
             ],
         }
 
+    @patch("aggregations.aggregation_factory.solr_utils.solr_count")
     @patch("aggregations.aggregation_factory.solr_utils.solr_query")
     @patch("aggregations.aggregation_factory.baseclasses.Config")
-    def test_get_agg_status_all_successful(self, mock_config, mock_query):
+    def test_get_agg_status_all_successful(self, mock_config, mock_query, mock_count):
         """Test status when all aggregations successful."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = []
@@ -457,9 +458,9 @@ class AgJobFactoryGetAggStatusTestCase(unittest.TestCase):
         mock_query.side_effect = [
             [],  # No grids
             [{"start_date_dt": "2020-01-01T00:00:00Z"}],  # Dataset metadata (for init)
-            [{"id": "agg1"}, {"id": "agg2"}],  # successful aggregations
-            [],  # no failed aggregations
         ]
+        # get_agg_status counts successful then failed aggregations.
+        mock_count.side_effect = [2, 0]
 
         config = self.get_base_config()
         factory = AgJobFactory(config)
@@ -468,9 +469,10 @@ class AgJobFactoryGetAggStatusTestCase(unittest.TestCase):
 
         self.assertEqual(status, "All aggregations successful")
 
+    @patch("aggregations.aggregation_factory.solr_utils.solr_count")
     @patch("aggregations.aggregation_factory.solr_utils.solr_query")
     @patch("aggregations.aggregation_factory.baseclasses.Config")
-    def test_get_agg_status_some_failed(self, mock_config, mock_query):
+    def test_get_agg_status_some_failed(self, mock_config, mock_query, mock_count):
         """Test status when some aggregations failed."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = []
@@ -478,9 +480,8 @@ class AgJobFactoryGetAggStatusTestCase(unittest.TestCase):
         mock_query.side_effect = [
             [],  # No grids
             [{"start_date_dt": "2020-01-01T00:00:00Z"}],  # Dataset metadata (for init)
-            [{"id": "agg1"}],  # successful aggregations
-            [{"id": "agg2"}, {"id": "agg3"}],  # failed aggregations
         ]
+        mock_count.side_effect = [1, 2]  # successful, failed
 
         config = self.get_base_config()
         factory = AgJobFactory(config)
@@ -489,9 +490,10 @@ class AgJobFactoryGetAggStatusTestCase(unittest.TestCase):
 
         self.assertEqual(status, "2 aggregations failed")
 
+    @patch("aggregations.aggregation_factory.solr_utils.solr_count")
     @patch("aggregations.aggregation_factory.solr_utils.solr_query")
     @patch("aggregations.aggregation_factory.baseclasses.Config")
-    def test_get_agg_status_none_performed(self, mock_config, mock_query):
+    def test_get_agg_status_none_performed(self, mock_config, mock_query, mock_count):
         """Test status when no aggregations performed."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = []
@@ -499,9 +501,8 @@ class AgJobFactoryGetAggStatusTestCase(unittest.TestCase):
         mock_query.side_effect = [
             [],  # No grids
             [{"start_date_dt": "2020-01-01T00:00:00Z"}],  # Dataset metadata (for init)
-            [],  # no successful aggregations
-            [],  # no failed aggregations
         ]
+        mock_count.side_effect = [0, 0]  # successful, failed
 
         config = self.get_base_config()
         factory = AgJobFactory(config)
@@ -510,9 +511,10 @@ class AgJobFactoryGetAggStatusTestCase(unittest.TestCase):
 
         self.assertEqual(status, "No aggregations performed")
 
+    @patch("aggregations.aggregation_factory.solr_utils.solr_count")
     @patch("aggregations.aggregation_factory.solr_utils.solr_query")
     @patch("aggregations.aggregation_factory.baseclasses.Config")
-    def test_get_agg_status_no_successful(self, mock_config, mock_query):
+    def test_get_agg_status_no_successful(self, mock_config, mock_query, mock_count):
         """Test status when no successful aggregations."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = []
@@ -520,9 +522,8 @@ class AgJobFactoryGetAggStatusTestCase(unittest.TestCase):
         mock_query.side_effect = [
             [],  # No grids
             [{"start_date_dt": "2020-01-01T00:00:00Z"}],  # Dataset metadata (for init)
-            [],  # no successful aggregations
-            [{"id": "agg1"}],  # failed aggregations
         ]
+        mock_count.side_effect = [0, 1]  # successful, failed
 
         config = self.get_base_config()
         factory = AgJobFactory(config)
@@ -720,11 +721,12 @@ class AgJobFactoryPipelineCleanupTestCase(unittest.TestCase):
             ],
         }
 
+    @patch("aggregations.aggregation_factory.solr_utils.solr_count")
     @patch("aggregations.aggregation_factory.Aggregation")
     @patch("aggregations.aggregation_factory.solr_utils.solr_update")
     @patch("aggregations.aggregation_factory.solr_utils.solr_query")
     @patch("aggregations.aggregation_factory.baseclasses.Config")
-    def test_pipeline_cleanup_returns_status(self, mock_config, mock_query, mock_update, mock_agg_class):
+    def test_pipeline_cleanup_returns_status(self, mock_config, mock_query, mock_update, mock_agg_class, mock_count):
         """Test that pipeline_cleanup returns status."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = ["GRID1"]
@@ -741,12 +743,12 @@ class AgJobFactoryPipelineCleanupTestCase(unittest.TestCase):
             ],  # dataset metadata (get_jobs during init)
             [{"date_dt": "2020-01-15T00:00:00Z"}],  # Transformations query (make_jobs)
             [],  # Existing aggregations query
-            [{"id": "agg1"}],  # successful aggregations (get_agg_status call in pipeline_cleanup)
-            [],  # no failed aggregations (get_agg_status call in pipeline_cleanup)
             [
                 {"id": "dataset_id", "start_date_dt": "2020-01-01T00:00:00Z"}
             ],  # dataset metadata (update_solr_ds call during pipeline_cleanup)
         ]
+        # get_agg_status counts successful then failed aggregations.
+        mock_count.side_effect = [1, 0]
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -782,10 +784,11 @@ class AgJobFactoryStartFactoryTestCase(unittest.TestCase):
             ],
         }
 
+    @patch("aggregations.aggregation_factory.solr_utils.solr_count")
     @patch("aggregations.aggregation_factory.solr_utils.solr_update")
     @patch("aggregations.aggregation_factory.solr_utils.solr_query")
     @patch("aggregations.aggregation_factory.baseclasses.Config")
-    def test_start_factory_no_jobs(self, mock_config, mock_query, mock_update):
+    def test_start_factory_no_jobs(self, mock_config, mock_query, mock_update, mock_count):
         """Test start_factory when there are no jobs."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = ["GRID1"]
@@ -801,12 +804,12 @@ class AgJobFactoryStartFactoryTestCase(unittest.TestCase):
                 }
             ],  # Dataset metadata (get_jobs during init)
             [],  # No transformations (make_jobs query, returns early with no jobs)
-            [],  # successful aggregations (get_agg_status in pipeline_cleanup)
-            [],  # failed aggregations (get_agg_status in pipeline_cleanup)
             [
                 {"id": "dataset_id", "start_date_dt": "2020-01-01T00:00:00Z"}
             ],  # Dataset metadata (update_solr_ds -> get_solr_ds_metadata in pipeline_cleanup)
         ]
+        # get_agg_status counts successful then failed aggregations.
+        mock_count.side_effect = [0, 0]
 
         mock_response = MagicMock()
         mock_response.status_code = 200
