@@ -48,7 +48,7 @@ class Aggregation(Dataset):
 
     def _set_ds_meta(self):
         fq = [f"dataset_s:{self.ds_name}", "type_s:dataset"]
-        ds_meta = solr_utils.solr_query(fq)[0]
+        ds_meta = solr_utils.solr_query(fq, rows=1)[0]
         if "start_date_dt" not in ds_meta:
             logger.info("No transformed granules to aggregate.")
             raise Exception("No transformed granules to aggregate.")

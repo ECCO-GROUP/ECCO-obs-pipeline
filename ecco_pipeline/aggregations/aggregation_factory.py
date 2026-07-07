@@ -79,30 +79,29 @@ class AgJobFactory(baseclasses.Dataset):
         Queries Solr for dataset aggregations.
         Returns overall status of aggregation, not specific to this particular execution.
         """
-        # Query Solr for successful aggregation documents
+        # Only counts are used below, so count instead of fetching every doc.
         fq = [
             f"dataset_s:{self.ds_name}",
             "type_s:aggregation",
             "aggregation_success_b:true",
         ]
-        successful_aggregations = solr_utils.solr_query(fq)
+        successful_count = solr_utils.solr_count(fq)
 
-        # Query Solr for failed aggregation documents
         fq = [
             f"dataset_s:{self.ds_name}",
             "type_s:aggregation",
             "aggregation_success_b:false",
         ]
-        failed_aggregations = solr_utils.solr_query(fq)
+        failed_count = solr_utils.solr_count(fq)
 
         aggregation_status = "All aggregations successful"
 
-        if not successful_aggregations and not failed_aggregations:
+        if not successful_count and not failed_count:
             aggregation_status = "No aggregations performed"
-        elif not successful_aggregations:
+        elif not successful_count:
             aggregation_status = "No successful aggregations"
-        elif failed_aggregations:
-            aggregation_status = f"{len(failed_aggregations)} aggregations failed"
+        elif failed_count:
+            aggregation_status = f"{failed_count} aggregations failed"
         return aggregation_status
 
     def update_solr_ds(self, aggregation_status: str):
@@ -163,7 +162,7 @@ class AgJobFactory(baseclasses.Dataset):
         Gets type_s:dataset Solr document for a given dataset
         """
         fq = [f"dataset_s:{self.ds_name}", "type_s:dataset"]
-        ds_meta = solr_utils.solr_query(fq)[0]
+        ds_meta = solr_utils.solr_query(fq, rows=1)[0]
         if "start_date_dt" not in ds_meta:
             logger.error("No transformed granules to aggregate.")
             raise Exception("No transformed granules to aggregate.")
