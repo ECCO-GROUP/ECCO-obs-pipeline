@@ -13,6 +13,17 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 
 ## [Unreleased]
 
+### Bug Fixes
+
+- **Solr resilience under reprocessing**: the transformation stage no longer forces a hard commit (`?commit=true`) on every write. The per-field transformation-status update now uses `commitWithin`, so Solr batches commits instead of opening a new searcher per write. During a full-archive reprocess (as the v2.2.0 `t_version` bumps trigger) the per-write commits saturated Solr's request-thread pool and left it unresponsive. Writes that are read back within the same run (e.g. `prepopulate_solr` → `solr_query`) still commit immediately, so state tracking is unchanged. Also hardened the Solr client with exponential-backoff retries (was a single retry) and per-process keep-alive connection reuse.
+- **Solr query truncation**: `solr_query` previously fetched a fixed `rows=300000` in one request with no check against `numFound`, so any result set larger than that was silently truncated — causing incorrect job decisions on very large datasets. It now uses `cursorMark` deep paging to return the complete result set in bounded batches, and raises a clear error on a non-OK Solr response instead of an opaque `JSONDecodeError`.
+- **Swallowed transformation worker failures**: the transformation `Pool` called `starmap_async` but never retrieved the result, so an unhandled exception in a worker (e.g. `load_file` or factor-load failing outside `transform`'s per-grid try/except) was captured and silently dropped — a granule that hard-crashed a worker left no trace. The worker entrypoint (`multiprocess_transformation`) is now exception-safe and returns a per-granule status marker, and `execute_jobs` uses synchronous `starmap`, collects the markers, and logs an `N of M granules failed` summary. One bad granule no longer aborts the rest of the batch, and the single-CPU path is hardened for free.
+
+### Improvements
+
+- **Solr query efficiency**: reduced memory/heap pressure from large queries — status checks that only need a count now use `solr_count` instead of fetching every doc (`pipeline_cleanup`, aggregation status, `check_grids`), single-doc lookups fetch `rows=1`, and the two largest queries (harvested granules, transformation docs) request only the fields they consume via `fl`.
+- **Transformation I/O caching**: added per-worker (per-process) caches for opened grid datasets and unpickled mapping factors. Previously every granule re-opened `grids/{grid}.nc` and re-unpickled the precomputed factors file, repeating the same disk reads and unpickling thousands of times per worker. Each worker now loads a given grid and factors set once and reuses them; the factors cache is keyed by the factors filename (which encodes grid + hemisphere + `t_version`), so a version bump still forces a fresh load.
+
 ---
 
 ## [v2.2.1] — 2026-07-06
@@ -153,7 +164,8 @@ Named after the moon jellyfish (_Aurelia aurita_) — like the pipeline, it grac
 
 ---
 
-[Unreleased]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.2.1...HEAD
+[Unreleased]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.2.2...HEAD
+[v2.2.2]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.2.1...v2.2.2
 [v2.2.1]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.2.0...v2.2.1
 [v2.2.0]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.1.1...v2.2.0
 [v2.1.1]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.1.0...v2.1.1
