@@ -115,10 +115,11 @@ class TxJobFactory(baseclasses.Dataset):
         self.user_cpus = baseclasses.Config.user_cpus
         # fl scoped to the granule fields consumed downstream (get_tx_jobs,
         # need_to_update/need_to_transform, find_data_for_factors,
-        # reconstruct_tx_solr_doc). Keep in sync if new granule fields are read.
+        # reconstruct_tx_solr_doc, and the file_size_l harvest-quality check in
+        # multiprocess_transformation). Keep in sync if new granule fields are read.
         self.harvested_granules = solr_utils.solr_query(
             [f"dataset_s:{self.ds_name}", "type_s:granule", "harvest_success_b:true"],
-            fl="filename_s,date_dt,pre_transformation_file_path_s,checksum_s",
+            fl="filename_s,date_dt,pre_transformation_file_path_s,checksum_s,file_size_l",
         )
 
         if not baseclasses.Config.grids_to_use:
