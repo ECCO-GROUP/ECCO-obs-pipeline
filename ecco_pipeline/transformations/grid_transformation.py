@@ -26,6 +26,28 @@ logger = logging.getLogger(str(current_process().pid))
 BINARY_DTYPE = "f4"
 NETCDF_FILL_VALUE = nc4.default_fillvals[BINARY_DTYPE]
 
+# Per-process caches. Populated lazily by the first job to touch a given grid /
+# factors file in a worker, then reused for every subsequent granule that worker
+# handles. Module-level globals => each forked worker gets its own copy; there is
+# no cross-process sharing or synchronisation to worry about.
+_grid_ds_cache: dict = {}
+_factors_cache: dict = {}
+
+
+def load_grid(grid_name: str) -> xr.Dataset:
+    """
+    Open a target grid file once per worker process and reuse it thereafter.
+
+    Cached post-``reset_coords()`` to match the transform() call site. The returned
+    dataset is treated as read-only downstream (make_factors / transform only read
+    from it); any caller that needs to mutate it must copy first.
+    """
+    grid_ds = _grid_ds_cache.get(grid_name)
+    if grid_ds is None:
+        grid_ds = xr.open_dataset(f"grids/{grid_name}.nc").reset_coords()
+        _grid_ds_cache[grid_name] = grid_ds
+    return grid_ds
+
 
 class Transformation(Dataset):
     def __init__(self, config: dict, source_file_path: str, granule_date: str):
@@ -99,11 +121,18 @@ class Transformation(Dataset):
         factors_path = os.path.join(OUTPUT_DIR, self.ds_name, "transformed_products", factors_file)
         os.makedirs(os.path.dirname(factors_path), exist_ok=True)
 
+        # factors_path already encodes grid + hemi + t_version, so it is a correct
+        # cache key for hemispherical datasets and survives a t_version bump.
+        cached = _factors_cache.get(factors_path)
+        if cached is not None:
+            return cached
+
         if os.path.exists(factors_path):
             logger.debug(f"Loading {grid_name} factors")
             with open(factors_path, "rb") as f:
                 factors = pickle.load(f)
-                return factors
+            _factors_cache[factors_path] = factors
+            return factors
         else:
             logger.info(f"Creating {grid_name} factors for {self.ds_name}")
 
@@ -139,6 +168,7 @@ class Transformation(Dataset):
 
         with open(factors_path, "wb") as f:
             pickle.dump(factors, f)
+        _factors_cache[factors_path] = factors
         return factors
 
     def perform_mapping(self, ds: xr.Dataset, factors: Tuple, field: Field, model_grid: xr.Dataset) -> xr.DataArray:
@@ -476,7 +506,7 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
 
         try:
             logger.debug(f"Loading {grid_name} model grid")
-            grid_ds = xr.open_dataset(f"grids/{grid_name}.nc").reset_coords()
+            grid_ds = load_grid(grid_name)
             factors = T.make_factors(grid_ds)
             T.prepopulate_solr(source_file_path, grid_name, fields)
 
@@ -521,7 +551,7 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
                     f'pre_transformation_file_path_s:"{source_file_path}"',
                 ]
 
-                doc_id = solr_utils.solr_query(query_fq)[0]["id"]
+                doc_id = solr_utils.solr_query(query_fq, rows=1)[0]["id"]
 
                 transformation_successes = transformation_successes and success
                 transformation_file_paths[f"{grid_name}_{field.name}_transformation_file_path_s"] = transformed_location
@@ -541,7 +571,11 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
                     }
                 ]
 
-                r = solr_utils.solr_update(update_body, r=True)
+                # commit=False: this status update is not read back within the run
+                # (only by need_to_update on a later run), so let Solr batch the commit
+                # via commitWithin instead of forcing a hard commit per field — the
+                # per-write commits were saturating Solr during full-archive reprocesses.
+                r = solr_utils.solr_update(update_body, r=True, commit=False)
 
                 if r.status_code != 200:
                     logger.exception(
