@@ -177,6 +177,12 @@ class TxJobFactory(baseclasses.Dataset):
 
             self.summarize_results(results)
 
+            # Per-field completion writes use commitWithin (commit=False), so the
+            # last granules' success_b=True updates may not be committed yet. Flush
+            # them before pipeline_cleanup counts success_b:false, otherwise
+            # just-finished transformations transiently read as failed.
+            solr_utils.commit_solr()
+
     def summarize_results(self, results: Iterable[tuple]):
         """
         Log a summary of the per-granule status markers returned by

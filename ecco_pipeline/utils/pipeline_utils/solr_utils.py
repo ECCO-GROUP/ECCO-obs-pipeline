@@ -127,6 +127,22 @@ def solr_update(update_body: Iterable[dict], r: bool = False, commit: bool = Tru
         return response
 
 
+def commit_solr():
+    """
+    Force an immediate hard commit, flushing any writes made with commitWithin
+    (commit=False) that Solr has not yet committed.
+
+    Call this at a run boundary before reading back state that depends on those
+    deferred writes — e.g. after the transformation Pool finishes and before
+    pipeline_cleanup counts success_b:false docs. Without it, a still-pending
+    commitWithin batch makes just-completed transformations transiently read as
+    failed. It is a single commit, not a per-write one, so it does not reintroduce
+    the commit/searcher-warming storm that commitWithin exists to avoid.
+    """
+    url = f"{SOLR_HOST}{SOLR_COLLECTION}/update?commit=true"
+    _request("POST", url, json={"commit": {}})
+
+
 def ping_solr():
     """
     Ping Solr to ensure it is running
