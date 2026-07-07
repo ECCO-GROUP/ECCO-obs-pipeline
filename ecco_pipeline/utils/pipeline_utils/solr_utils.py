@@ -11,51 +11,136 @@ from conf.global_settings import SOLR_COLLECTION, SOLR_HOST
 
 logger = logging.getLogger("pipeline")
 
-_HEADERS = {"Connection": "close"}
 _TIMEOUT = 60
-_RETRY_DELAY = 5
+_MAX_RETRIES = 3           # retries after the initial attempt
+_BACKOFF_BASE = 2          # seconds; exponential backoff: 2, 4, 8, ...
+_COMMIT_WITHIN_MS = 15000  # let Solr batch commits instead of one hard commit per write
+
+# One requests.Session per process for connection reuse (keep-alive). Keyed on PID so
+# forked transformation/aggregation workers each build their own session rather than
+# inheriting — and corrupting — the parent's open sockets.
+_session = None
+_session_pid = None
+
+
+def _get_session() -> requests.Session:
+    global _session, _session_pid
+    pid = os.getpid()
+    if _session is None or _session_pid != pid:
+        _session = requests.Session()
+        _session_pid = pid
+    return _session
 
 
 def _request(method: str, url: str, **kwargs):
-    """Single retry wrapper for all Solr requests."""
-    kwargs.setdefault("headers", _HEADERS)
+    """
+    Wrapper for all Solr requests: reuses a per-process keep-alive session and retries
+    transient failures (timeouts, connection errors) with exponential backoff. HTTP
+    error statuses are returned as-is, matching prior behavior.
+    """
     kwargs.setdefault("timeout", _TIMEOUT)
-    try:
-        return requests.request(method, url, **kwargs)
-    except Exception as e:
-        logger.warning(f"Solr request failed ({e}), retrying in {_RETRY_DELAY}s...")
-        time.sleep(_RETRY_DELAY)
-        return requests.request(method, url, **kwargs)
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            return _get_session().request(method, url, **kwargs)
+        except Exception as e:
+            if attempt == _MAX_RETRIES:
+                logger.error(f"Solr request failed after {_MAX_RETRIES + 1} attempts: {e}")
+                raise
+            delay = _BACKOFF_BASE * (2 ** attempt)
+            logger.warning(f"Solr request failed ({e}), retry {attempt + 1}/{_MAX_RETRIES} in {delay}s...")
+            time.sleep(delay)
 
 
-def solr_query(fq: Iterable[str], fl: str = "") -> Iterable[dict]:
+_QUERY_BATCH = 10000  # cursorMark page size for full (unbounded) queries
+
+
+def _query_page(url: str, params: dict) -> dict:
+    """GET one Solr result page, raising a clear error on a non-OK response."""
+    response = _request("GET", url, params=params)
+    if not response.ok:
+        raise RuntimeError(
+            f"Solr query failed ({response.status_code}) for fq={params.get('fq')}: "
+            f"{response.text[:500]}"
+        )
+    return response.json()
+
+
+def solr_query(fq: Iterable[str], fl: str = "", rows: int | None = None) -> list[dict]:
     """
-    Submit query to Solr
+    Query Solr and return matching docs.
+
+    By default returns *all* matching docs via cursorMark deep paging, so large result
+    sets come back complete and in bounded batches — no silent truncation, no single
+    huge response. Pass rows=N for a bounded single-page fetch when only a few docs are
+    needed (e.g. a single-doc lookup: solr_query(fq, rows=1)[0]).
     """
-    query_params = {"q": "*:*", "fq": fq, "fl": fl, "rows": 300000}
     url = f"{SOLR_HOST}{SOLR_COLLECTION}/select?"
-    response = _request("GET", url, params=query_params)
-    return response.json()["response"]["docs"]
+
+    if rows is not None:
+        params = {"q": "*:*", "fq": fq, "fl": fl, "rows": rows}
+        return _query_page(url, params)["response"]["docs"]
+
+    params = {
+        "q": "*:*",
+        "fq": fq,
+        "fl": fl,
+        "sort": "id asc",  # cursorMark requires a deterministic sort on the uniqueKey
+        "rows": _QUERY_BATCH,
+        "cursorMark": "*",
+    }
+    docs = []
+    while True:
+        body = _query_page(url, params)
+        docs.extend(body["response"]["docs"])
+        next_cursor = body.get("nextCursorMark")
+        # cursorMark is exhausted when the returned mark stops advancing
+        if not next_cursor or next_cursor == params["cursorMark"]:
+            break
+        params["cursorMark"] = next_cursor
+    return docs
 
 
 def solr_count(fq: Iterable[str]) -> int:
     """
     Return the number of documents matching fq without fetching any docs.
     """
-    query_params = {"q": "*:*", "fq": fq, "rows": 0}
+    params = {"q": "*:*", "fq": fq, "rows": 0}
     url = f"{SOLR_HOST}{SOLR_COLLECTION}/select?"
-    response = _request("GET", url, params=query_params)
-    return response.json()["response"]["numFound"]
+    return _query_page(url, params)["response"]["numFound"]
 
 
-def solr_update(update_body: Iterable[dict], r: bool = False):
+def solr_update(update_body: Iterable[dict], r: bool = False, commit: bool = True):
     """
-    Submit update to Solr
+    Submit update to Solr.
+
+    commit=True forces an immediate hard commit — required when the caller reads the
+    written doc back in the same run (e.g. prepopulate_solr followed by solr_query).
+    commit=False uses commitWithin so Solr batches the commit; use it for high-frequency
+    writes with no read-your-write dependency to avoid a commit/searcher-warming storm.
     """
-    url = f"{SOLR_HOST}{SOLR_COLLECTION}/update?commit=true"
+    if commit:
+        url = f"{SOLR_HOST}{SOLR_COLLECTION}/update?commit=true"
+    else:
+        url = f"{SOLR_HOST}{SOLR_COLLECTION}/update?commitWithin={_COMMIT_WITHIN_MS}"
     response = _request("POST", url, json=update_body)
     if r:
         return response
+
+
+def commit_solr():
+    """
+    Force an immediate hard commit, flushing any writes made with commitWithin
+    (commit=False) that Solr has not yet committed.
+
+    Call this at a run boundary before reading back state that depends on those
+    deferred writes — e.g. after the transformation Pool finishes and before
+    pipeline_cleanup counts success_b:false docs. Without it, a still-pending
+    commitWithin batch makes just-completed transformations transiently read as
+    failed. It is a single commit, not a per-write one, so it does not reintroduce
+    the commit/searcher-warming storm that commitWithin exists to avoid.
+    """
+    url = f"{SOLR_HOST}{SOLR_COLLECTION}/update?commit=true"
+    _request("POST", url, json={"commit": {}})
 
 
 def ping_solr():
@@ -81,7 +166,7 @@ def check_grids():
     """
     Check if grids have been written to Solr
     """
-    if not solr_query(["type_s:grid"]):
+    if solr_count(["type_s:grid"]) == 0:
         return True
     return False
 

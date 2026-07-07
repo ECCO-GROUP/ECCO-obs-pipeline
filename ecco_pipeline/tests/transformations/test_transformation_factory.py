@@ -272,10 +272,11 @@ class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
             "notes": "",
         }
 
+    @patch("transformations.transformation_factory.solr_utils.solr_count")
     @patch("transformations.transformation_factory.solr_utils.solr_update")
     @patch("transformations.transformation_factory.solr_utils.solr_query")
     @patch("transformations.transformation_factory.baseclasses.Config")
-    def test_pipeline_cleanup_all_successful(self, mock_config, mock_query, mock_update):
+    def test_pipeline_cleanup_all_successful(self, mock_config, mock_query, mock_update, mock_count):
         """Test cleanup when all transformations successful."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = ["grid"]
@@ -284,9 +285,9 @@ class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
         mock_query.side_effect = [
             [],  # harvested granules
             [{"id": "dataset_id"}],  # dataset metadata
-            [{"id": "tx1"}],  # successful transformations
-            [],  # failed transformations
         ]
+        # pipeline_cleanup counts successful then failed transformations.
+        mock_count.side_effect = [1, 0]
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -299,10 +300,11 @@ class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
 
         self.assertEqual(result, "All transformations successful")
 
+    @patch("transformations.transformation_factory.solr_utils.solr_count")
     @patch("transformations.transformation_factory.solr_utils.solr_update")
     @patch("transformations.transformation_factory.solr_utils.solr_query")
     @patch("transformations.transformation_factory.baseclasses.Config")
-    def test_pipeline_cleanup_some_failed(self, mock_config, mock_query, mock_update):
+    def test_pipeline_cleanup_some_failed(self, mock_config, mock_query, mock_update, mock_count):
         """Test cleanup when some transformations failed."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = ["grid"]
@@ -310,9 +312,8 @@ class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
         mock_query.side_effect = [
             [],  # harvested granules
             [{"id": "dataset_id"}],  # dataset metadata
-            [{"id": "tx1"}],  # successful transformations
-            [{"id": "tx2"}, {"id": "tx3"}],  # failed transformations
         ]
+        mock_count.side_effect = [1, 2]  # successful, failed
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -325,10 +326,11 @@ class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
 
         self.assertEqual(result, "2 transformations failed")
 
+    @patch("transformations.transformation_factory.solr_utils.solr_count")
     @patch("transformations.transformation_factory.solr_utils.solr_update")
     @patch("transformations.transformation_factory.solr_utils.solr_query")
     @patch("transformations.transformation_factory.baseclasses.Config")
-    def test_pipeline_cleanup_none_performed(self, mock_config, mock_query, mock_update):
+    def test_pipeline_cleanup_none_performed(self, mock_config, mock_query, mock_update, mock_count):
         """Test cleanup when no transformations performed."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = ["grid"]
@@ -336,9 +338,8 @@ class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
         mock_query.side_effect = [
             [],  # harvested granules
             [{"id": "dataset_id"}],  # dataset metadata
-            [],  # successful transformations
-            [],  # failed transformations
         ]
+        mock_count.side_effect = [0, 0]  # successful, failed
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -380,9 +381,101 @@ class MultiprocessTransformationTestCase(unittest.TestCase):
         granule = {"pre_transformation_file_path_s": "/data/test.nc", "file_size_l": 1000, "date_dt": "2020-01-01"}
         tx_jobs = {"grid": ["field"]}
 
-        multiprocess_transformation(config, granule, tx_jobs, "INFO", "/logs")
+        result = multiprocess_transformation(config, granule, tx_jobs, "INFO", "/logs")
 
         mock_transform.assert_called_once_with("/data/test.nc", tx_jobs, config, "2020-01-01")
+        # No filename_s on the granule, so the marker falls back to the file path.
+        self.assertEqual(result, ("/data/test.nc", "ok", ""))
+
+    @patch("transformations.transformation_factory.transform")
+    @patch("transformations.transformation_factory.log_config.mp_logging")
+    def test_multiprocess_returns_error_marker_on_exception(self, mock_logging, mock_transform):
+        """A granule that raises (e.g. in load_file) returns an error marker, not an exception."""
+        mock_logger = MagicMock()
+        mock_logging.return_value = mock_logger
+        mock_transform.side_effect = RuntimeError("load_file blew up")
+
+        config = {"ds_name": "TEST"}
+        granule = {
+            "filename_s": "bad.nc",
+            "pre_transformation_file_path_s": "/data/bad.nc",
+            "file_size_l": 1000,
+            "date_dt": "2020-01-01",
+        }
+        tx_jobs = {"grid": ["field"]}
+
+        # Must not raise — the whole batch would abort otherwise.
+        result = multiprocess_transformation(config, granule, tx_jobs, "INFO", "/logs")
+
+        self.assertEqual(result[0], "bad.nc")
+        self.assertEqual(result[1], "error")
+        self.assertIn("load_file blew up", result[2])
+
+
+class TxJobFactoryReconstructTestCase(unittest.TestCase):
+    """Tests for TxJobFactory.reconstruct_tx_solr_doc."""
+
+    def get_base_config(self):
+        return {
+            "ds_name": "TEST_DATASET",
+            "start": "20200101T00:00:00Z",
+            "end": "20201231T00:00:00Z",
+            "data_time_scale": "daily",
+            "fields": [
+                {
+                    "name": "test_field",
+                    "long_name": "Test Field",
+                    "standard_name": "test",
+                    "units": "1",
+                    "pre_transformations": [],
+                    "post_transformations": [],
+                }
+            ],
+            "original_dataset_title": "Test",
+            "original_dataset_short_name": "TEST",
+            "original_dataset_url": "https://example.com",
+            "original_dataset_reference": "Ref",
+            "original_dataset_doi": "10.1234/test",
+            "t_version": 1.0,
+            "a_version": 1.0,
+            "notes": "",
+        }
+
+    @patch("transformations.transformation_factory.file_utils.md5")
+    @patch("transformations.transformation_factory.os.path.getmtime")
+    @patch("transformations.transformation_factory.solr_utils.solr_update")
+    @patch("transformations.transformation_factory.solr_utils.solr_query")
+    @patch("transformations.transformation_factory.baseclasses.Config")
+    def test_reconstruct_uses_commitwithin(
+        self, mock_config, mock_query, mock_update, mock_getmtime, mock_md5
+    ):
+        """Reconstruct writes must use commitWithin (commit=False), not a per-doc hard
+        commit — the latter was a commit storm that hung job generation for minutes."""
+        mock_config.user_cpus = 1
+        mock_config.grids_to_use = ["grid"]
+        mock_query.return_value = []
+        mock_getmtime.return_value = 0
+        mock_md5.return_value = "checksum"
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_update.return_value = mock_response
+
+        factory = TxJobFactory(self.get_base_config())
+
+        field = MagicMock()
+        field.name = "test_field"
+        granule = {
+            "filename_s": "test1.nc",
+            "date_dt": "2020-01-01T00:00:00Z",
+            "pre_transformation_file_path_s": "/data/test1.nc",
+            "checksum_s": "abc",
+        }
+
+        factory.reconstruct_tx_solr_doc(granule, "grid", field)
+
+        self.assertEqual(mock_update.call_count, 1)
+        _, kwargs = mock_update.call_args
+        self.assertFalse(kwargs.get("commit", True))
 
 
 if __name__ == "__main__":

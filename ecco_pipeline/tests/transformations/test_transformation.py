@@ -9,6 +9,7 @@ from unittest.mock import patch, MagicMock
 import numpy as np
 import xarray as xr
 
+import transformations.grid_transformation as grid_transformation
 from transformations.grid_transformation import Transformation
 
 
@@ -121,6 +122,13 @@ class TransformationInitTestCase(unittest.TestCase):
 class TransformationMakeFactorsTestCase(unittest.TestCase):
     """Tests for Transformation.make_factors method."""
 
+    def setUp(self):
+        # make_factors memoizes loaded factors in a module-level per-process cache
+        # keyed by factors_path. Clear it between tests so one test's cached entry
+        # doesn't hide another test's disk read.
+        grid_transformation._factors_cache.clear()
+        grid_transformation._grid_ds_cache.clear()
+
     def get_base_config(self):
         """Return a base configuration for testing."""
         return {
@@ -164,6 +172,32 @@ class TransformationMakeFactorsTestCase(unittest.TestCase):
             result = T.make_factors(grid_ds)
 
         self.assertEqual(result, expected_factors)
+        mock_load.assert_called_once()
+
+    @patch("transformations.grid_transformation.pickle.dump")
+    @patch("transformations.grid_transformation.pickle.load")
+    @patch("transformations.grid_transformation.os.path.exists")
+    @patch("transformations.grid_transformation.os.makedirs")
+    def test_make_factors_reads_pickle_once_across_calls(
+        self, mock_makedirs, mock_exists, mock_load, mock_dump
+    ):
+        """Two make_factors calls in one process unpickle the factors file only once."""
+        mock_exists.return_value = True
+        expected_factors = ({"0": [0, 1]}, [2], {"3": 4})
+        mock_load.return_value = expected_factors
+
+        config = self.get_base_config()
+        T = Transformation(config, "/data/test.nc", "2020-01-01")
+
+        grid_ds = MagicMock()
+        grid_ds.name = "test_grid"
+
+        with patch("builtins.open", MagicMock()):
+            first = T.make_factors(grid_ds)
+            second = T.make_factors(grid_ds)
+
+        self.assertEqual(first, expected_factors)
+        self.assertEqual(second, expected_factors)
         mock_load.assert_called_once()
 
     @patch("transformations.grid_transformation.transformation_utils.find_mappings_from_source_to_target")

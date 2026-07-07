@@ -16,9 +16,20 @@ logger = logging.getLogger("pipeline")
 
 def multiprocess_transformation(
     config: dict, granule: dict, tx_jobs: dict, log_level: str, log_dir: str
-):
+) -> tuple:
     """
     Callable function that performs the actual transformation on a granule.
+
+    Returns a status marker ``(granule_name, status, detail)`` so the Pool driver
+    can surface worker failures instead of silently dropping them. ``status`` is
+    one of:
+      - "ok":      transformation ran (per-grid failures are tracked in Solr).
+      - "skipped": granule was not harvested properly and was intentionally skipped.
+      - "error":   an unhandled exception escaped the transform path.
+
+    The whole body is exception-safe: a granule that hard-crashes returns an
+    "error" marker rather than propagating, so one bad granule cannot abort the
+    rest of the batch (and the single-CPU loop stays robust for free).
     """
     try:
         logger = log_config.mp_logging(str(current_process().pid), log_level, log_dir)
@@ -26,72 +37,75 @@ def multiprocess_transformation(
         print(e)
 
     granule_filepath = granule.get("pre_transformation_file_path_s")
+    granule_name = granule.get("filename_s") or granule_filepath or "<unknown granule>"
     granule_date = granule.get("date_dt")
 
-    # Skips granules that weren't harvested properly
-    file_size = granule.get("file_size_l") or 0
-    if not granule_filepath or file_size < 100:
-        if not granule_filepath:
-            error_msg = "Granule not harvested properly: no source file path recorded."
-        else:
-            error_msg = (
-                f"Granule not harvested properly: source file missing or too small "
-                f"({file_size} bytes)."
-            )
-        logger.error(
-            f"{granule.get('filename_s', granule_filepath)}: {error_msg} Skipping."
-        )
-
-        completed_dt = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-        updates = []
-        for grid_name, fields in tx_jobs.items():
-            for field in fields:
-                docs = []
-                if granule_filepath:
-                    fq = [
-                        f"dataset_s:{config['ds_name']}",
-                        "type_s:transformation",
-                        f"grid_name_s:{grid_name}",
-                        f"field_s:{field.name}",
-                        f'pre_transformation_file_path_s:"{granule_filepath}"',
-                    ]
-                    docs = solr_utils.solr_query(fq)
-                if docs:
-                    updates.append({
-                        "id": docs[0]["id"],
-                        "success_b": {"set": False},
-                        "transformation_in_progress_b": {"set": False},
-                        "transformation_completed_dt": {"set": completed_dt},
-                        "error_message_s": {"set": error_msg},
-                    })
-                else:
-                    # No transformation doc exists yet — create one so the failure
-                    # is visible on the dashboard instead of silently skipped.
-                    updates.append({
-                        "type_s": "transformation",
-                        "dataset_s": config["ds_name"],
-                        "date_dt": granule_date,
-                        "grid_name_s": grid_name,
-                        "field_s": field.name,
-                        "pre_transformation_file_path_s": granule_filepath or "",
-                        "transformation_started_dt": completed_dt,
-                        "transformation_completed_dt": completed_dt,
-                        "transformation_in_progress_b": False,
-                        "success_b": False,
-                        "error_message_s": error_msg,
-                    })
-        if updates:
-            solr_utils.solr_update(updates)
-        return
-
-    # Perform remaining transformations
     try:
+        # Skips granules that weren't harvested properly
+        file_size = granule.get("file_size_l") or 0
+        if not granule_filepath or file_size < 100:
+            if not granule_filepath:
+                error_msg = "Granule not harvested properly: no source file path recorded."
+            else:
+                error_msg = (
+                    f"Granule not harvested properly: source file missing or too small "
+                    f"({file_size} bytes)."
+                )
+            logger.error(f"{granule_name}: {error_msg} Skipping.")
+
+            completed_dt = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+            updates = []
+            for grid_name, fields in tx_jobs.items():
+                for field in fields:
+                    docs = []
+                    if granule_filepath:
+                        fq = [
+                            f"dataset_s:{config['ds_name']}",
+                            "type_s:transformation",
+                            f"grid_name_s:{grid_name}",
+                            f"field_s:{field.name}",
+                            f'pre_transformation_file_path_s:"{granule_filepath}"',
+                        ]
+                        docs = solr_utils.solr_query(fq)
+                    if docs:
+                        updates.append({
+                            "id": docs[0]["id"],
+                            "success_b": {"set": False},
+                            "transformation_in_progress_b": {"set": False},
+                            "transformation_completed_dt": {"set": completed_dt},
+                            "error_message_s": {"set": error_msg},
+                        })
+                    else:
+                        # No transformation doc exists yet — create one so the failure
+                        # is visible on the dashboard instead of silently skipped.
+                        updates.append({
+                            "type_s": "transformation",
+                            "dataset_s": config["ds_name"],
+                            "date_dt": granule_date,
+                            "grid_name_s": grid_name,
+                            "field_s": field.name,
+                            "pre_transformation_file_path_s": granule_filepath or "",
+                            "transformation_started_dt": completed_dt,
+                            "transformation_completed_dt": completed_dt,
+                            "transformation_in_progress_b": False,
+                            "success_b": False,
+                            "error_message_s": error_msg,
+                        })
+            if updates:
+                solr_utils.solr_update(updates)
+            return (granule_name, "skipped", error_msg)
+
+        # Perform remaining transformations
         logger.info(
             f'{sum([len(v) for v in tx_jobs.values()])} remaining transformations for {granule_filepath.split("/")[-1]}'
         )
         transform(granule_filepath, tx_jobs, config, granule_date)
+        return (granule_name, "ok", "")
     except Exception as e:
-        logger.exception(f"Error transforming {granule_filepath}: {e}")
+        # Outer safety net: catches cases not already handled inside transform()
+        # (Transformation construction, load_file, factor load, unexpected errors).
+        logger.exception(f"Error transforming {granule_name}: {e}")
+        return (granule_name, "error", str(e) or repr(e))
 
 
 class TxJobFactory(baseclasses.Dataset):
@@ -99,8 +113,17 @@ class TxJobFactory(baseclasses.Dataset):
         super().__init__(config)
         self.config = config
         self.user_cpus = baseclasses.Config.user_cpus
+        # Count of transformation docs rebuilt from existing outputs during job
+        # generation (get_tx_jobs); surfaced so a reconstruction-only run reports
+        # its status instead of "No transformations performed".
+        self.reconstructed_count = 0
+        # fl scoped to the granule fields consumed downstream (get_tx_jobs,
+        # need_to_update/need_to_transform, find_data_for_factors,
+        # reconstruct_tx_solr_doc, and the file_size_l harvest-quality check in
+        # multiprocess_transformation). Keep in sync if new granule fields are read.
         self.harvested_granules = solr_utils.solr_query(
-            [f"dataset_s:{self.ds_name}", "type_s:granule", "harvest_success_b:true"]
+            [f"dataset_s:{self.ds_name}", "type_s:granule", "harvest_success_b:true"],
+            fl="filename_s,date_dt,pre_transformation_file_path_s,checksum_s,file_size_l",
         )
 
         if not baseclasses.Config.grids_to_use:
@@ -120,9 +143,14 @@ class TxJobFactory(baseclasses.Dataset):
         self.initialize_jobs()
         if self.job_params:
             self.execute_jobs()
-        else:
+        elif not self.reconstructed_count:
+            # No new transformations and nothing reconstructed — genuinely nothing
+            # changed, so skip the cleanup queries.
             return "No transformations performed"
 
+        # Either new transformations ran or docs were reconstructed from existing
+        # outputs during job generation; run cleanup so the dataset status and
+        # counts reflect the actual Solr state (and refresh the dashboard).
         pipeline_status = self.pipeline_cleanup()
         return pipeline_status
 
@@ -137,8 +165,10 @@ class TxJobFactory(baseclasses.Dataset):
         if self.job_params:
             if self.user_cpus == 1:
                 logger.info("Not using multiprocessing to do transformation")
-                for job_param in self.job_params:
+                results = [
                     multiprocess_transformation(*job_param)
+                    for job_param in self.job_params
+                ]
             else:
                 user_cpus = min(
                     self.user_cpus, int(cpu_count() / 4), len(self.job_params)
@@ -147,34 +177,66 @@ class TxJobFactory(baseclasses.Dataset):
                     f"Using {user_cpus} CPUs to do {len(self.job_params)} multiprocess transformation jobs"
                 )
 
+                # Synchronous starmap so worker return markers are collected (and any
+                # unhandled exception is re-raised here). multiprocess_transformation
+                # is exception-safe and returns a marker instead of propagating, so one
+                # bad granule no longer aborts the remaining jobs.
                 with Pool(processes=user_cpus) as pool:
-                    pool.starmap_async(multiprocess_transformation, self.job_params)
-                    pool.close()
-                    pool.join()
+                    results = pool.starmap(multiprocess_transformation, self.job_params)
+
+            self.summarize_results(results)
+
+            # Per-field completion writes use commitWithin (commit=False), so the
+            # last granules' success_b=True updates may not be committed yet. Flush
+            # them before pipeline_cleanup counts success_b:false, otherwise
+            # just-finished transformations transiently read as failed.
+            solr_utils.commit_solr()
+
+    def summarize_results(self, results: Iterable[tuple]):
+        """
+        Log a summary of the per-granule status markers returned by
+        multiprocess_transformation so worker-level failures are visible.
+        """
+        results = [r for r in results if r]
+        total = len(results)
+        errors = [r for r in results if r[1] == "error"]
+        skipped = [r for r in results if r[1] == "skipped"]
+
+        if errors:
+            logger.error(
+                f"{len(errors)} of {total} granules failed with an unhandled worker error:"
+            )
+            for granule_name, _, detail in errors:
+                logger.error(f"  {granule_name}: {detail}")
+        if skipped:
+            logger.warning(
+                f"{len(skipped)} of {total} granules were skipped (not harvested properly)."
+            )
+        logger.info(
+            f"Transformation batch complete: {total - len(errors) - len(skipped)} of "
+            f"{total} granules processed without a worker-level error."
+        )
 
     def pipeline_cleanup(self) -> str:
         # Query Solr for dataset metadata
         fq = [f"dataset_s:{self.ds_name}", "type_s:dataset"]
-        dataset_metadata = solr_utils.solr_query(fq)[0]
+        dataset_metadata = solr_utils.solr_query(fq, rows=1)[0]
 
-        # Query Solr for successful transformation documents
+        # Only counts are used below, so count instead of fetching every doc.
         fq = [f"dataset_s:{self.ds_name}", "type_s:transformation", "success_b:true"]
-        successful_transformations = solr_utils.solr_query(fq)
+        successful_count = solr_utils.solr_count(fq)
 
-        # Query Solr for failed transformation documents
         fq = [f"dataset_s:{self.ds_name}", "type_s:transformation", "success_b:false"]
-        failed_transformations = solr_utils.solr_query(fq)
+        failed_count = solr_utils.solr_count(fq)
 
         transformation_status = "All transformations successful"
 
-        if not successful_transformations and not failed_transformations:
+        if not successful_count and not failed_count:
             transformation_status = "No transformations performed"
-        elif not successful_transformations:
+        elif not successful_count:
             transformation_status = "No successful transformations"
-        elif failed_transformations:
-            transformation_status = (
-                f"{len(failed_transformations)} transformations failed"
-            )
+        elif failed_count:
+            transformation_status = f"{failed_count} transformations failed"
 
         # Update Solr dataset entry status to transformed
         update_body = [
@@ -258,12 +320,19 @@ class TxJobFactory(baseclasses.Dataset):
 
     def get_tx_jobs(self):
         fq = [f"dataset_s:{self.ds_name}", "type_s:transformation"]
-        solr_txs = solr_utils.solr_query(fq)
+        # fl scoped to the tx fields used below + in need_to_update(). This is the
+        # largest query in the stage (granules x grids x fields); keep in sync if new
+        # tx fields are read here.
+        solr_txs = solr_utils.solr_query(
+            fq,
+            fl="pre_transformation_file_path_s,field_s,grid_name_s,success_b,transformation_version_f,origin_checksum_s",
+        )
         tx_dict = defaultdict(list)
         for tx in solr_txs:
             tx_dict[tx["pre_transformation_file_path_s"].split("/")[-1]].append(tx)
 
         all_jobs = []
+        reconstructed = 0
         for granule in self.harvested_granules:
             grid_fields = {}
             for grid in self.grids:
@@ -278,12 +347,31 @@ class TxJobFactory(baseclasses.Dataset):
                         update = self.need_to_transform(granule, grid, field)
                         if not update:
                             self.reconstruct_tx_solr_doc(granule, grid, field)
+                            reconstructed += 1
+                            # Reconstruction hashes each output file, so a large
+                            # backlog takes minutes — log progress so job generation
+                            # doesn't look hung.
+                            if reconstructed % 250 == 0:
+                                logger.info(
+                                    f"Reconstructed {reconstructed} missing transformation "
+                                    f"docs from existing outputs so far..."
+                                )
                     if update:
                         fields_for_grid.append(field)
                 if fields_for_grid:
                     grid_fields[grid] = fields_for_grid
             if grid_fields:
                 all_jobs.append((granule, grid_fields))
+
+        self.reconstructed_count = reconstructed
+        if reconstructed:
+            logger.info(
+                f"Reconstructed {reconstructed} missing transformation Solr doc(s) from "
+                f"existing outputs (no re-transformation needed)."
+            )
+            # reconstruct_tx_solr_doc uses commitWithin; flush the batch now so the
+            # docs are searchable before pipeline_cleanup counts them.
+            solr_utils.commit_solr()
         return all_jobs
 
     def need_to_update(self, granule: dict, tx: dict) -> bool:
@@ -407,7 +495,12 @@ class TxJobFactory(baseclasses.Dataset):
             "error_message_s": "",
         }
 
-        r = solr_utils.solr_update([doc], r=True)
+        # commit=False: these are written in bulk from get_tx_jobs (one per missing
+        # grid/field/granule doc) and are not read back within the same run. A hard
+        # commit per doc was a commit/searcher-warming storm that made job generation
+        # hang for minutes on datasets with many existing outputs. get_tx_jobs issues
+        # a single commit after the batch.
+        r = solr_utils.solr_update([doc], r=True, commit=False)
         if r.status_code == 200:
             logger.debug(f"Reconstructed missing Solr transformation doc for {output_filename}")
         else:

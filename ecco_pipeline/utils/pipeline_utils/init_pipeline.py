@@ -149,7 +149,7 @@ def update_solr_grid(grid_name: str, grid_type: str, grid_file_path: str):
 
             # Update grid on Solr
             fq = [f"grid_name_s:{grid_name}", "type_s:grid"]
-            grid_metadata = solr_utils.solr_query(fq)[0]
+            grid_metadata = solr_utils.solr_query(fq, rows=1)[0]
 
             update_body = [
                 {
