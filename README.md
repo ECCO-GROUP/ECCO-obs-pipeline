@@ -65,6 +65,11 @@ In either case, the pipeline will default to using the list of grids provided in
 python ecco_pipeline/run_pipeline.py --grids_to_use ECCO_llc90
 ```
 
+The transformation step runs in parallel across multiple processes. The number of worker processes is set with `--multiprocesses` (default: half the system's CPU count; max: the full CPU count). ex:
+```
+python ecco_pipeline/run_pipeline.py --multiprocesses 8
+```
+
 The default logging level is set to `info` but is adjustable via the `--log_level` flag when running the pipeline. ex:
 ```
 python ecco_pipeline/run_pipeline.py --log_level DEBUG
