@@ -2,9 +2,10 @@ import logging
 import os
 import pickle
 import warnings
+from dataclasses import dataclass
 from datetime import datetime
 from multiprocessing import current_process
-from typing import Iterable, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 import netCDF4 as nc4
 import numpy as np
@@ -12,8 +13,7 @@ import pyresample as pr
 import xarray as xr
 from baseclasses import Dataset, Field
 from conf.global_settings import OUTPUT_DIR
-from requests import HTTPError
-from utils.pipeline_utils import file_utils, solr_utils
+from utils.pipeline_utils import file_utils
 from utils.processing_utils import ds_functions, records, transformation_utils
 from utils.processing_utils.ds_functions import (
     PosttransformationFuncs,
@@ -22,6 +22,29 @@ from utils.processing_utils.ds_functions import (
 )
 
 logger = logging.getLogger(str(current_process().pid))
+
+
+@dataclass
+class TxResult:
+    """
+    Outcome of transforming one (grid, field) for one granule, returned by a worker
+    to the parent (see ADR 0001). Workers are pure compute: they write the output
+    netCDF and hand back these records; the parent (TxJobFactory) does all Solr I/O
+    in batch, keyed by ``doc_id``.
+
+    ``doc_id`` is preassigned by the parent in prepopulate_jobs() before dispatch, so
+    no per-field Solr read-back is needed to locate the doc. On failure the
+    file-related fields stay None and ``error_message`` explains why.
+    """
+
+    doc_id: Optional[str]
+    grid: str
+    field: str
+    success: bool
+    output_filename: Optional[str] = None
+    output_path: Optional[str] = None
+    checksum: Optional[str] = None
+    error_message: str = ""
 
 BINARY_DTYPE = "f4"
 NETCDF_FILL_VALUE = nc4.default_fillvals[BINARY_DTYPE]
@@ -412,93 +435,31 @@ class Transformation(Dataset):
         ds.attrs["original_file_name"] = self.file_name
         return ds
 
-    def prepopulate_solr(self, source_file_path: str, grid_name: str, fields: Iterable["Field"] = None):
-        """
-        Populate Solr with transformation entries prior to attempting transformation.
-        Only operates on the given `fields` subset (defaults to self.fields). Passing a
-        subset is required when only some fields need re-transformation — otherwise
-        docs for fields not in the per-field update loop get stuck at success_b=False.
-        """
-        update_body = []
-        fields_iter = fields if fields is not None else self.fields
-        for field in fields_iter:
-            logger.debug(f"Transforming {field.name}")
-
-            # Query if grid/field combination transformation entry exists
-            query_fq = [
-                f"dataset_s:{self.ds_name}",
-                "type_s:transformation",
-                f"grid_name_s:{grid_name}",
-                f"field_s:{field.name}",
-                f'pre_transformation_file_path_s:"{source_file_path}"',
-            ]
-            docs = solr_utils.solr_query(query_fq)
-            transform = {}
-
-            # If grid/field combination transformation exists, update transformation status
-            # Otherwise initialize new transformation entry
-            # Query for granule entry to get current checksum
-            granule_fq = [
-                f"dataset_s:{self.ds_name}",
-                "type_s:granule",
-                f'pre_transformation_file_path_s:"{source_file_path}"',
-            ]
-            granule_docs = solr_utils.solr_query(granule_fq)
-
-            # Sentinel error_message — if the per-field update never runs (worker crash,
-            # process kill, etc.) the doc shows this instead of an empty field.
-            in_progress_msg = "Transformation in progress (or interrupted before completion)"
-
-            if len(docs) > 0:
-                # Reset status fields and update checksum in case granule was re-harvested
-                transform["id"] = docs[0]["id"]
-                transform["transformation_in_progress_b"] = {"set": True}
-                transform["success_b"] = {"set": False}
-                transform["transformation_started_dt"] = {"set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")}
-                transform["error_message_s"] = {"set": in_progress_msg}
-                if granule_docs:
-                    transform["origin_checksum_s"] = {"set": granule_docs[0]["checksum_s"]}
-            else:
-                docs = granule_docs
-
-                # Initialize new transformation entry
-                transform["type_s"] = "transformation"
-                transform["date_dt"] = self.date
-                transform["dataset_s"] = self.ds_name
-                transform["transformation_started_dt"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-                transform["pre_transformation_file_path_s"] = source_file_path
-                transform["hemisphere_s"] = self.hemi.replace("_", "")
-                transform["origin_checksum_s"] = docs[0]["checksum_s"]
-                transform["grid_name_s"] = grid_name
-                transform["field_s"] = field.name
-                transform["transformation_in_progress_b"] = True
-                transform["success_b"] = False
-                transform["error_message_s"] = in_progress_msg
-            update_body.append(transform)
-        r = solr_utils.solr_update(update_body, r=True)
-        try:
-            r.raise_for_status()
-        except HTTPError:
-            logger.exception(f"Failed to update Solr transformation status for {self.ds_name} on {self.date}")
-            raise HTTPError
-
-
-def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: str):
+def transform(
+    source_file_path: str,
+    tx_jobs: dict,
+    config: dict,
+    granule_date: str,
+    doc_id_map: dict,
+) -> List[TxResult]:
     """
-    Performs and saves locally all remaining transformations for a given source granule
-    Updates Solr with transformation entries and dataset entries
+    Pure compute (ADR 0001): performs and saves locally all remaining transformations
+    for one source granule and returns a ``TxResult`` per (grid, field). Makes NO Solr
+    calls — the parent (TxJobFactory) records every returned result in batch, mapping
+    each back to its doc via the preassigned ``doc_id``.
+
+    ``doc_id_map`` maps ``(grid_name, field_name) -> doc_id`` for every (grid, field)
+    in ``tx_jobs``; the parent assigned these ids in prepopulate_jobs() before dispatch.
     """
     T = Transformation(config, source_file_path, granule_date)
-
-    transformation_successes = True
-    transformation_file_paths = {}
-    grids_updated = []
 
     logger.debug(f"Loading {T.file_name} data")
     ds = T.load_file(source_file_path)
 
     grid_fields = [[f"({grid_name}, {field})" for field in tx_jobs[grid_name]] for grid_name in tx_jobs.keys()]
     logger.debug(f"{T.file_name} needs to transform: {grid_fields} ")
+
+    results: List[TxResult] = []
 
     # Iterate through grids in remaining_transformations
     for grid_name in tx_jobs.keys():
@@ -508,7 +469,6 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
             logger.debug(f"Loading {grid_name} model grid")
             grid_ds = load_grid(grid_name)
             factors = T.make_factors(grid_ds)
-            T.prepopulate_solr(source_file_path, grid_name, fields)
 
             # =====================================================
             # Run transformation
@@ -516,8 +476,7 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
             logger.debug(f"Running transformations for {T.file_name}")
 
             # Returns list of transformed DSs, one per entry in `fields` (subset of
-            # self.fields). Must match the same `fields` we just prepopulated so the
-            # zip below pairs correctly.
+            # self.fields), aligned with `fields` so the zip below pairs correctly.
             field_DSs = T.transform(grid_ds, factors, ds, fields)
 
             # =====================================================
@@ -542,73 +501,38 @@ def transform(source_file_path: str, tx_jobs: dict, config: dict, granule_date: 
                 # save field_DS
                 records.save_netcdf(field_DS, output_filename, output_path)
 
-                # Query Solr for transformation entry
-                query_fq = [
-                    f"dataset_s:{T.ds_name}",
-                    "type_s:transformation",
-                    f"grid_name_s:{grid_name}",
-                    f"field_s:{field.name}",
-                    f'pre_transformation_file_path_s:"{source_file_path}"',
-                ]
-
-                doc_id = solr_utils.solr_query(query_fq, rows=1)[0]["id"]
-
-                transformation_successes = transformation_successes and success
-                transformation_file_paths[f"{grid_name}_{field.name}_transformation_file_path_s"] = transformed_location
-
-                # Update Solr transformation entry with file paths and status
-                update_body = [
-                    {
-                        "id": doc_id,
-                        "filename_s": {"set": output_filename},
-                        "transformation_file_path_s": {"set": transformed_location},
-                        "transformation_completed_dt": {"set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")},
-                        "transformation_in_progress_b": {"set": False},
-                        "success_b": {"set": success},
-                        "transformation_checksum_s": {"set": file_utils.md5(transformed_location)},
-                        "transformation_version_f": {"set": T.transformation_version},
-                        "error_message_s": {"set": error_message},
-                    }
-                ]
-
-                # commit=False: this status update is not read back within the run
-                # (only by need_to_update on a later run), so let Solr batch the commit
-                # via commitWithin instead of forcing a hard commit per field — the
-                # per-write commits were saturating Solr during full-archive reprocesses.
-                r = solr_utils.solr_update(update_body, r=True, commit=False)
-
-                if r.status_code != 200:
-                    logger.exception(
-                        f'Failed to update Solr transformation entry for {field["name"]} in {T.ds_name} on {T.date}'
+                # Checksum the just-written file here in the worker (local I/O on a
+                # fresh file); the parent only records the value, never re-reads it.
+                results.append(
+                    TxResult(
+                        doc_id=doc_id_map.get((grid_name, field.name)),
+                        grid=grid_name,
+                        field=field.name,
+                        success=success,
+                        output_filename=output_filename,
+                        output_path=transformed_location,
+                        checksum=file_utils.md5(transformed_location),
+                        error_message=error_message,
                     )
-
-                if success and grid_name not in grids_updated:
-                    grids_updated.append(grid_name)
+                )
 
         except Exception as e:
             error_str = str(e) or repr(e)
             logger.exception(f"Transformation failed for {T.file_name} on grid {grid_name}: {error_str}")
-            transformation_successes = False
-            completed_dt = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-            failed_updates = []
+            # A grid-level failure (load_grid, make_factors, or an unexpected error)
+            # fails every field for this grid; emit a failure result for each so the
+            # parent marks them failed rather than leaving them stuck in-progress.
             for field in fields:
-                query_fq = [
-                    f"dataset_s:{T.ds_name}",
-                    "type_s:transformation",
-                    f"grid_name_s:{grid_name}",
-                    f"field_s:{field.name}",
-                    f'pre_transformation_file_path_s:"{source_file_path}"',
-                ]
-                docs = solr_utils.solr_query(query_fq)
-                if docs:
-                    failed_updates.append({
-                        "id": docs[0]["id"],
-                        "success_b": {"set": False},
-                        "transformation_in_progress_b": {"set": False},
-                        "transformation_completed_dt": {"set": completed_dt},
-                        "error_message_s": {"set": error_str},
-                    })
-            if failed_updates:
-                solr_utils.solr_update(failed_updates)
+                results.append(
+                    TxResult(
+                        doc_id=doc_id_map.get((grid_name, field.name)),
+                        grid=grid_name,
+                        field=field.name,
+                        success=False,
+                        error_message=error_str,
+                    )
+                )
 
-        logger.debug(f"CPU id {os.getpid()} saving {T.file_name} output file for grid {grid_name}")
+        logger.debug(f"CPU id {os.getpid()} saved {T.file_name} output files for grid {grid_name}")
+
+    return results
