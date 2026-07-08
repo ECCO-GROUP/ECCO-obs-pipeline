@@ -3,7 +3,7 @@ import os
 import uuid
 from collections import defaultdict
 from datetime import datetime
-from multiprocessing import Pool, cpu_count, current_process
+from multiprocessing import Pool, current_process
 from typing import Iterable
 
 import xarray as xr
@@ -150,9 +150,10 @@ class TxJobFactory(baseclasses.Dataset):
                     for job_param in self.job_params
                 ]
             else:
-                user_cpus = min(
-                    self.user_cpus, int(cpu_count() / 4), len(self.job_params)
-                )
+                # Honor the user's requested process count (already bounded to
+                # [1, cpu_count()] by the --multiprocesses argparse choices), capped
+                # only by the number of jobs actually available to run.
+                user_cpus = min(self.user_cpus, len(self.job_params))
                 logger.info(
                     f"Using {user_cpus} CPUs to do {len(self.job_params)} multiprocess transformation jobs"
                 )
