@@ -295,8 +295,11 @@ class TransformationLoadFileTestCase(unittest.TestCase):
         self.assertEqual(result.attrs["original_file_name"], "test_file")
 
 
-class TransformationPrepopulateSolrTestCase(unittest.TestCase):
-    """Tests for Transformation.prepopulate_solr method."""
+class TransformWorkerPurityTestCase(unittest.TestCase):
+    """
+    The module-level transform() is pure compute (ADR 0001): it saves output netCDFs
+    and returns a TxResult per (grid, field), and makes no Solr calls.
+    """
 
     def get_base_config(self):
         return {
@@ -328,53 +331,73 @@ class TransformationPrepopulateSolrTestCase(unittest.TestCase):
             "notes": "",
         }
 
-    @patch("transformations.grid_transformation.solr_utils.solr_update")
-    @patch("transformations.grid_transformation.solr_utils.solr_query")
-    def test_prepopulate_solr_existing_entry(self, mock_query, mock_update):
-        """Test prepopulating Solr with existing transformation entry."""
-        # prepopulate_solr queries twice per field: existing transformation, then granule
-        mock_query.side_effect = [
-            [{"id": "existing_id"}],  # Existing transformation entry
-            [{"checksum_s": "abc123"}],  # Granule entry
-        ]
+    def test_module_has_no_solr_dependency(self):
+        """The worker module must not carry a Solr client at all."""
+        self.assertFalse(hasattr(grid_transformation, "solr_utils"))
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_update.return_value = mock_response
+    @patch("transformations.grid_transformation.file_utils.md5")
+    @patch("transformations.grid_transformation.records.save_netcdf")
+    @patch("transformations.grid_transformation.os.makedirs")
+    @patch.object(Transformation, "transform")
+    @patch.object(Transformation, "make_factors")
+    @patch("transformations.grid_transformation.load_grid")
+    @patch.object(Transformation, "load_file")
+    def test_transform_returns_txresults(
+        self, mock_load_file, mock_load_grid, mock_make_factors,
+        mock_method_transform, mock_makedirs, mock_save, mock_md5,
+    ):
+        """A successful field yields a TxResult carrying the preassigned doc id,
+        the worker-computed checksum, and success=True — with no Solr access."""
+        mock_load_file.return_value = MagicMock()
+        mock_load_grid.return_value = MagicMock()
+        mock_make_factors.return_value = (MagicMock(),)
+        mock_method_transform.return_value = [(MagicMock(), True, "")]
+        mock_md5.return_value = "cksum"
 
-        config = self.get_base_config()
-        T = Transformation(config, "/data/test.nc", "2020-01-01")
+        field = MagicMock()
+        field.name = "test_field"
+        tx_jobs = {"grid1": [field]}
+        doc_id_map = {("grid1", "test_field"): "doc-1"}
 
-        T.prepopulate_solr("/data/test.nc", "test_grid")
+        results = grid_transformation.transform(
+            "/data/test.nc", tx_jobs, self.get_base_config(), "2020-01-01", doc_id_map
+        )
 
-        mock_update.assert_called_once()
-        update_body = mock_update.call_args[0][0]
-        self.assertEqual(update_body[0]["id"], "existing_id")
-        self.assertEqual(update_body[0]["origin_checksum_s"], {"set": "abc123"})
+        self.assertEqual(len(results), 1)
+        res = results[0]
+        self.assertEqual(res.doc_id, "doc-1")
+        self.assertEqual(res.grid, "grid1")
+        self.assertEqual(res.field, "test_field")
+        self.assertTrue(res.success)
+        self.assertEqual(res.checksum, "cksum")
+        mock_save.assert_called_once()
 
-    @patch("transformations.grid_transformation.solr_utils.solr_update")
-    @patch("transformations.grid_transformation.solr_utils.solr_query")
-    def test_prepopulate_solr_new_entry(self, mock_query, mock_update):
-        """Test prepopulating Solr with new transformation entry."""
-        # First query returns no existing transformation, second returns granule
-        mock_query.side_effect = [
-            [],  # No existing transformation
-            [{"checksum_s": "abc123"}],  # Granule entry
-        ]
+    @patch("transformations.grid_transformation.os.makedirs")
+    @patch.object(Transformation, "make_factors")
+    @patch("transformations.grid_transformation.load_grid")
+    @patch.object(Transformation, "load_file")
+    def test_transform_grid_failure_emits_failure_results(
+        self, mock_load_file, mock_load_grid, mock_make_factors, mock_makedirs
+    ):
+        """A grid-level failure fails every field of that grid, each as a
+        TxResult(success=False) carrying its doc id — the batch is never aborted."""
+        mock_load_file.return_value = MagicMock()
+        mock_load_grid.side_effect = RuntimeError("bad grid")
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_update.return_value = mock_response
+        field = MagicMock()
+        field.name = "test_field"
+        tx_jobs = {"grid1": [field]}
+        doc_id_map = {("grid1", "test_field"): "doc-1"}
 
-        config = self.get_base_config()
-        T = Transformation(config, "/data/test.nc", "2020-01-01")
+        results = grid_transformation.transform(
+            "/data/test.nc", tx_jobs, self.get_base_config(), "2020-01-01", doc_id_map
+        )
 
-        T.prepopulate_solr("/data/test.nc", "test_grid")
-
-        mock_update.assert_called_once()
-        update_body = mock_update.call_args[0][0]
-        self.assertEqual(update_body[0]["type_s"], "transformation")
-        self.assertEqual(update_body[0]["origin_checksum_s"], "abc123")
+        self.assertEqual(len(results), 1)
+        res = results[0]
+        self.assertFalse(res.success)
+        self.assertEqual(res.doc_id, "doc-1")
+        self.assertIn("bad grid", res.error_message)
 
 
 if __name__ == "__main__":

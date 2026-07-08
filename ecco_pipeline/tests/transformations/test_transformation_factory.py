@@ -6,6 +6,7 @@ All Solr and file I/O calls are mocked.
 import unittest
 from unittest.mock import patch, MagicMock
 
+from transformations.grid_transformation import TxResult
 from transformations.transformation_factory import TxJobFactory, multiprocess_transformation
 
 
@@ -354,43 +355,41 @@ class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
 
 
 class MultiprocessTransformationTestCase(unittest.TestCase):
-    """Tests for the multiprocess_transformation function."""
+    """Tests for the multiprocess_transformation function (pure-compute wrapper)."""
 
+    @patch("transformations.transformation_factory.solr_utils")
     @patch("transformations.transformation_factory.transform")
     @patch("transformations.transformation_factory.log_config.mp_logging")
-    def test_multiprocess_skips_invalid_granule(self, mock_logging, mock_transform):
-        """Test that invalid granules are skipped."""
+    def test_multiprocess_calls_transform_and_makes_no_solr_calls(
+        self, mock_logging, mock_transform, mock_solr
+    ):
+        """transform() is called with the doc_id_map, its results are returned in a
+        4-tuple, and the worker path touches Solr zero times (ADR 0001)."""
         mock_logger = MagicMock()
         mock_logging.return_value = mock_logger
-
-        config = {"ds_name": "TEST"}
-        granule = {"pre_transformation_file_path_s": None, "file_size_l": 0}
-
-        multiprocess_transformation(config, granule, {}, "INFO", "/logs")
-
-        mock_transform.assert_not_called()
-
-    @patch("transformations.transformation_factory.transform")
-    @patch("transformations.transformation_factory.log_config.mp_logging")
-    def test_multiprocess_calls_transform(self, mock_logging, mock_transform):
-        """Test that transform is called for valid granule."""
-        mock_logger = MagicMock()
-        mock_logging.return_value = mock_logger
+        worker_results = [TxResult(doc_id="id1", grid="grid", field="field", success=True)]
+        mock_transform.return_value = worker_results
 
         config = {"ds_name": "TEST"}
         granule = {"pre_transformation_file_path_s": "/data/test.nc", "file_size_l": 1000, "date_dt": "2020-01-01"}
-        tx_jobs = {"grid": ["field"]}
+        field = MagicMock()
+        field.name = "field"
+        tx_jobs = {"grid": [field]}
+        doc_id_map = {("grid", "field"): "id1"}
 
-        result = multiprocess_transformation(config, granule, tx_jobs, "INFO", "/logs")
+        result = multiprocess_transformation(config, granule, tx_jobs, doc_id_map, "INFO", "/logs")
 
-        mock_transform.assert_called_once_with("/data/test.nc", tx_jobs, config, "2020-01-01")
+        mock_transform.assert_called_once_with("/data/test.nc", tx_jobs, config, "2020-01-01", doc_id_map)
         # No filename_s on the granule, so the marker falls back to the file path.
-        self.assertEqual(result, ("/data/test.nc", "ok", ""))
+        self.assertEqual(result, ("/data/test.nc", "ok", "", worker_results))
+        mock_solr.solr_update.assert_not_called()
+        mock_solr.solr_query.assert_not_called()
 
     @patch("transformations.transformation_factory.transform")
     @patch("transformations.transformation_factory.log_config.mp_logging")
-    def test_multiprocess_returns_error_marker_on_exception(self, mock_logging, mock_transform):
-        """A granule that raises (e.g. in load_file) returns an error marker, not an exception."""
+    def test_multiprocess_returns_failure_results_on_exception(self, mock_logging, mock_transform):
+        """A granule that raises (e.g. in load_file) returns an error marker plus a
+        failure TxResult per (grid, field), not an exception — the batch must not abort."""
         mock_logger = MagicMock()
         mock_logging.return_value = mock_logger
         mock_transform.side_effect = RuntimeError("load_file blew up")
@@ -402,14 +401,165 @@ class MultiprocessTransformationTestCase(unittest.TestCase):
             "file_size_l": 1000,
             "date_dt": "2020-01-01",
         }
-        tx_jobs = {"grid": ["field"]}
+        field = MagicMock()
+        field.name = "field"
+        tx_jobs = {"grid": [field]}
+        doc_id_map = {("grid", "field"): "id1"}
 
         # Must not raise — the whole batch would abort otherwise.
-        result = multiprocess_transformation(config, granule, tx_jobs, "INFO", "/logs")
+        result = multiprocess_transformation(config, granule, tx_jobs, doc_id_map, "INFO", "/logs")
 
         self.assertEqual(result[0], "bad.nc")
         self.assertEqual(result[1], "error")
         self.assertIn("load_file blew up", result[2])
+        failure_results = result[3]
+        self.assertEqual(len(failure_results), 1)
+        self.assertEqual(failure_results[0].doc_id, "id1")
+        self.assertFalse(failure_results[0].success)
+        self.assertIn("load_file blew up", failure_results[0].error_message)
+
+
+class TxJobFactoryParentSolrIOTestCase(unittest.TestCase):
+    """Tests for the parent-owned, batched Solr I/O (prepopulate_jobs, record_results,
+    record_unprocessable) — the core of ADR 0001."""
+
+    def get_base_config(self):
+        return {
+            "ds_name": "TEST_DATASET",
+            "start": "20200101T00:00:00Z",
+            "end": "20201231T00:00:00Z",
+            "data_time_scale": "daily",
+            "fields": [],
+            "original_dataset_title": "Test",
+            "original_dataset_short_name": "TEST",
+            "original_dataset_url": "https://example.com",
+            "original_dataset_reference": "Ref",
+            "original_dataset_doi": "10.1234/test",
+            "t_version": 1.0,
+            "a_version": 1.0,
+            "notes": "",
+        }
+
+    def _field(self, name):
+        field = MagicMock()
+        field.name = name
+        return field
+
+    @patch("transformations.transformation_factory.solr_utils.solr_query")
+    @patch("transformations.transformation_factory.baseclasses.Config")
+    def _factory(self, mock_config, mock_query):
+        mock_config.user_cpus = 1
+        mock_config.grids_to_use = ["grid"]
+        mock_query.return_value = []
+        return TxJobFactory(self.get_base_config())
+
+    @patch("transformations.transformation_factory.solr_utils.solr_update")
+    def test_prepopulate_jobs_batches_and_assigns_ids(self, mock_update):
+        """Two (grid, field) pairs across grids collapse into ONE bulk write; each
+        gets a doc id in the returned map. A new field mints a uuid; an existing one
+        reuses its id via an atomic update."""
+        factory = self._factory()
+        factory.existing_tx_ids = {("test1.nc", "gridA", "f_existing"): "existing-id"}
+
+        granule = {
+            "filename_s": "test1.nc",
+            "pre_transformation_file_path_s": "/data/test1.nc",
+            "date_dt": "2020-01-01",
+            "checksum_s": "abc",
+        }
+        grid_fields = {"gridA": [self._field("f_existing"), self._field("f_new")]}
+        processable = [(granule, grid_fields)]
+
+        doc_id_maps = factory.prepopulate_jobs(processable)
+
+        # One bulk write for the whole batch.
+        self.assertEqual(mock_update.call_count, 1)
+        _, kwargs = mock_update.call_args
+        self.assertFalse(kwargs.get("commit", True))  # commitWithin, not a hard commit
+        update_body = mock_update.call_args[0][0]
+        self.assertEqual(len(update_body), 2)
+
+        field_map = doc_id_maps["test1.nc"]
+        # Existing field reuses its id (atomic update).
+        self.assertEqual(field_map[("gridA", "f_existing")], "existing-id")
+        existing_doc = next(d for d in update_body if d["id"] == "existing-id")
+        self.assertEqual(existing_doc["success_b"], {"set": False})
+        self.assertEqual(existing_doc["origin_checksum_s"], {"set": "abc"})
+        # New field gets a fresh (non-existing) id and a full doc.
+        new_id = field_map[("gridA", "f_new")]
+        self.assertNotEqual(new_id, "existing-id")
+        new_doc = next(d for d in update_body if d["id"] == new_id)
+        self.assertEqual(new_doc["type_s"], "transformation")
+        self.assertEqual(new_doc["origin_checksum_s"], "abc")
+
+    @patch("transformations.transformation_factory.solr_utils.solr_update")
+    def test_record_results_batches_success_and_failure(self, mock_update):
+        """N results collapse into ONE bulk atomic update; success writes file fields,
+        failure writes only status; a result with no doc id is skipped, not fatal."""
+        factory = self._factory()
+
+        results = [
+            TxResult(
+                doc_id="id-ok", grid="g", field="f1", success=True,
+                output_filename="out.nc", output_path="/o/out.nc",
+                checksum="cs", error_message="",
+            ),
+            TxResult(doc_id="id-fail", grid="g", field="f2", success=False, error_message="boom"),
+            TxResult(doc_id=None, grid="g", field="f3", success=False, error_message="no id"),
+        ]
+
+        factory.record_results(results)
+
+        self.assertEqual(mock_update.call_count, 1)
+        _, kwargs = mock_update.call_args
+        self.assertFalse(kwargs.get("commit", True))
+        update_body = mock_update.call_args[0][0]
+        # The doc_id=None result is skipped.
+        self.assertEqual(len(update_body), 2)
+
+        ok = next(d for d in update_body if d["id"] == "id-ok")
+        self.assertEqual(ok["success_b"], {"set": True})
+        self.assertEqual(ok["transformation_file_path_s"], {"set": "/o/out.nc"})
+        self.assertEqual(ok["transformation_checksum_s"], {"set": "cs"})
+        self.assertEqual(ok["transformation_version_f"], {"set": 1.0})
+
+        fail = next(d for d in update_body if d["id"] == "id-fail")
+        self.assertEqual(fail["success_b"], {"set": False})
+        self.assertEqual(fail["error_message_s"], {"set": "boom"})
+        self.assertNotIn("transformation_file_path_s", fail)
+
+    @patch("transformations.transformation_factory.solr_utils.solr_update")
+    def test_record_unprocessable_records_failures(self, mock_update):
+        """Harvest-quality failures are recorded by the parent in one bulk write and
+        the count is tracked so cleanup still runs."""
+        factory = self._factory()
+        factory.existing_tx_ids = {}
+
+        granule = {
+            "filename_s": "bad.nc",
+            "pre_transformation_file_path_s": None,
+            "file_size_l": 0,
+            "date_dt": "2020-01-01",
+        }
+        unprocessable = [(granule, {"gridA": [self._field("f1")]})]
+
+        factory.record_unprocessable(unprocessable)
+
+        self.assertEqual(factory.unprocessable_count, 1)
+        self.assertEqual(mock_update.call_count, 1)
+        _, kwargs = mock_update.call_args
+        self.assertFalse(kwargs.get("commit", True))
+        doc = mock_update.call_args[0][0][0]
+        self.assertEqual(doc["success_b"], False)
+        self.assertIn("not harvested properly", doc["error_message_s"])
+
+    @patch("transformations.transformation_factory.solr_utils.solr_update")
+    def test_record_unprocessable_noop_when_empty(self, mock_update):
+        """No unprocessable granules → no write, count stays 0."""
+        factory = self._factory()
+        factory.record_unprocessable([])
+        mock_update.assert_not_called()
+        self.assertEqual(factory.unprocessable_count, 0)
 
 
 class TxJobFactoryReconstructTestCase(unittest.TestCase):
