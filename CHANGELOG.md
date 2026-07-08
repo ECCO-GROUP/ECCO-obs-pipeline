@@ -13,6 +13,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 
 ## [Unreleased]
 
+---
+
+## [v2.2.2] — 2026-07-08
+
 ### Bug Fixes
 
 - **Solr resilience under reprocessing**: the transformation stage no longer forces a hard commit (`?commit=true`) on every write. The per-field transformation-status update now uses `commitWithin`, so Solr batches commits instead of opening a new searcher per write. During a full-archive reprocess (as the v2.2.0 `t_version` bumps trigger) the per-write commits saturated Solr's request-thread pool and left it unresponsive. Writes that are read back within the same run (e.g. `prepopulate_solr` → `solr_query`) still commit immediately, so state tracking is unchanged. To avoid a race where the end-of-run status count reads deferred writes before they commit (and reports just-completed granules as failed), `execute_jobs` issues a single hard commit (`commit_solr`) after the batch and before `pipeline_cleanup`. Also hardened the Solr client with exponential-backoff retries (was a single retry) and per-process keep-alive connection reuse.
