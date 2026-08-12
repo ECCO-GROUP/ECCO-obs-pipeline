@@ -1,5 +1,5 @@
 {
-    "$schema": "http://json-schema.org/draft-06/schema#",
+    "$schema": "http://json-schema.org/draft-07/schema#",
     "$ref": "#/definitions/main",
     "definitions": {
         "main": {
@@ -147,7 +147,6 @@
             },
             "required": [
                 "a_version",
-                "data_res",
                 "data_time_scale",
                 "do_monthly_aggregation",
                 "ds_name",
@@ -167,6 +166,27 @@
                 "skipna_in_mean",
                 "start",
                 "t_version"
+            ],
+            "allOf": [
+                {
+                    "comment": "data_res builds the synthetic source grid (generalized_grid_product) and is only used by the grid source path. It is required for grid datasets but not for along_track, whose source geometry comes from per-sample lat/lon.",
+                    "if": {
+                        "properties": {
+                            "source_type": {
+                                "const": "along_track"
+                            }
+                        },
+                        "required": [
+                            "source_type"
+                        ]
+                    },
+                    "then": {},
+                    "else": {
+                        "required": [
+                            "data_res"
+                        ]
+                    }
+                }
             ],
             "optional": [
                 "allow_nearest_neighbor",

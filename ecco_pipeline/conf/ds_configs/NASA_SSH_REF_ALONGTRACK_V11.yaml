@@ -47,9 +47,9 @@ lon_var: longitude
 allow_nearest_neighbor: false # keep output honestly sparse; nearest-cell binning never fills empties
 mapping_operation: nanmean # source ~31% NaN in ssha
 
-data_res: 1/2 # REQUIRED by schema; nominal for along_track (unused — binning uses the
-              # grid's per-cell radius, not data_res). area_extent / dims / proj_info are
-              # not needed to build the source grid for along_track.
+# data_res / area_extent / dims / proj_info are not set: they only build the synthetic
+# source grid for the grid source path. along_track derives its source geometry from
+# per-sample lat/lon and bins using the target grid's own per-cell radius.
 
 notes: "" # String to include in global attributes of output files
 
