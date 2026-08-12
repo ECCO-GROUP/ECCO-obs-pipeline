@@ -83,6 +83,22 @@
                 "data_res": {
                     "type": ["number", "string"]
                 },
+                "source_type": {
+                    "type": "string",
+                    "enum": ["grid", "along_track"]
+                },
+                "lat_var": {
+                    "type": "string"
+                },
+                "lon_var": {
+                    "type": "string"
+                },
+                "allow_nearest_neighbor": {
+                    "type": "boolean"
+                },
+                "mapping_operation": {
+                    "type": "string"
+                },
                 "area_extent_nh": {
                     "type": "array",
                     "items": {
@@ -153,6 +169,7 @@
                 "t_version"
             ],
             "optional": [
+                "allow_nearest_neighbor",
                 "area_extent",
                 "area_extent_nh",
                 "area_extent_sh",
@@ -162,9 +179,13 @@
                 "dims_sh",
                 "hemi_pattern",
                 "host",
+                "lat_var",
+                "lon_var",
+                "mapping_operation",
                 "proj_info",
                 "proj_info_nh",
                 "proj_info_sh",
+                "source_type",
                 "time_bounds_var",
                 "user"
             ],

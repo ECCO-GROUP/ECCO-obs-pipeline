@@ -1,12 +1,155 @@
 import logging
 from multiprocessing import current_process
-from typing import Iterable
+from typing import Iterable, Tuple
 import warnings
 
 import numpy as np
 import pyresample as pr
+from scipy.spatial import cKDTree
 
 logger = logging.getLogger(str(current_process().pid))
+
+# Sphere radius (m) used to convert a target cell's meter-valued radius into a
+# unit-sphere chord length. Matches the sphere pyresample's kd_tree uses internally
+# for its own lon/lat -> ECEF conversion, so the along-track binning below measures
+# "nearest" on the same sphere the grid path does.
+_EARTH_RADIUS_M = 6370997.0
+
+
+def _lonlat_to_ecef_unit(lons: np.ndarray, lats: np.ndarray) -> np.ndarray:
+    """
+    Convert lon/lat (degrees) to 3-D ECEF unit vectors (x, y, z), stacked as an
+    (N, 3) array. Works for lon in either 0..360 or -180..180 (cos/sin are periodic),
+    so no wrapping is needed. Chord distance between two of these unit vectors is
+    monotonic in great-circle distance, so a k=1 kd-tree query on them returns the
+    true spherical nearest neighbour — correct at the antimeridian and at high
+    latitude, unlike a kd-tree on raw lon/lat degrees.
+    """
+    lon_rad = np.deg2rad(lons)
+    lat_rad = np.deg2rad(lats)
+    cos_lat = np.cos(lat_rad)
+    x = cos_lat * np.cos(lon_rad)
+    y = cos_lat * np.sin(lon_rad)
+    z = np.sin(lat_rad)
+    return np.column_stack((x, y, z))
+
+
+def _target_grid_radius(grid_ds) -> np.ndarray:
+    """
+    Per-cell radius (m) of the target grid, raveled. Mirrors the field precedence in
+    grid_transformation.make_factors so the along-track cap uses the same radius the
+    grid path uses for its bin-averaging search.
+    """
+    if "effective_grid_radius" in grid_ds:
+        return grid_ds.effective_grid_radius.values.ravel()
+    elif "effective_radius" in grid_ds:
+        return grid_ds.effective_radius.values.ravel()
+    elif "RAD" in grid_ds:
+        return grid_ds.RAD.values.ravel()
+    elif "rA" in grid_ds:
+        return 0.5 * np.sqrt(grid_ds.rA.values.ravel())
+    raise ValueError(
+        f"Unable to extract grid radius from {getattr(grid_ds, 'name', '<grid>')}. "
+        "Grid not supported"
+    )
+
+
+def along_track_factors(
+    lons: np.ndarray,
+    lats: np.ndarray,
+    grid_ds,
+) -> Tuple[dict, np.ndarray, dict]:
+    """
+    Nearest-cell binning of 1-D along-track observations onto a target grid (ADR 0002).
+
+    For each source point with a valid coordinate, find its single nearest target
+    grid cell (spherical/ECEF k=1), discard points farther than the matched cell's own
+    radius, and bin the rest. Returns the same 3-tuple shape transform_to_target_grid
+    consumes, so the downstream per-cell nanmean is reused unchanged:
+
+    - source_indices_within_target_radius_i: {cell_index -> array of source point
+      indices that binned into that cell}. Indices reference the FULL (unraveled)
+      field array, because transform_to_target_grid ravels ds[field].values (the full
+      array) and indexes it with these.
+    - num_source_indices_within_target_radius_i: per-cell point count, length =
+      target grid size.
+    - nearest_source_index_to_target_index_i: {} (along-track sets
+      allow_nearest_neighbor=False; point-free cells stay NaN by construction).
+
+    Factors depend only on the coordinates, which are shared across all fields of a
+    granule, so a single set of factors serves every field (like the grid path).
+    NaN *field values* are not masked here — the downstream nanmean handles them, so
+    QC-masked (NaN) samples from pre_transformations drop out per field automatically.
+    """
+    lons = np.asarray(lons).ravel()
+    lats = np.asarray(lats).ravel()
+
+    XC = grid_ds.XC.values
+    n_target = XC.size
+
+    num_source_indices_within_target_radius_i = np.zeros(n_target)
+    source_indices_within_target_radius_i: dict = {}
+    nearest_source_index_to_target_index_i: dict = {}
+
+    # Drop points with a NaN coordinate: they can't be placed on the sphere. Field
+    # values are intentionally NOT masked here (see docstring).
+    valid_mask = np.isfinite(lons) & np.isfinite(lats)
+    valid_positions = np.where(valid_mask)[0]
+    if valid_positions.size == 0:
+        # Degenerate granule (all-NaN / empty): every cell stays point-free -> NaN.
+        return (
+            source_indices_within_target_radius_i,
+            num_source_indices_within_target_radius_i,
+            nearest_source_index_to_target_index_i,
+        )
+
+    src_xyz = _lonlat_to_ecef_unit(lons[valid_mask], lats[valid_mask])
+    target_xyz = _lonlat_to_ecef_unit(XC.ravel(), grid_ds.YC.values.ravel())
+
+    # Unbounded k=1 spherical nearest cell for each valid source point.
+    tree = cKDTree(target_xyz)
+    chord_dist, matched_cell = tree.query(src_xyz, k=1)
+
+    # Per-cell radius cap: convert each matched cell's meter radius to a unit-sphere
+    # chord (exact: chord = 2*sin(theta/2), theta = radius_m / R). Discard points
+    # beyond it (out-of-domain / over-land strays) instead of smearing them into a
+    # distant coastal cell.
+    radius_m = _target_grid_radius(grid_ds)
+    theta = radius_m / _EARTH_RADIUS_M
+    radius_chord = 2.0 * np.sin(theta / 2.0)
+    within = chord_dist <= radius_chord[matched_cell]
+
+    kept_cells = matched_cell[within]
+    # Translate surviving compacted positions back to positions in the FULL field
+    # array so transform_to_target_grid indexes the right samples.
+    kept_orig_positions = valid_positions[within]
+
+    if kept_cells.size == 0:
+        return (
+            source_indices_within_target_radius_i,
+            num_source_indices_within_target_radius_i,
+            nearest_source_index_to_target_index_i,
+        )
+
+    # Group source point indices by their matched cell. sort-by-cell then split at
+    # cell boundaries avoids a Python loop over every point.
+    order = np.argsort(kept_cells, kind="stable")
+    cells_sorted = kept_cells[order]
+    positions_sorted = kept_orig_positions[order]
+    unique_cells, first_idx, counts = np.unique(
+        cells_sorted, return_index=True, return_counts=True
+    )
+    split_points = first_idx[1:]
+    grouped = np.split(positions_sorted, split_points)
+    for cell, count, positions in zip(unique_cells, counts, grouped):
+        source_indices_within_target_radius_i[int(cell)] = positions
+        num_source_indices_within_target_radius_i[int(cell)] = int(count)
+
+    return (
+        source_indices_within_target_radius_i,
+        num_source_indices_within_target_radius_i,
+        nearest_source_index_to_target_index_i,
+    )
 
 
 def transform_to_target_grid(
@@ -263,7 +406,7 @@ def find_mappings_from_source_to_target(
         # print progress.  always nice
         if i in debug_is:
             print(
-                f"Creating {grid_name} mapping factors...{int(i/len_target_grid*100)} %",
+                f"Creating {grid_name} mapping factors...{int(i / len_target_grid * 100)} %",
                 end="\r",
             )
     print(f"Creating {grid_name} mapping factors...done.")
