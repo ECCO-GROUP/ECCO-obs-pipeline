@@ -54,7 +54,9 @@ class PreprocessingFuncsTestCase(unittest.TestCase):
         mock_field = MagicMock()
         mock_field.name = "test_field"
 
-        result = self.funcs.call_function("ATL20_V004_monthly", "/fake/path.nc", [mock_field])
+        result = self.funcs.call_function(
+            "ATL20_V004_monthly", "/fake/path.nc", [mock_field]
+        )
 
         self.assertIn("grid_x", result)
         self.assertIn("grid_y", result)
@@ -76,7 +78,9 @@ class PreprocessingFuncsTestCase(unittest.TestCase):
 
         mock_open.side_effect = open_side_effect
 
-        result = self.funcs.call_function("nsidc_seaice_nt_extraction", "/fake/path.nc", [])
+        result = self.funcs.call_function(
+            "nsidc_seaice_nt_extraction", "/fake/path.nc", []
+        )
 
         self.assertIn("base_var", result)
         self.assertIn("raw_nt_seaice_conc", result)
@@ -96,7 +100,9 @@ class PretransformationFuncsTestCase(unittest.TestCase):
 
     def test_call_functions_multiple(self):
         """Test calling multiple functions in sequence."""
-        ds = xr.Dataset({"analysed_sst": xr.DataArray(np.array([280.0, 270.0, 290.0]), dims=["x"])})
+        ds = xr.Dataset(
+            {"analysed_sst": xr.DataArray(np.array([280.0, 270.0, 290.0]), dims=["x"])}
+        )
 
         result = self.funcs.call_functions(["AVHRR_remove_ice_or_near_ice"], ds)
 
@@ -123,7 +129,9 @@ class PretransformationFuncsTestCase(unittest.TestCase):
         """Test AVHRR removes values where sea ice is present."""
         ds = xr.Dataset(
             {
-                "analysed_sst": xr.DataArray(np.array([280.0, 285.0, 290.0]), dims=["x"]),
+                "analysed_sst": xr.DataArray(
+                    np.array([280.0, 285.0, 290.0]), dims=["x"]
+                ),
                 "sea_ice_fraction": xr.DataArray(np.array([0.0, 0.5, 0.0]), dims=["x"]),
             }
         )
@@ -138,7 +146,9 @@ class PretransformationFuncsTestCase(unittest.TestCase):
         """Test RDEFT4 removes negative values."""
         ds = xr.Dataset(
             {
-                "sea_ice_thickness": xr.DataArray(np.array([1.5, -0.5, 2.0]), dims=["x"]),
+                "sea_ice_thickness": xr.DataArray(
+                    np.array([1.5, -0.5, 2.0]), dims=["x"]
+                ),
                 "lat": xr.DataArray([45.0, 50.0, 55.0], dims=["x"]),
                 "lon": xr.DataArray([-120.0, -110.0, -100.0], dims=["x"]),
             }
@@ -160,7 +170,9 @@ class PretransformationFuncsTestCase(unittest.TestCase):
                     np.array([[0.5, 0.6, 1.5]]),  # 1.5 is out of range
                     dims=["y", "x"],
                 ),
-                "cdr_seaice_conc_stdev": xr.DataArray(np.array([[0.1, 0.1, 0.1]]), dims=["y", "x"]),
+                "cdr_seaice_conc_stdev": xr.DataArray(
+                    np.array([[0.1, 0.1, 0.1]]), dims=["y", "x"]
+                ),
                 "cdr_seaice_conc_qa_flag": xr.DataArray(
                     np.array([[0, 8, 0]]),  # 8 = no input data flag
                     dims=["y", "x"],
@@ -196,6 +208,31 @@ class PretransformationFuncsTestCase(unittest.TestCase):
         self.assertTrue(np.isnan(result["lwe_thickness"].values[1]))
         self.assertFalse(np.isnan(result["lwe_thickness"].values[2]))
         self.assertTrue(np.isnan(result["uncertainty"].values[1]))
+
+    def test_NASA_SSH_mask_nasa_flag(self):
+        """nasa_flag != 0 masks ssha; ssha_smoothed is untouched."""
+        ds = xr.Dataset(
+            {
+                "ssha": xr.DataArray(np.array([1.0, 2.0, 3.0]), dims=["time"]),
+                "ssha_smoothed": xr.DataArray(np.array([4.0, 5.0, 6.0]), dims=["time"]),
+                "nasa_flag": xr.DataArray(np.array([0, 1, 0]), dims=["time"]),
+            }
+        )
+
+        result = self.funcs.NASA_SSH_mask_nasa_flag(ds)
+
+        # ssha masked where flag == 1 (middle sample).
+        self.assertFalse(np.isnan(result["ssha"].values[0]))
+        self.assertTrue(np.isnan(result["ssha"].values[1]))
+        self.assertFalse(np.isnan(result["ssha"].values[2]))
+        # ssha_smoothed must not be masked (producer already applied the flag).
+        np.testing.assert_array_equal(result["ssha_smoothed"].values, [4.0, 5.0, 6.0])
+
+    def test_NASA_SSH_mask_nasa_flag_missing_vars(self):
+        """No-op when nasa_flag or ssha are absent (no crash)."""
+        ds = xr.Dataset({"ssha_smoothed": xr.DataArray(np.array([4.0]), dims=["time"])})
+        result = self.funcs.NASA_SSH_mask_nasa_flag(ds)
+        np.testing.assert_array_equal(result["ssha_smoothed"].values, [4.0])
 
 
 class PosttransformationFuncsTestCase(unittest.TestCase):
@@ -252,7 +289,11 @@ class PosttransformationFuncsTestCase(unittest.TestCase):
         da = xr.DataArray(
             np.array([[1.0]]),
             dims=["time", "x"],
-            coords={"time": [time_val], "time_start": ("time", [str(time_val)]), "time_end": ("time", [str(time_val)])},
+            coords={
+                "time": [time_val],
+                "time_start": ("time", [str(time_val)]),
+                "time_end": ("time", [str(time_val)]),
+            },
         )
 
         result = self.funcs.MEaSUREs_fix_time(da)

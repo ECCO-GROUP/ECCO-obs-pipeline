@@ -43,7 +43,12 @@ class TransformationInitTestCase(unittest.TestCase):
             "data_res": 0.25,
             "area_extent": [-180, -90, 180, 90],
             "dims": [720, 360],
-            "proj_info": {"area_id": "test", "area_name": "Test", "proj_id": "test", "proj4_args": "+proj=latlong"},
+            "proj_info": {
+                "area_id": "test",
+                "area_name": "Test",
+                "proj_id": "test",
+                "proj4_args": "+proj=latlong",
+            },
             "notes": "",
         }
 
@@ -118,6 +123,41 @@ class TransformationInitTestCase(unittest.TestCase):
 
         self.assertEqual(T.hemi, "")
 
+    def test_source_type_defaults_to_grid(self):
+        """Absent source_type defaults to the grid path with nearest-neighbor on."""
+        config = self.get_base_config()
+
+        T = Transformation(config, "/data/test_20200115.nc", "2020-01-15")
+
+        self.assertEqual(T.source_type, "grid")
+        self.assertEqual(T.lat_var, "latitude")
+        self.assertEqual(T.lon_var, "longitude")
+        self.assertTrue(T.allow_nearest_neighbor)
+
+    def test_along_track_config_fields(self):
+        """along_track defaults nearest-neighbor off; lat/lon vars are configurable."""
+        config = self.get_base_config()
+        config["source_type"] = "along_track"
+        config["lat_var"] = "lat"
+        config["lon_var"] = "lon"
+
+        T = Transformation(config, "/data/test_20200115.nc", "2020-01-15")
+
+        self.assertEqual(T.source_type, "along_track")
+        self.assertEqual(T.lat_var, "lat")
+        self.assertEqual(T.lon_var, "lon")
+        self.assertFalse(T.allow_nearest_neighbor)
+
+    def test_allow_nearest_neighbor_explicit_override(self):
+        """An explicit allow_nearest_neighbor overrides the source_type default."""
+        config = self.get_base_config()
+        config["source_type"] = "along_track"
+        config["allow_nearest_neighbor"] = True
+
+        T = Transformation(config, "/data/test_20200115.nc", "2020-01-15")
+
+        self.assertTrue(T.allow_nearest_neighbor)
+
 
 class TransformationMakeFactorsTestCase(unittest.TestCase):
     """Tests for Transformation.make_factors method."""
@@ -147,7 +187,12 @@ class TransformationMakeFactorsTestCase(unittest.TestCase):
             "data_res": 0.25,
             "area_extent": [-180, -90, 180, 90],
             "dims": [720, 360],
-            "proj_info": {"area_id": "test", "area_name": "Test", "proj_id": "test", "proj4_args": "+proj=latlong"},
+            "proj_info": {
+                "area_id": "test",
+                "area_name": "Test",
+                "proj_id": "test",
+                "proj4_args": "+proj=latlong",
+            },
             "notes": "",
         }
 
@@ -155,7 +200,9 @@ class TransformationMakeFactorsTestCase(unittest.TestCase):
     @patch("transformations.grid_transformation.pickle.load")
     @patch("transformations.grid_transformation.os.path.exists")
     @patch("transformations.grid_transformation.os.makedirs")
-    def test_make_factors_loads_existing(self, mock_makedirs, mock_exists, mock_load, mock_dump):
+    def test_make_factors_loads_existing(
+        self, mock_makedirs, mock_exists, mock_load, mock_dump
+    ):
         """Test that existing factors are loaded from file."""
         mock_exists.return_value = True
         expected_factors = ({"0": [0, 1]}, [2], {"3": 4})
@@ -200,14 +247,24 @@ class TransformationMakeFactorsTestCase(unittest.TestCase):
         self.assertEqual(second, expected_factors)
         mock_load.assert_called_once()
 
-    @patch("transformations.grid_transformation.transformation_utils.find_mappings_from_source_to_target")
-    @patch("transformations.grid_transformation.transformation_utils.generalized_grid_product")
+    @patch(
+        "transformations.grid_transformation.transformation_utils.find_mappings_from_source_to_target"
+    )
+    @patch(
+        "transformations.grid_transformation.transformation_utils.generalized_grid_product"
+    )
     @patch("transformations.grid_transformation.pr.geometry.SwathDefinition")
     @patch("transformations.grid_transformation.pickle.dump")
     @patch("transformations.grid_transformation.os.path.exists")
     @patch("transformations.grid_transformation.os.makedirs")
     def test_make_factors_creates_new(
-        self, mock_makedirs, mock_exists, mock_dump, mock_swath, mock_grid_product, mock_find_mappings
+        self,
+        mock_makedirs,
+        mock_exists,
+        mock_dump,
+        mock_swath,
+        mock_grid_product,
+        mock_find_mappings,
     ):
         """Test that new factors are created when file doesn't exist."""
         mock_exists.return_value = False
@@ -237,6 +294,62 @@ class TransformationMakeFactorsTestCase(unittest.TestCase):
         self.assertEqual(result, expected_factors)
         mock_find_mappings.assert_called_once()
 
+    @patch(
+        "transformations.grid_transformation.transformation_utils.along_track_factors"
+    )
+    @patch("transformations.grid_transformation.pickle.load")
+    @patch("transformations.grid_transformation.os.path.exists")
+    @patch("transformations.grid_transformation.os.makedirs")
+    def test_make_factors_along_track_bypasses_caches(
+        self, mock_makedirs, mock_exists, mock_load, mock_along_track
+    ):
+        """
+        along_track make_factors computes fresh per granule: it must call
+        along_track_factors with the granule coords and touch neither cache (even if a
+        pickle exists on disk for the same grid+hemi+t_version key).
+        """
+        mock_exists.return_value = True  # a stale pickle exists for this key
+        expected = ({0: np.array([1])}, np.array([0, 1]), {})
+        mock_along_track.return_value = expected
+
+        config = self.get_base_config()
+        config["source_type"] = "along_track"
+        config["fields"] = [
+            {
+                "name": "ssha",
+                "long_name": "x",
+                "standard_name": "x",
+                "units": "m",
+                "pre_transformations": [],
+                "post_transformations": [],
+            }
+        ]
+        T = Transformation(config, "/data/test.nc", "2020-01-01")
+
+        grid_ds = MagicMock()
+        grid_ds.name = "test_grid"
+
+        ds = MagicMock()
+        lon_vals = np.array([0.0, 1.0])
+        lat_vals = np.array([0.0, 0.0])
+        ds.__getitem__.side_effect = lambda key: {
+            "longitude": MagicMock(values=lon_vals),
+            "latitude": MagicMock(values=lat_vals),
+        }[key]
+
+        result = T.make_factors(grid_ds, ds)
+
+        self.assertEqual(result, expected)
+        mock_along_track.assert_called_once()
+        # Never read the on-disk pickle despite os.path.exists being True.
+        mock_load.assert_not_called()
+        # Nothing written to the in-memory cache for this grid.
+        self.assertEqual(len(grid_transformation._factors_cache), 0)
+
+        # A second granule with different coords recomputes (no silent cache reuse).
+        T.make_factors(grid_ds, ds)
+        self.assertEqual(mock_along_track.call_count, 2)
+
 
 class TransformationLoadFileTestCase(unittest.TestCase):
     """Tests for Transformation.load_file method."""
@@ -258,7 +371,12 @@ class TransformationLoadFileTestCase(unittest.TestCase):
             "data_res": 0.25,
             "area_extent": [-180, -90, 180, 90],
             "dims": [720, 360],
-            "proj_info": {"area_id": "test", "area_name": "Test", "proj_id": "test", "proj4_args": "+proj=latlong"},
+            "proj_info": {
+                "area_id": "test",
+                "area_name": "Test",
+                "proj_id": "test",
+                "proj4_args": "+proj=latlong",
+            },
             "notes": "",
             "preprocessing": None,
         }
@@ -327,7 +445,12 @@ class TransformWorkerPurityTestCase(unittest.TestCase):
             "data_res": 0.25,
             "area_extent": [-180, -90, 180, 90],
             "dims": [720, 360],
-            "proj_info": {"area_id": "test", "area_name": "Test", "proj_id": "test", "proj4_args": "+proj=latlong"},
+            "proj_info": {
+                "area_id": "test",
+                "area_name": "Test",
+                "proj_id": "test",
+                "proj4_args": "+proj=latlong",
+            },
             "notes": "",
         }
 
@@ -343,8 +466,14 @@ class TransformWorkerPurityTestCase(unittest.TestCase):
     @patch("transformations.grid_transformation.load_grid")
     @patch.object(Transformation, "load_file")
     def test_transform_returns_txresults(
-        self, mock_load_file, mock_load_grid, mock_make_factors,
-        mock_method_transform, mock_makedirs, mock_save, mock_md5,
+        self,
+        mock_load_file,
+        mock_load_grid,
+        mock_make_factors,
+        mock_method_transform,
+        mock_makedirs,
+        mock_save,
+        mock_md5,
     ):
         """A successful field yields a TxResult carrying the preassigned doc id,
         the worker-computed checksum, and success=True — with no Solr access."""
