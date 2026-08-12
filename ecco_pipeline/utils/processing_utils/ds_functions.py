@@ -18,7 +18,9 @@ class PreprocessingFuncs:
     Preprocessing functions, used for handling opening irregular files
     """
 
-    def call_function(self, function_name: str, file_path: str, fields: Iterable[Field]):
+    def call_function(
+        self, function_name: str, file_path: str, fields: Iterable[Field]
+    ):
         # Get the function dynamically by name
         func = getattr(self, function_name, None)
         if func:
@@ -41,13 +43,17 @@ class PreprocessingFuncs:
         merged_ds = xr.merge([ds, var_ds])
         return merged_ds
 
-    def nsidc_seaice_nt_extraction(self, file_path: str, fields: Iterable[Field]) -> xr.Dataset:
+    def nsidc_seaice_nt_extraction(
+        self, file_path: str, fields: Iterable[Field]
+    ) -> xr.Dataset:
         """
         Exctracts raw_nt_seaice_conc field from cdr_supplementary/raw_nt_seaice_conc
         and merges into base dataset object
         """
         base_ds = xr.open_dataset(file_path, decode_times=True)
-        group_ds = xr.open_dataset(file_path, group="cdr_supplementary")["raw_nt_seaice_conc"]
+        group_ds = xr.open_dataset(file_path, group="cdr_supplementary")[
+            "raw_nt_seaice_conc"
+        ]
         merged_ds = xr.merge([base_ds, group_ds])
         return merged_ds
 
@@ -57,7 +63,9 @@ class PretransformationFuncs:
     Pre transformation functions, to be performed on xr.Datasets
     """
 
-    def call_functions(self, function_names: Iterable[str], ds: xr.Dataset) -> xr.Dataset:
+    def call_functions(
+        self, function_names: Iterable[str], ds: xr.Dataset
+    ) -> xr.Dataset:
         for func_name in function_names:
             ds = self.call_function(func_name, ds)
         return ds
@@ -80,10 +88,14 @@ class PretransformationFuncs:
         """
         # nonzero sea ice fraction
         if "sea_ice_fraction" in ds:
-            ds.analysed_sst.values = np.where(ds.sea_ice_fraction > 0, np.nan, ds.analysed_sst.values)
+            ds.analysed_sst.values = np.where(
+                ds.sea_ice_fraction > 0, np.nan, ds.analysed_sst.values
+            )
 
         # colder than -0.5C
-        ds.analysed_sst.values = np.where(ds.analysed_sst <= 273.15 - 0.5, np.nan, ds.analysed_sst.values)
+        ds.analysed_sst.values = np.where(
+            ds.analysed_sst <= 273.15 - 0.5, np.nan, ds.analysed_sst.values
+        )
 
         return ds
 
@@ -101,21 +113,33 @@ class PretransformationFuncs:
         """
         Masks out values greater than 1 in nsidc_nt_seaice_conc and cdr_seaice_conc
         """
-        logger.debug(f'G2202 masking flagged nt pre   : {np.sum(ds["nsidc_nt_seaice_conc"].values.ravel() > 1)}')
+        logger.debug(
+            f"G2202 masking flagged nt pre   : {np.sum(ds['nsidc_nt_seaice_conc'].values.ravel() > 1)}"
+        )
         tmpNT = np.where(ds["nsidc_nt_seaice_conc"].values.ravel() > 1, 1, 0)
         tmpCDR = np.where(ds["cdr_seaice_conc"].values.ravel() > 1, 1, 0)
-        logger.debug(f"G2202 masking flagged NDR, CDR pre: {np.sum(tmpNT), np.sum(tmpCDR)}")
+        logger.debug(
+            f"G2202 masking flagged NDR, CDR pre: {np.sum(tmpNT), np.sum(tmpCDR)}"
+        )
 
-        ds["nsidc_nt_seaice_conc"] = ds["nsidc_nt_seaice_conc"].where(ds["nsidc_nt_seaice_conc"] <= 1)
+        ds["nsidc_nt_seaice_conc"] = ds["nsidc_nt_seaice_conc"].where(
+            ds["nsidc_nt_seaice_conc"] <= 1
+        )
         ds["cdr_seaice_conc"] = ds["cdr_seaice_conc"].where(ds["cdr_seaice_conc"] <= 1)
 
         # nan all spatial interpolation (removes  pole hole)
-        ds["nsidc_nt_seaice_conc"] = ds["nsidc_nt_seaice_conc"].where(np.isnan(ds["spatial_interpolation_flag"].values))
-        ds["cdr_seaice_conc"] = ds["cdr_seaice_conc"].where(np.isnan(ds["spatial_interpolation_flag"].values))
+        ds["nsidc_nt_seaice_conc"] = ds["nsidc_nt_seaice_conc"].where(
+            np.isnan(ds["spatial_interpolation_flag"].values)
+        )
+        ds["cdr_seaice_conc"] = ds["cdr_seaice_conc"].where(
+            np.isnan(ds["spatial_interpolation_flag"].values)
+        )
 
         tmpNT = np.where(ds["nsidc_nt_seaice_conc"].values.ravel() > 1, 1, 0)
         tmpCDR = np.where(ds["cdr_seaice_conc"].values.ravel() > 1, 1, 0)
-        logger.debug(f"G02202 masking flagged NDR, CDR post: {np.sum(tmpNT), np.sum(tmpCDR)}")
+        logger.debug(
+            f"G02202 masking flagged NDR, CDR post: {np.sum(tmpNT), np.sum(tmpCDR)}"
+        )
 
         return ds
 
@@ -127,17 +151,17 @@ class PretransformationFuncs:
         Specifically, we set sea ice concentration values to NaN where any of the following are true:
         spatial interpolation, temporal interpolation, no observations
 
-        Where there are no obs, the data producers sometimes fill the gaps via interpolation. 
+        Where there are no obs, the data producers sometimes fill the gaps via interpolation.
         We're not going to use their interpolated values where there are no obs or interpolation, we mask to nan.
 
         The BT and NT weather filters and land spillover filters set the sea ice concentration to zero (open ocean)
-        so we do not mask out those values. The invalid ice mask is where ice is never present, so we do not mask 
-        those values (they are already zero). The melt start detected flag indicates melting ice, which is not a 
+        so we do not mask out those values. The invalid ice mask is where ice is never present, so we do not mask
+        those values (they are already zero). The melt start detected flag indicates melting ice, which is not a
         dealbreaker for us but we could have a higher uncertainty there.
 
         For detailed description of QA flags see
         https://nsidc.org/sites/default/files/documents/user-guide/g02202-v005-userguide.pdf
-        
+
         QA Flag Meanings
 
         flag_meanings = [
@@ -158,7 +182,7 @@ class PretransformationFuncs:
 
         Other flags (weather filters, land spillover, invalid ice mask, melt start)
         are retained.
-        
+
         Also masks out points with values > 1.
 
         Parameters
@@ -173,7 +197,7 @@ class PretransformationFuncs:
             Copy of the input dataset with the two concentration fields masked
             (values set to NaN) where any of the selected QA flags are present.
         """
-        
+
         conc = ds["cdr_seaice_conc"]
         stdev = ds["cdr_seaice_conc_stdev"]
         qa = ds["cdr_seaice_conc_qa_flag"].astype(np.uint64)
@@ -244,7 +268,9 @@ class PretransformationFuncs:
         """
 
         # log the sum of all conc values > 1 before any masking
-        logger.debug(f"G2202 masking flagged CDR pre: {np.nansum(ds['cdr_seaice_conc_stdev'].values.ravel())}")
+        logger.debug(
+            f"G2202 masking flagged CDR pre: {np.nansum(ds['cdr_seaice_conc_stdev'].values.ravel())}"
+        )
 
         # Create a QA Flag DataArray
         # ---------------------------------
@@ -268,7 +294,9 @@ class PretransformationFuncs:
         # then make a list of data array objects, one for each flag of dimension [y,x]
         flag_das = []
         for n in range(8):
-            flag_da_tmp = xr.DataArray(flags[n, 0, 0], dims=["y", "x"], coords={"flag": 2**n})
+            flag_da_tmp = xr.DataArray(
+                flags[n, 0, 0], dims=["y", "x"], coords={"flag": 2**n}
+            )
             flag_da_tmp.name = f"qa_flag{n}"
             flag_das.append(flag_da_tmp)
 
@@ -307,13 +335,17 @@ class PretransformationFuncs:
         # as 2**n
         for n in flags_to_nan:
             cdr_seaice_conc_post_qa = cdr_seaice_conc_post_qa * flag_das.sel(flag=2**n)
-            cdr_seaice_conc_stdev_post_qa = cdr_seaice_conc_stdev_post_qa * flag_das.sel(flag=2**n)
+            cdr_seaice_conc_stdev_post_qa = (
+                cdr_seaice_conc_stdev_post_qa * flag_das.sel(flag=2**n)
+            )
 
         # replace the original conc field with the post-QA field
         ds["cdr_seaice_conc"].values[:] = cdr_seaice_conc_post_qa.values[:]
         ds["cdr_seaice_conc_stdev"].values[:] = cdr_seaice_conc_stdev_post_qa.values[:]
 
-        logger.debug(f"G2202 masking flagged CDR post: {np.nansum(ds['cdr_seaice_conc_stdev'].values.ravel())}")
+        logger.debug(
+            f"G2202 masking flagged CDR post: {np.nansum(ds['cdr_seaice_conc_stdev'].values.ravel())}"
+        )
 
         return ds
 
@@ -325,13 +357,30 @@ class PretransformationFuncs:
         ds["uncertainty"] = ds.uncertainty.where(ds.land_mask == 0.0)
         return ds
 
+    def NASA_SSH_mask_nasa_flag(self, ds: xr.Dataset) -> xr.Dataset:
+        """
+        Apply the NASA-SSH along-track quality flag to `ssha`.
+
+        `nasa_flag` (time,) is 0 = good / 1 = bad, and its own metadata states it is
+        "to be used for ssha, not for ssha_smoothed" — `ssha_smoothed` already has the
+        flag applied by the data producer, so it must NOT be masked here. We set `ssha`
+        to NaN wherever `nasa_flag` != 0; the downstream nanmean then drops those
+        samples per cell.
+        """
+        if "nasa_flag" not in ds or "ssha" not in ds:
+            return ds
+        ds["ssha"] = ds["ssha"].where(ds["nasa_flag"] == 0)
+        return ds
+
 
 class PosttransformationFuncs:
     """
     Post transformation functions, to be performed on xr.DataArrays
     """
 
-    def call_functions(self, function_names: Iterable[str], da: xr.DataArray) -> xr.DataArray:
+    def call_functions(
+        self, function_names: Iterable[str], da: xr.DataArray
+    ) -> xr.DataArray:
         for func_name in function_names:
             da = self.call_function(func_name, da)
         return da
