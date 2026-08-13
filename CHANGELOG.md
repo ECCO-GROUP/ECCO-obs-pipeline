@@ -13,6 +13,11 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 
 ## [Unreleased]
 
+### Improvements
+
+- **Harvest throughput**: download workers now reuse a per-thread keep-alive session (skipping the per-file TCP/TLS + Earthdata Login redirect overhead), download concurrency is configurable via `HARVEST_MAX_WORKERS` (default 8), and `md5()` reads in larger chunks. A test collection went from ~70 to ~660 granules/min.
+- **Durable harvest Solr writes**: granule docs are now flushed to Solr in batches during the harvest (with a single hard commit at the run boundary) instead of one write after the whole collection finishes, so large harvests are visible mid-run and survive an interruption. The shared drain loop lives in `Harvester.drain_futures`.
+
 ---
 
 ## [v2.2.2] — 2026-07-08
