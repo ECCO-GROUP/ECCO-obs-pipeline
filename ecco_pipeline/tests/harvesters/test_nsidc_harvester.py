@@ -53,6 +53,13 @@ def get_mock_config():
 class NSIDCHarvesterTestCase(unittest.TestCase):
     """Tests for the NSIDC_Harvester class."""
 
+    def setUp(self):
+        # fetch() now writes granule docs to Solr mid-run (drain_futures ->
+        # flush_solr_docs), so mock the write to keep these tests offline.
+        patcher = patch("harvesters.harvesterclasses.solr_utils.solr_update")
+        self.mock_solr_update = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_harvester_initialization(self, mock_search, mock_clean, mock_query):
         """Test NSIDC_Harvester initializes correctly."""
         mock_query.return_value = []

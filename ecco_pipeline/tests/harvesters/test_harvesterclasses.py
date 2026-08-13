@@ -2,6 +2,7 @@
 Unit tests for harvester base classes (Granule and Harvester).
 All Solr calls are mocked - no Solr deployment required.
 """
+
 import os
 import tempfile
 import unittest
@@ -24,11 +25,7 @@ class GranuleTestCase(unittest.TestCase):
     def test_granule_initialization(self):
         """Test that Granule initializes correctly."""
         granule = Granule(
-            self.ds_name,
-            self.local_fp,
-            self.date,
-            self.modified_time,
-            self.url
+            self.ds_name, self.local_fp, self.date, self.modified_time, self.url
         )
 
         self.assertEqual(granule.ds_name, self.ds_name)
@@ -41,11 +38,7 @@ class GranuleTestCase(unittest.TestCase):
     def test_gen_granule_doc(self):
         """Test that granule Solr document is generated correctly."""
         granule = Granule(
-            self.ds_name,
-            self.local_fp,
-            self.date,
-            self.modified_time,
-            self.url
+            self.ds_name, self.local_fp, self.date, self.modified_time, self.url
         )
 
         self.assertEqual(granule.solr_item["type_s"], "granule")
@@ -60,11 +53,7 @@ class GranuleTestCase(unittest.TestCase):
         mock_md5.return_value = "abc123checksum"
 
         granule = Granule(
-            self.ds_name,
-            self.local_fp,
-            self.date,
-            self.modified_time,
-            self.url
+            self.ds_name, self.local_fp, self.date, self.modified_time, self.url
         )
 
         # Create a temporary file for the test
@@ -79,7 +68,9 @@ class GranuleTestCase(unittest.TestCase):
 
             self.assertTrue(granule.solr_item["harvest_success_b"])
             self.assertEqual(granule.solr_item["checksum_s"], "abc123checksum")
-            self.assertEqual(granule.solr_item["pre_transformation_file_path_s"], temp_path)
+            self.assertEqual(
+                granule.solr_item["pre_transformation_file_path_s"], temp_path
+            )
             self.assertGreater(granule.solr_item["file_size_l"], 0)
         finally:
             os.unlink(temp_path)
@@ -87,11 +78,7 @@ class GranuleTestCase(unittest.TestCase):
     def test_update_item_failure(self):
         """Test update_item with failed download."""
         granule = Granule(
-            self.ds_name,
-            self.local_fp,
-            self.date,
-            self.modified_time,
-            self.url
+            self.ds_name, self.local_fp, self.date, self.modified_time, self.url
         )
 
         solr_docs = {}
@@ -104,16 +91,10 @@ class GranuleTestCase(unittest.TestCase):
     def test_update_item_with_existing_id(self):
         """Test update_item preserves existing Solr ID."""
         granule = Granule(
-            self.ds_name,
-            self.local_fp,
-            self.date,
-            self.modified_time,
-            self.url
+            self.ds_name, self.local_fp, self.date, self.modified_time, self.url
         )
 
-        solr_docs = {
-            "test_file_20200101.nc": {"id": "existing-solr-id-123"}
-        }
+        solr_docs = {"test_file_20200101.nc": {"id": "existing-solr-id-123"}}
         granule.update_item(solr_docs, success=False)
 
         self.assertEqual(granule.solr_item["id"], "existing-solr-id-123")
@@ -121,11 +102,7 @@ class GranuleTestCase(unittest.TestCase):
     def test_get_solr_docs(self):
         """Test get_solr_docs returns one granule document."""
         granule = Granule(
-            self.ds_name,
-            self.local_fp,
-            self.date,
-            self.modified_time,
-            self.url
+            self.ds_name, self.local_fp, self.date, self.modified_time, self.url
         )
 
         docs = granule.get_solr_docs()
@@ -157,7 +134,7 @@ class HarvesterTestCase(unittest.TestCase):
                     "standard_name": "test",
                     "units": "1",
                     "pre_transformations": [],
-                    "post_transformations": []
+                    "post_transformations": [],
                 }
             ],
             "original_dataset_title": "Test Dataset",
@@ -169,7 +146,7 @@ class HarvesterTestCase(unittest.TestCase):
             "preprocessing": None,
             "t_version": 1.0,
             "a_version": 1.0,
-            "notes": ""
+            "notes": "",
         }
 
     def test_harvester_initialization(self, mock_clean, mock_query):
@@ -219,10 +196,7 @@ class HarvesterTestCase(unittest.TestCase):
                 harvester = Harvester(config)
 
                 # File not in solr_docs
-                result = harvester.check_update(
-                    "new_file.nc",
-                    datetime(2020, 1, 1)
-                )
+                result = harvester.check_update("new_file.nc", datetime(2020, 1, 1))
                 self.assertTrue(result)
 
     def test_check_update_failed_previous(self, mock_clean, mock_query):
@@ -238,13 +212,10 @@ class HarvesterTestCase(unittest.TestCase):
                 # Add failed file to solr_docs
                 harvester.solr_docs["failed_file.nc"] = {
                     "harvest_success_b": False,
-                    "download_time_dt": "2020-01-01T00:00:00Z"
+                    "download_time_dt": "2020-01-01T00:00:00Z",
                 }
 
-                result = harvester.check_update(
-                    "failed_file.nc",
-                    datetime(2020, 1, 1)
-                )
+                result = harvester.check_update("failed_file.nc", datetime(2020, 1, 1))
                 self.assertTrue(result)
 
     def test_check_update_outdated_file(self, mock_clean, mock_query):
@@ -260,13 +231,12 @@ class HarvesterTestCase(unittest.TestCase):
                 # Add outdated file to solr_docs
                 harvester.solr_docs["outdated_file.nc"] = {
                     "harvest_success_b": True,
-                    "download_time_dt": "2020-01-01T00:00:00Z"
+                    "download_time_dt": "2020-01-01T00:00:00Z",
                 }
 
                 # New modification time is later
                 result = harvester.check_update(
-                    "outdated_file.nc",
-                    datetime(2020, 6, 1)
+                    "outdated_file.nc", datetime(2020, 6, 1)
                 )
                 self.assertTrue(result)
 
@@ -283,14 +253,11 @@ class HarvesterTestCase(unittest.TestCase):
                 # Add up-to-date file to solr_docs
                 harvester.solr_docs["current_file.nc"] = {
                     "harvest_success_b": True,
-                    "download_time_dt": "2020-06-01T00:00:00Z"
+                    "download_time_dt": "2020-06-01T00:00:00Z",
                 }
 
                 # Modification time is earlier than download time
-                result = harvester.check_update(
-                    "current_file.nc",
-                    datetime(2020, 1, 1)
-                )
+                result = harvester.check_update("current_file.nc", datetime(2020, 1, 1))
                 self.assertFalse(result)
 
     def test_need_to_download_missing_file(self, mock_clean, mock_query):
@@ -308,7 +275,7 @@ class HarvesterTestCase(unittest.TestCase):
                     "/nonexistent/path/file.nc",
                     datetime(2020, 1, 1),
                     datetime(2020, 1, 1),
-                    "https://example.com/file.nc"
+                    "https://example.com/file.nc",
                 )
 
                 self.assertTrue(harvester.need_to_download(granule))
@@ -338,7 +305,7 @@ class HarvesterTestCase(unittest.TestCase):
                         temp_path,
                         datetime(2020, 1, 1),
                         datetime(2020, 6, 1),  # Newer modification time
-                        "https://example.com/file.nc"
+                        "https://example.com/file.nc",
                     )
 
                     self.assertTrue(harvester.need_to_download(granule))
@@ -356,8 +323,7 @@ class HarvesterTestCase(unittest.TestCase):
                 harvester = Harvester(config)
 
                 ds_doc = harvester.make_ds_doc(
-                    "https://example.com/source",
-                    "2020-01-01T00:00:00Z"
+                    "https://example.com/source", "2020-01-01T00:00:00Z"
                 )
 
                 self.assertEqual(ds_doc["type_s"], "dataset")
@@ -379,7 +345,9 @@ class HarvesterTestCase(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
-                with patch("harvesters.harvesterclasses.solr_utils.solr_count", return_value=0):
+                with patch(
+                    "harvesters.harvesterclasses.solr_utils.solr_count", return_value=0
+                ):
                     harvester = Harvester(config)
                     harvester.updated_solr_docs = []
 
@@ -387,8 +355,11 @@ class HarvesterTestCase(unittest.TestCase):
 
                     self.assertIn("harvested", status.lower())
 
+    @patch("harvesters.harvesterclasses.solr_utils.commit_solr")
     @patch("harvesters.harvesterclasses.solr_utils.solr_update")
-    def test_post_fetch_with_updates(self, mock_update, mock_clean, mock_query):
+    def test_post_fetch_with_updates(
+        self, mock_update, mock_commit, mock_clean, mock_query
+    ):
         """Test post_fetch when downloads occurred."""
         mock_query.return_value = []
         mock_response = Mock()
@@ -399,14 +370,16 @@ class HarvesterTestCase(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
-                with patch("harvesters.harvesterclasses.solr_utils.solr_count", return_value=0):
+                with patch(
+                    "harvesters.harvesterclasses.solr_utils.solr_count", return_value=0
+                ):
                     harvester = Harvester(config)
                     harvester.updated_solr_docs = [
                         {
                             "type_s": "granule",
                             "harvest_success_b": True,
                             "download_time_dt": "2020-01-01T00:00:00Z",
-                            "date_dt": "2020-01-01T00:00:00Z"
+                            "date_dt": "2020-01-01T00:00:00Z",
                         }
                     ]
 
@@ -423,7 +396,10 @@ class HarvesterTestCase(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
-                with patch("harvesters.harvesterclasses.solr_utils.solr_count", side_effect=[0, 1]):
+                with patch(
+                    "harvesters.harvesterclasses.solr_utils.solr_count",
+                    side_effect=[0, 1],
+                ):
                     harvester = Harvester(config)
                     status = harvester.harvester_status()
 
@@ -437,7 +413,10 @@ class HarvesterTestCase(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
-                with patch("harvesters.harvesterclasses.solr_utils.solr_count", side_effect=[2, 1]):
+                with patch(
+                    "harvesters.harvesterclasses.solr_utils.solr_count",
+                    side_effect=[2, 1],
+                ):
                     harvester = Harvester(config)
                     status = harvester.harvester_status()
 

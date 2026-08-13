@@ -66,6 +66,13 @@ def create_mock_cmr_granule(filename, date, provider="POCLOUD"):
 class CMRHarvesterTestCase(unittest.TestCase):
     """Tests for the CMR_Harvester class."""
 
+    def setUp(self):
+        # fetch() now writes granule docs to Solr mid-run (drain_futures ->
+        # flush_solr_docs), so mock the write to keep these tests offline.
+        patcher = patch("harvesters.harvesterclasses.solr_utils.solr_update")
+        self.mock_solr_update = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_harvester_initialization(
         self, mock_cmr_query, mock_clean, mock_solr_query
     ):
@@ -437,12 +444,18 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
 class CMRHarvesterSpecialFetchTestCase(unittest.TestCase):
     """Tests for special fetch methods (fetch_rdeft4, fetch_tolerance_filter, etc.)."""
 
+    @patch("harvesters.harvesterclasses.solr_utils.solr_update")
     @patch("harvesters.harvesterclasses.solr_utils.solr_query")
     @patch("harvesters.harvesterclasses.solr_utils.clean_solr")
     @patch("harvesters.cmr_harvester.CMRQuery")
     @patch("requests.Session.get")
     def test_fetch_rdeft4_filters_end_of_month(
-        self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query
+        self,
+        mock_requests,
+        mock_cmr_query,
+        mock_clean,
+        mock_solr_query,
+        mock_solr_update,
     ):
         """Test fetch_rdeft4 filters to end-of-month granules."""
         mock_solr_query.return_value = []
