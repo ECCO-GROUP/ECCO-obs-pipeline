@@ -234,6 +234,55 @@ class PretransformationFuncsTestCase(unittest.TestCase):
         result = self.funcs.NASA_SSH_mask_nasa_flag(ds)
         np.testing.assert_array_equal(result["ssha_smoothed"].values, [4.0])
 
+    def _dac_ibc_ds(self):
+        return xr.Dataset(
+            {
+                "ssha": xr.DataArray(np.array([1.0, 2.0, 3.0]), dims=["time"]),
+                "ssha_smoothed": xr.DataArray(np.array([4.0, 5.0, 6.0]), dims=["time"]),
+                "dac": xr.DataArray(np.array([0.1, 0.2, 0.3]), dims=["time"]),
+                "inv_bar_cor": xr.DataArray(
+                    np.array([0.01, 0.02, 0.03]), dims=["time"]
+                ),
+            }
+        )
+
+    def test_NASA_SSH_apply_dac_ibc(self):
+        """Both ssha fields get -dac +inv_bar_cor."""
+        result = self.funcs.NASA_SSH_apply_dac_ibc(self._dac_ibc_ds())
+
+        np.testing.assert_allclose(
+            result["ssha"].values,
+            [1.0 - 0.1 + 0.01, 2.0 - 0.2 + 0.02, 3.0 - 0.3 + 0.03],
+        )
+        np.testing.assert_allclose(
+            result["ssha_smoothed"].values,
+            [4.0 - 0.1 + 0.01, 5.0 - 0.2 + 0.02, 6.0 - 0.3 + 0.03],
+        )
+
+    def test_NASA_SSH_apply_dac_ibc_idempotent(self):
+        """
+        Repeated calls (both fields' pre_transformations + reused ds across grids)
+        apply the correction exactly once, not N times.
+        """
+        ds = self._dac_ibc_ds()
+        once = self.funcs.NASA_SSH_apply_dac_ibc(ds)
+        expected_ssha = once["ssha"].values.copy()
+        expected_sm = once["ssha_smoothed"].values.copy()
+
+        # Simulate ssha_smoothed field + a second grid reusing the same ds.
+        twice = self.funcs.NASA_SSH_apply_dac_ibc(ds)
+        thrice = self.funcs.NASA_SSH_apply_dac_ibc(twice)
+
+        np.testing.assert_allclose(thrice["ssha"].values, expected_ssha)
+        np.testing.assert_allclose(thrice["ssha_smoothed"].values, expected_sm)
+        self.assertEqual(thrice.attrs.get("_dac_ibc_applied"), 1)
+
+    def test_NASA_SSH_apply_dac_ibc_missing_vars(self):
+        """No-op when dac/inv_bar_cor are absent (no crash)."""
+        ds = xr.Dataset({"ssha": xr.DataArray(np.array([1.0]), dims=["time"])})
+        result = self.funcs.NASA_SSH_apply_dac_ibc(ds)
+        np.testing.assert_array_equal(result["ssha"].values, [1.0])
+
 
 class PosttransformationFuncsTestCase(unittest.TestCase):
     """Tests for the PosttransformationFuncs class."""

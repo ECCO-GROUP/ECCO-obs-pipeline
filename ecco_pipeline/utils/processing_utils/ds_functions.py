@@ -372,6 +372,31 @@ class PretransformationFuncs:
         ds["ssha"] = ds["ssha"].where(ds["nasa_flag"] == 0)
         return ds
 
+    def NASA_SSH_apply_dac_ibc(self, ds: xr.Dataset) -> xr.Dataset:
+        """
+        Apply the dynamic atmospheric correction (dac) and inverse barometric
+        correction (inv_bar_cor) to the along-track SSHA fields: subtract dac and add
+        inv_bar_cor, for both `ssha` and `ssha_smoothed`.
+
+        dac and inv_bar_cor are (time,) with no fill/NaN wherever the SSHA fields are
+        valid, so the correction introduces no new NaN.
+
+        Idempotency: unlike the flag masker, this correction is NOT idempotent, and
+        pre_transformations mutate `ds` in place. The same `ds` is reused across grids
+        (e.g. llc90 then llc270) and this function is listed on multiple fields'
+        pre_transformations, so it can be invoked several times on the same dataset.
+        A guard attribute ensures the correction is applied exactly once.
+        """
+        if ds.attrs.get("_dac_ibc_applied"):
+            return ds
+        if "dac" not in ds or "inv_bar_cor" not in ds:
+            return ds
+        for field in ("ssha", "ssha_smoothed"):
+            if field in ds:
+                ds[field] = ds[field] - ds["dac"] + ds["inv_bar_cor"]
+        ds.attrs["_dac_ibc_applied"] = 1
+        return ds
+
 
 class PosttransformationFuncs:
     """
