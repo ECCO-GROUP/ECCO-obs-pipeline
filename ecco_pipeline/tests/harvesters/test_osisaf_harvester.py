@@ -2,6 +2,7 @@
 Unit tests for OSISAF harvester.
 All Solr and HTTP calls are mocked - no external dependencies required.
 """
+
 import tempfile
 import unittest
 from datetime import datetime
@@ -30,7 +31,7 @@ def get_mock_config():
                 "standard_name": "sea_ice_area_fraction",
                 "units": "1",
                 "pre_transformations": [],
-                "post_transformations": []
+                "post_transformations": [],
             }
         ],
         "original_dataset_title": "OSISAF Sea Ice Concentration",
@@ -42,7 +43,7 @@ def get_mock_config():
         "preprocessing": None,
         "t_version": 1.0,
         "a_version": 1.0,
-        "notes": ""
+        "notes": "",
     }
 
 
@@ -81,14 +82,16 @@ class OSISAFHarvesterTestCase(unittest.TestCase):
 
                 self.assertEqual(len(h.updated_solr_docs), 0)
 
-    @patch("harvesters.harvesterclasses.requests.get")
-    def test_fetch_downloads_file(self, mock_requests, mock_search, mock_clean, mock_query):
+    @patch("requests.Session.get")
+    def test_fetch_downloads_file(
+        self, mock_requests, mock_search, mock_clean, mock_query
+    ):
         """Test fetch downloads files correctly."""
         mock_query.return_value = []
 
         mock_granule = OSISAFGranule(
             url="https://thredds.met.no/thredds/fileServer/ice_conc_nh_20200115.nc",
-            mod_time=datetime(2020, 1, 16, 10, 30)
+            mod_time=datetime(2020, 1, 16, 10, 30),
         )
         mock_search.return_value = [mock_granule]
 
@@ -104,15 +107,17 @@ class OSISAFHarvesterTestCase(unittest.TestCase):
                 mock_requests.assert_called_once()
                 self.assertEqual(len(h.updated_solr_docs), 1)  # granule only
 
-    @patch("harvesters.harvesterclasses.requests.get")
-    def test_fetch_skips_icdrft_files(self, mock_requests, mock_search, mock_clean, mock_query):
+    @patch("requests.Session.get")
+    def test_fetch_skips_icdrft_files(
+        self, mock_requests, mock_search, mock_clean, mock_query
+    ):
         """Test fetch skips fast track (icdrft) files."""
         mock_query.return_value = []
 
         # Create mock granule with icdrft in filename
         mock_granule = OSISAFGranule(
             url="https://thredds.met.no/thredds/fileServer/ice_conc_nh_icdrft_20200115.nc",
-            mod_time=datetime(2020, 1, 16, 10, 30)
+            mod_time=datetime(2020, 1, 16, 10, 30),
         )
         mock_search.return_value = [mock_granule]
 
@@ -126,14 +131,16 @@ class OSISAFHarvesterTestCase(unittest.TestCase):
                 # Should not download icdrft files
                 mock_requests.assert_not_called()
 
-    @patch("harvesters.harvesterclasses.requests.get")
-    def test_fetch_handles_download_failure(self, mock_requests, mock_search, mock_clean, mock_query):
+    @patch("requests.Session.get")
+    def test_fetch_handles_download_failure(
+        self, mock_requests, mock_search, mock_clean, mock_query
+    ):
         """Test fetch handles download failures gracefully."""
         mock_query.return_value = []
 
         mock_granule = OSISAFGranule(
             url="https://thredds.met.no/thredds/fileServer/ice_conc_nh_20200115.nc",
-            mod_time=datetime(2020, 1, 16, 10, 30)
+            mod_time=datetime(2020, 1, 16, 10, 30),
         )
         mock_search.return_value = [mock_granule]
 
@@ -147,7 +154,9 @@ class OSISAFHarvesterTestCase(unittest.TestCase):
                 h.fetch()
 
                 self.assertGreater(len(h.updated_solr_docs), 0)
-                granule_doc = [d for d in h.updated_solr_docs if d.get("type_s") == "granule"][0]
+                granule_doc = [
+                    d for d in h.updated_solr_docs if d.get("type_s") == "granule"
+                ][0]
                 self.assertFalse(granule_doc["harvest_success_b"])
 
 
@@ -159,7 +168,9 @@ class OSISAFHarvesterTestCase(unittest.TestCase):
 class OSISAFHarvesterFunctionTestCase(unittest.TestCase):
     """Tests for the harvester() module function."""
 
-    def test_harvester_function(self, mock_search, mock_count, mock_update, mock_clean, mock_query):
+    def test_harvester_function(
+        self, mock_search, mock_count, mock_update, mock_clean, mock_query
+    ):
         """Test the harvester() function runs complete workflow."""
         mock_query.return_value = []
         mock_search.return_value = []

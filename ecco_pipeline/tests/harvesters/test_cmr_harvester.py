@@ -2,6 +2,7 @@
 Unit tests for CMR harvester.
 All Solr and HTTP calls are mocked - no external dependencies required.
 """
+
 import os
 import tempfile
 import unittest
@@ -33,7 +34,7 @@ def get_mock_config():
                 "standard_name": "sea_surface_height_above_sea_level",
                 "units": "m",
                 "pre_transformations": [],
-                "post_transformations": []
+                "post_transformations": [],
             }
         ],
         "original_dataset_title": "MEaSUREs Gridded Sea Surface Height Anomalies",
@@ -45,7 +46,7 @@ def get_mock_config():
         "preprocessing": None,
         "t_version": 1.0,
         "a_version": 1.0,
-        "notes": ""
+        "notes": "",
     }
 
 
@@ -65,7 +66,9 @@ def create_mock_cmr_granule(filename, date, provider="POCLOUD"):
 class CMRHarvesterTestCase(unittest.TestCase):
     """Tests for the CMR_Harvester class."""
 
-    def test_harvester_initialization(self, mock_cmr_query, mock_clean, mock_solr_query):
+    def test_harvester_initialization(
+        self, mock_cmr_query, mock_clean, mock_solr_query
+    ):
         """Test CMR_Harvester initializes correctly."""
         mock_solr_query.return_value = []
         mock_query_instance = MagicMock()
@@ -78,7 +81,10 @@ class CMRHarvesterTestCase(unittest.TestCase):
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
                 h = CMR_Harvester(config)
 
-                self.assertEqual(h.ds_name, "SEA_SURFACE_HEIGHT_ALT_GRIDS_L4_2SATS_5DAY_6THDEG_V_JPL2205")
+                self.assertEqual(
+                    h.ds_name,
+                    "SEA_SURFACE_HEIGHT_ALT_GRIDS_L4_2SATS_5DAY_6THDEG_V_JPL2205",
+                )
                 self.assertEqual(h.cmr_concept_id, "C2036882072-POCLOUD")
                 self.assertEqual(h.provider, "POCLOUD")
                 mock_cmr_query.assert_called_once()
@@ -99,15 +105,16 @@ class CMRHarvesterTestCase(unittest.TestCase):
 
                 self.assertEqual(len(h.updated_solr_docs), 0)
 
-    @patch("harvesters.harvesterclasses.requests.get")
-    def test_fetch_downloads_file(self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query):
+    @patch("requests.Session.get")
+    def test_fetch_downloads_file(
+        self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query
+    ):
         """Test fetch downloads files correctly."""
         mock_solr_query.return_value = []
 
         # Create mock granule
         mock_granule = create_mock_cmr_granule(
-            "ssh_grids_v2205_2020011512.nc",
-            datetime(2020, 1, 16, 10, 30)
+            "ssh_grids_v2205_2020011512.nc", datetime(2020, 1, 16, 10, 30)
         )
         mock_query_instance = MagicMock()
         mock_query_instance.query.return_value = [mock_granule]
@@ -127,15 +134,16 @@ class CMRHarvesterTestCase(unittest.TestCase):
                 mock_requests.assert_called_once()
                 self.assertEqual(len(h.updated_solr_docs), 1)  # granule only
 
-    @patch("harvesters.harvesterclasses.requests.get")
-    def test_fetch_skips_nrt_files(self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query):
+    @patch("requests.Session.get")
+    def test_fetch_skips_nrt_files(
+        self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query
+    ):
         """Test fetch skips NRT (Near Real Time) files."""
         mock_solr_query.return_value = []
 
         # Create mock NRT granule
         mock_granule = create_mock_cmr_granule(
-            "ssh_grids_v2205_NRT_2020011512.nc",
-            datetime(2020, 1, 16, 10, 30)
+            "ssh_grids_v2205_NRT_2020011512.nc", datetime(2020, 1, 16, 10, 30)
         )
         mock_query_instance = MagicMock()
         mock_query_instance.query.return_value = [mock_granule]
@@ -151,15 +159,16 @@ class CMRHarvesterTestCase(unittest.TestCase):
                 # Should not download NRT files
                 mock_requests.assert_not_called()
 
-    @patch("harvesters.harvesterclasses.requests.get")
-    def test_fetch_skips_out_of_range_dates(self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query):
+    @patch("requests.Session.get")
+    def test_fetch_skips_out_of_range_dates(
+        self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query
+    ):
         """Test fetch skips granules outside date range."""
         mock_solr_query.return_value = []
 
         # Create mock granule with date outside range (2019)
         mock_granule = create_mock_cmr_granule(
-            "ssh_grids_v2205_2019011512.nc",
-            datetime(2019, 1, 16, 10, 30)
+            "ssh_grids_v2205_2019011512.nc", datetime(2019, 1, 16, 10, 30)
         )
         mock_query_instance = MagicMock()
         mock_query_instance.query.return_value = [mock_granule]
@@ -175,14 +184,15 @@ class CMRHarvesterTestCase(unittest.TestCase):
                 # Should not download
                 mock_requests.assert_not_called()
 
-    @patch("harvesters.harvesterclasses.requests.get")
-    def test_fetch_handles_download_failure(self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query):
+    @patch("requests.Session.get")
+    def test_fetch_handles_download_failure(
+        self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query
+    ):
         """Test fetch handles download failures gracefully."""
         mock_solr_query.return_value = []
 
         mock_granule = create_mock_cmr_granule(
-            "ssh_grids_v2205_2020011512.nc",
-            datetime(2020, 1, 16, 10, 30)
+            "ssh_grids_v2205_2020011512.nc", datetime(2020, 1, 16, 10, 30)
         )
         mock_query_instance = MagicMock()
         mock_query_instance.query.return_value = [mock_granule]
@@ -200,17 +210,20 @@ class CMRHarvesterTestCase(unittest.TestCase):
 
                 # Should still create Solr docs with failure status
                 self.assertGreater(len(h.updated_solr_docs), 0)
-                granule_doc = [d for d in h.updated_solr_docs if d.get("type_s") == "granule"][0]
+                granule_doc = [
+                    d for d in h.updated_solr_docs if d.get("type_s") == "granule"
+                ][0]
                 self.assertFalse(granule_doc["harvest_success_b"])
 
-    @patch("harvesters.harvesterclasses.requests.get")
-    def test_fetch_skips_existing_up_to_date_files(self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query):
+    @patch("requests.Session.get")
+    def test_fetch_skips_existing_up_to_date_files(
+        self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query
+    ):
         """Test fetch skips files that are already up to date."""
         mock_solr_query.return_value = []
 
         mock_granule = create_mock_cmr_granule(
-            "ssh_grids_v2205_2020011512.nc",
-            datetime(2020, 1, 16, 10, 30)
+            "ssh_grids_v2205_2020011512.nc", datetime(2020, 1, 16, 10, 30)
         )
         mock_query_instance = MagicMock()
         mock_query_instance.query.return_value = [mock_granule]
@@ -225,7 +238,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
                 # Mark file as already downloaded and up to date
                 h.solr_docs["ssh_grids_v2205_2020011512.nc"] = {
                     "harvest_success_b": True,
-                    "download_time_dt": "2020-12-01T00:00:00Z"
+                    "download_time_dt": "2020-12-01T00:00:00Z",
                 }
 
                 h.fetch()
@@ -233,15 +246,16 @@ class CMRHarvesterTestCase(unittest.TestCase):
                 # Should not download
                 mock_requests.assert_not_called()
 
-    @patch("harvesters.harvesterclasses.requests.get")
-    def test_fetch_multiple_granules(self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query):
+    @patch("requests.Session.get")
+    def test_fetch_multiple_granules(
+        self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query
+    ):
         """Test fetch handles multiple granules."""
         mock_solr_query.return_value = []
 
         mock_granules = [
             create_mock_cmr_granule(
-                f"ssh_grids_v2205_202001{i:02d}12.nc",
-                datetime(2020, 1, i+1, 10, 30)
+                f"ssh_grids_v2205_202001{i:02d}12.nc", datetime(2020, 1, i + 1, 10, 30)
             )
             for i in range(1, 4)
         ]
@@ -263,8 +277,10 @@ class CMRHarvesterTestCase(unittest.TestCase):
                 self.assertEqual(len(h.updated_solr_docs), 3)
 
     @patch("harvesters.cmr_harvester.time.sleep")
-    @patch("harvesters.harvesterclasses.requests.get")
-    def test_dl_file_retries_on_failure(self, mock_requests, mock_sleep, mock_cmr_query, mock_clean, mock_solr_query):
+    @patch("requests.Session.get")
+    def test_dl_file_retries_on_failure(
+        self, mock_requests, mock_sleep, mock_cmr_query, mock_clean, mock_solr_query
+    ):
         """Test dl_file retries on initial failure."""
         mock_solr_query.return_value = []
         mock_query_instance = MagicMock()
@@ -308,7 +324,9 @@ class CMRHarvesterTestCase(unittest.TestCase):
 class CMRHarvesterFunctionTestCase(unittest.TestCase):
     """Tests for the harvester() module function."""
 
-    def test_harvester_function_standard(self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query):
+    def test_harvester_function_standard(
+        self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query
+    ):
         """Test the harvester() function runs standard fetch workflow."""
         mock_solr_query.return_value = []
         mock_query_instance = MagicMock()
@@ -327,7 +345,9 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
                 self.assertIsInstance(status, str)
                 mock_update.assert_called()
 
-    def test_harvester_function_atl20(self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query):
+    def test_harvester_function_atl20(
+        self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query
+    ):
         """Test the harvester() function calls fetch_atl_daily for ATL20."""
         mock_solr_query.return_value = []
         mock_query_instance = MagicMock()
@@ -342,11 +362,13 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
-                with patch.object(CMR_Harvester, 'fetch_atl_daily') as mock_fetch:
+                with patch.object(CMR_Harvester, "fetch_atl_daily") as mock_fetch:
                     harvester(config)
                     mock_fetch.assert_called_once()
 
-    def test_harvester_function_tellus_grac_grfo(self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query):
+    def test_harvester_function_tellus_grac_grfo(
+        self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query
+    ):
         """Test the harvester() function calls fetch_tellus_grac_grfo for TELLUS dataset."""
         mock_solr_query.return_value = []
         mock_query_instance = MagicMock()
@@ -361,11 +383,15 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
-                with patch.object(CMR_Harvester, 'fetch_tellus_grac_grfo') as mock_fetch:
+                with patch.object(
+                    CMR_Harvester, "fetch_tellus_grac_grfo"
+                ) as mock_fetch:
                     harvester(config)
                     mock_fetch.assert_called_once()
 
-    def test_harvester_function_rdeft4(self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query):
+    def test_harvester_function_rdeft4(
+        self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query
+    ):
         """Test the harvester() function calls fetch_rdeft4 for RDEFT4."""
         mock_solr_query.return_value = []
         mock_query_instance = MagicMock()
@@ -380,11 +406,13 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
-                with patch.object(CMR_Harvester, 'fetch_rdeft4') as mock_fetch:
+                with patch.object(CMR_Harvester, "fetch_rdeft4") as mock_fetch:
                     harvester(config)
                     mock_fetch.assert_called_once()
 
-    def test_harvester_function_tellus_tolerance(self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query):
+    def test_harvester_function_tellus_tolerance(
+        self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query
+    ):
         """Test the harvester() function calls fetch_tolerance_filter for other TELLUS datasets."""
         mock_solr_query.return_value = []
         mock_query_instance = MagicMock()
@@ -399,7 +427,9 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("harvesters.harvesterclasses.OUTPUT_DIR", tmpdir):
-                with patch.object(CMR_Harvester, 'fetch_tolerance_filter') as mock_fetch:
+                with patch.object(
+                    CMR_Harvester, "fetch_tolerance_filter"
+                ) as mock_fetch:
                     harvester(config)
                     mock_fetch.assert_called_once()
 
@@ -410,15 +440,19 @@ class CMRHarvesterSpecialFetchTestCase(unittest.TestCase):
     @patch("harvesters.harvesterclasses.solr_utils.solr_query")
     @patch("harvesters.harvesterclasses.solr_utils.clean_solr")
     @patch("harvesters.cmr_harvester.CMRQuery")
-    @patch("harvesters.harvesterclasses.requests.get")
-    def test_fetch_rdeft4_filters_end_of_month(self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query):
+    @patch("requests.Session.get")
+    def test_fetch_rdeft4_filters_end_of_month(
+        self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query
+    ):
         """Test fetch_rdeft4 filters to end-of-month granules."""
         mock_solr_query.return_value = []
 
         # Create granules for different days
         mock_granules = [
             create_mock_cmr_granule("RDEFT4_20200115.nc", datetime(2020, 1, 16)),
-            create_mock_cmr_granule("RDEFT4_20200131.nc", datetime(2020, 2, 1)),  # End of month
+            create_mock_cmr_granule(
+                "RDEFT4_20200131.nc", datetime(2020, 2, 1)
+            ),  # End of month
             create_mock_cmr_granule("RDEFT4_20200220.nc", datetime(2020, 2, 21)),
         ]
         mock_query_instance = MagicMock()
