@@ -2,6 +2,7 @@
 Unit tests for CATDS harvester.
 All Solr and HTTP calls are mocked - no external dependencies required.
 """
+
 import tempfile
 import unittest
 from datetime import datetime
@@ -30,7 +31,7 @@ def get_mock_config():
                 "standard_name": "sea_surface_salinity",
                 "units": "psu",
                 "pre_transformations": [],
-                "post_transformations": []
+                "post_transformations": [],
             }
         ],
         "original_dataset_title": "SMOS L3 Sea Surface Salinity",
@@ -42,7 +43,7 @@ def get_mock_config():
         "preprocessing": None,
         "t_version": 1.0,
         "a_version": 1.0,
-        "notes": ""
+        "notes": "",
     }
 
 
@@ -51,6 +52,13 @@ def get_mock_config():
 @patch("harvesters.catds_harvester.search_catds")
 class CATDSHarvesterTestCase(unittest.TestCase):
     """Tests for the CATDS_Harvester class."""
+
+    def setUp(self):
+        # fetch() now writes granule docs to Solr mid-run (drain_futures ->
+        # flush_solr_docs), so mock the write to keep these tests offline.
+        patcher = patch("harvesters.harvesterclasses.solr_utils.solr_update")
+        self.mock_solr_update = patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_harvester_initialization(self, mock_search, mock_clean, mock_query):
         """Test CATDS_Harvester initializes correctly."""
@@ -81,14 +89,16 @@ class CATDSHarvesterTestCase(unittest.TestCase):
 
                 self.assertEqual(len(h.updated_solr_docs), 0)
 
-    @patch("harvesters.harvesterclasses.requests.get")
-    def test_fetch_downloads_file(self, mock_requests, mock_search, mock_clean, mock_query):
+    @patch("requests.Session.get")
+    def test_fetch_downloads_file(
+        self, mock_requests, mock_search, mock_clean, mock_query
+    ):
         """Test fetch downloads files correctly."""
         mock_query.return_value = []
 
         mock_granule = CATDSGranule(
             url="https://data.catds.fr/cecos-locean/Ocean_products/L3_DEBIAS_LOCEAN_v10/SM_OPER_20200115.nc",
-            mod_time=datetime(2020, 1, 16, 10, 30)
+            mod_time=datetime(2020, 1, 16, 10, 30),
         )
         mock_search.return_value = [mock_granule]
 
@@ -104,14 +114,16 @@ class CATDSHarvesterTestCase(unittest.TestCase):
                 mock_requests.assert_called_once()
                 self.assertEqual(len(h.updated_solr_docs), 1)  # granule only
 
-    @patch("harvesters.harvesterclasses.requests.get")
-    def test_fetch_skips_out_of_range_dates(self, mock_requests, mock_search, mock_clean, mock_query):
+    @patch("requests.Session.get")
+    def test_fetch_skips_out_of_range_dates(
+        self, mock_requests, mock_search, mock_clean, mock_query
+    ):
         """Test fetch skips granules outside date range."""
         mock_query.return_value = []
 
         mock_granule = CATDSGranule(
             url="https://data.catds.fr/cecos-locean/Ocean_products/L3_DEBIAS_LOCEAN_v10/SM_OPER_20190115.nc",
-            mod_time=datetime(2019, 1, 16, 10, 30)
+            mod_time=datetime(2019, 1, 16, 10, 30),
         )
         mock_search.return_value = [mock_granule]
 
@@ -124,14 +136,16 @@ class CATDSHarvesterTestCase(unittest.TestCase):
 
                 mock_requests.assert_not_called()
 
-    @patch("harvesters.harvesterclasses.requests.get")
-    def test_fetch_handles_download_failure(self, mock_requests, mock_search, mock_clean, mock_query):
+    @patch("requests.Session.get")
+    def test_fetch_handles_download_failure(
+        self, mock_requests, mock_search, mock_clean, mock_query
+    ):
         """Test fetch handles download failures gracefully."""
         mock_query.return_value = []
 
         mock_granule = CATDSGranule(
             url="https://data.catds.fr/cecos-locean/Ocean_products/L3_DEBIAS_LOCEAN_v10/SM_OPER_20200115.nc",
-            mod_time=datetime(2020, 1, 16, 10, 30)
+            mod_time=datetime(2020, 1, 16, 10, 30),
         )
         mock_search.return_value = [mock_granule]
 
@@ -145,18 +159,22 @@ class CATDSHarvesterTestCase(unittest.TestCase):
                 h.fetch()
 
                 self.assertGreater(len(h.updated_solr_docs), 0)
-                granule_doc = [d for d in h.updated_solr_docs if d.get("type_s") == "granule"][0]
+                granule_doc = [
+                    d for d in h.updated_solr_docs if d.get("type_s") == "granule"
+                ][0]
                 self.assertFalse(granule_doc["harvest_success_b"])
 
-    @patch("harvesters.harvesterclasses.requests.get")
-    def test_fetch_multiple_granules(self, mock_requests, mock_search, mock_clean, mock_query):
+    @patch("requests.Session.get")
+    def test_fetch_multiple_granules(
+        self, mock_requests, mock_search, mock_clean, mock_query
+    ):
         """Test fetch handles multiple granules."""
         mock_query.return_value = []
 
         mock_granules = [
             CATDSGranule(
                 url=f"https://data.catds.fr/cecos-locean/Ocean_products/L3_DEBIAS_LOCEAN_v10/SM_OPER_202001{i:02d}.nc",
-                mod_time=datetime(2020, 1, i+1, 10, 30)
+                mod_time=datetime(2020, 1, i + 1, 10, 30),
             )
             for i in range(15, 18)
         ]
@@ -184,7 +202,9 @@ class CATDSHarvesterTestCase(unittest.TestCase):
 class CATDSHarvesterFunctionTestCase(unittest.TestCase):
     """Tests for the harvester() module function."""
 
-    def test_harvester_function(self, mock_search, mock_count, mock_update, mock_clean, mock_query):
+    def test_harvester_function(
+        self, mock_search, mock_count, mock_update, mock_clean, mock_query
+    ):
         """Test the harvester() function runs complete workflow."""
         mock_query.return_value = []
         mock_search.return_value = []

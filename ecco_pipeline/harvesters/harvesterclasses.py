@@ -1,5 +1,7 @@
 import logging
 import os
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 import requests
@@ -11,6 +13,22 @@ from utils.pipeline_utils import file_utils, solr_utils
 logger = logging.getLogger("pipeline")
 
 CHUNK_SIZE = 1024 * 1024  # 1 MB
+
+# Number of concurrent download workers. Overridable per remote box via the
+# HARVEST_MAX_WORKERS env var without a code change. PO.DAAC/EDL-gated archives
+# generally tolerate well more than the old default of 3.
+DEFAULT_DOWNLOAD_WORKERS = 8
+
+# Buffered granule docs are flushed to Solr every SOLR_FLUSH_INTERVAL granules
+# during a harvest (instead of a single write at the very end), so large
+# harvests are durable and visible mid-run.
+SOLR_FLUSH_INTERVAL = 500
+
+# One requests.Session per worker thread, holding the Earthdata Login cookie and
+# a keep-alive connection so each granule download skips the TCP/TLS handshake
+# and the full EDL OAuth redirect chain after the first. netrc creds are picked
+# up automatically (trust_env is on by default).
+_thread_local = threading.local()
 
 
 class Granule:
@@ -85,6 +103,13 @@ class Harvester(Dataset):
             OUTPUT_DIR, self.ds_name, "harvested_granules"
         )
         self.updated_solr_docs: list = []
+        # Granule docs written to Solr but not yet flushed. Guarded by
+        # _flush_lock, which also serializes worker appends against a flush.
+        self._pending_solr_docs: list = []
+        self._flush_lock = threading.Lock()
+        self.max_workers: int = int(
+            os.environ.get("HARVEST_MAX_WORKERS", DEFAULT_DOWNLOAD_WORKERS)
+        )
 
         self.ensure_target_dir()
         solr_utils.clean_solr(config)
@@ -108,6 +133,26 @@ class Harvester(Dataset):
     def dl_file(self):
         raise NotImplementedError
 
+    def _get_download_session(self) -> requests.Session:
+        """
+        Return this worker thread's persistent download Session.
+
+        A per-thread Session keeps the EDL auth cookie and a pooled keep-alive
+        connection, so downloads after the first skip the ~1-2s TCP/TLS +
+        EDL OAuth redirect tax that a fresh requests.get() pays every call.
+        """
+        session = getattr(_thread_local, "download_session", None)
+        if session is None:
+            session = requests.Session()
+            adapter = requests.adapters.HTTPAdapter(
+                pool_connections=self.max_workers,
+                pool_maxsize=self.max_workers,
+            )
+            session.mount("https://", adapter)
+            session.mount("http://", adapter)
+            _thread_local.download_session = session
+        return session
+
     def _stream_download(self, src: str, dst: str):
         """
         Stream a file to disk and verify the transfer completed in full.
@@ -118,7 +163,8 @@ class Harvester(Dataset):
         Content-Length (e.g. chunked encoding) we can't know the expected size,
         so we fall back to rejecting only a genuinely empty file.
         """
-        with requests.get(src, stream=True, timeout=120) as r:
+        session = self._get_download_session()
+        with session.get(src, stream=True, timeout=120) as r:
             r.raise_for_status()
             declared = r.headers.get("Content-Length")
             expected_size = int(declared) if declared is not None else None
@@ -196,15 +242,73 @@ class Harvester(Dataset):
             return True
         return False
 
+    def flush_solr_docs(self, force: bool = False):
+        """
+        Write buffered granule docs to Solr using commitWithin batching.
+
+        Called periodically during a harvest so large runs are durable and
+        visible mid-run instead of a single write at the end. Only flushes once
+        SOLR_FLUSH_INTERVAL docs have accumulated unless force=True, which
+        flushes whatever remains (used at the end of the drain loop).
+
+        The pending list is copied and cleared under _flush_lock, then the
+        network write happens outside the lock so workers aren't blocked on it.
+        """
+        with self._flush_lock:
+            if not self._pending_solr_docs:
+                return
+            if not force and len(self._pending_solr_docs) < SOLR_FLUSH_INTERVAL:
+                return
+            batch = self._pending_solr_docs
+            self._pending_solr_docs = []
+            # Keep the complete set for post_fetch (last_download_dt, date ranges).
+            self.updated_solr_docs.extend(batch)
+
+        # commit=False -> commitWithin, so batched flushes don't trigger a
+        # commit/searcher-warming storm on every call. post_fetch forces a hard
+        # commit at the run boundary.
+        solr_utils.solr_update(batch, commit=False)
+
+    def drain_futures(self, process_granule, to_process, max_workers=None):
+        """
+        Run process_granule(*args) for each tuple in to_process across a thread
+        pool, buffering returned granule docs and flushing to Solr every
+        SOLR_FLUSH_INTERVAL granules. Flushes the remainder before returning.
+
+        Centralizes the accumulate + batched-flush pattern so each fetch_*
+        method only builds to_process and defines its per-granule worker.
+        """
+        if max_workers is None:
+            max_workers = self.max_workers
+
+        total = len(to_process)
+        completed = 0
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(process_granule, *args) for args in to_process]
+            for future in as_completed(futures):
+                docs = future.result()
+                completed += 1
+                if completed % SOLR_FLUSH_INTERVAL == 0:
+                    logger.info(
+                        f"{self.ds_name}: processed {completed}/{total} granules"
+                    )
+                if not docs:
+                    continue
+                with self._flush_lock:
+                    self._pending_solr_docs.extend(docs)
+                self.flush_solr_docs()
+
+        self.flush_solr_docs(force=True)
+        logger.info(f"Downloading {self.ds_name} complete")
+
     def post_fetch(self, source: str) -> str:
         check_time = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
         if self.updated_solr_docs:
-            r = solr_utils.solr_update(self.updated_solr_docs, r=True)
-            if r.status_code == 200:
-                logger.debug("Successfully created or updated Solr harvested documents")
-            else:
-                logger.exception("Failed to create Solr harvested documents")
+            # Batched flushes used commitWithin; force a hard commit so the
+            # count/date read-backs below see the latest state.
+            solr_utils.commit_solr()
+            logger.debug("Committed batched Solr harvested documents")
         else:
             logger.debug("No downloads required.")
 
@@ -295,7 +399,9 @@ class Harvester(Dataset):
         successful_count = solr_utils.solr_count(fq_base + ["harvest_success_b:true"])
 
         if not successful_count:
-            return "No usable granules harvested (either all failed or no data collected)"
+            return (
+                "No usable granules harvested (either all failed or no data collected)"
+            )
         elif failed_count:
             return f"{failed_count} harvested granules failed"
         return "All granules successfully harvested"
