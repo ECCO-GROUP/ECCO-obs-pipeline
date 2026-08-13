@@ -1,8 +1,6 @@
 import calendar
 import logging
 import os
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 import time
 from typing import Iterable
@@ -15,8 +13,6 @@ from utils.pipeline_utils.file_utils import get_date
 from utils.processing_utils.records import TimeBound
 
 logger = logging.getLogger("pipeline")
-
-MAX_WORKERS = 3
 
 
 class CMR_Harvester(Harvester):
@@ -50,8 +46,6 @@ class CMR_Harvester(Harvester):
         for _, _, dt in to_process:
             os.makedirs(os.path.join(self.target_dir, str(dt.year)), exist_ok=True)
 
-        lock = threading.Lock()
-
         def process_granule(cmr_granule: CMRGranule, filename: str, dt: datetime):
             year = str(dt.year)
             local_fp = os.path.join(self.target_dir, year, filename)
@@ -74,20 +68,18 @@ class CMR_Harvester(Harvester):
                 except Exception as e:
                     success = False
                     error_message = str(e)
-                download_duration = int((datetime.utcnow() - download_start).total_seconds())
+                download_duration = int(
+                    (datetime.utcnow() - download_start).total_seconds()
+                )
             else:
                 logger.debug(f"{filename} already downloaded and up to date")
 
-            granule.update_item(self.solr_docs, success, error_message, download_duration)
+            granule.update_item(
+                self.solr_docs, success, error_message, download_duration
+            )
             return granule.get_solr_docs()
 
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futures = [executor.submit(process_granule, *args) for args in to_process]
-            for future in as_completed(futures):
-                with lock:
-                    self.updated_solr_docs.extend(future.result())
-
-        logger.info(f"Downloading {self.ds_name} complete")
+        self.drain_futures(process_granule, to_process)
 
     def fetch_atl_daily(self):
         to_process = []
@@ -104,9 +96,9 @@ class CMR_Harvester(Harvester):
         for _, _, dt in to_process:
             os.makedirs(os.path.join(self.target_dir, str(dt.year)), exist_ok=True)
 
-        lock = threading.Lock()
-
-        def process_monthly_granule(cmr_granule: CMRGranule, filename: str, dt: datetime):
+        def process_monthly_granule(
+            cmr_granule: CMRGranule, filename: str, dt: datetime
+        ):
             year = str(dt.year)
             month = str(dt.month)
             local_fp = os.path.join(self.target_dir, year, filename)
@@ -127,7 +119,9 @@ class CMR_Harvester(Harvester):
                     logger.warning(e)
                     dl_success = False
                     dl_error_message = str(e) or repr(e)
-                download_duration = int((datetime.utcnow() - download_start).total_seconds())
+                download_duration = int(
+                    (datetime.utcnow() - download_start).total_seconds()
+                )
             else:
                 logger.info(
                     f"{year}-{str(month).zfill(2)} monthly file up to date. Slicing to ensure entries in Solr..."
@@ -224,15 +218,7 @@ class CMR_Harvester(Harvester):
 
         # xarray/netCDF4 operations are CPU-bound — 1 worker avoids core saturation
         # while still freeing the main thread during I/O waits.
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            futures = [
-                executor.submit(process_monthly_granule, *args) for args in to_process
-            ]
-            for future in as_completed(futures):
-                with lock:
-                    self.updated_solr_docs.extend(future.result())
-
-        logger.info(f"Downloading {self.ds_name} complete")
+        self.drain_futures(process_monthly_granule, to_process, max_workers=1)
 
     def fetch_tellus_grac_grfo(self):
         to_process = []
@@ -246,8 +232,6 @@ class CMR_Harvester(Harvester):
                 continue
             to_process.append((cmr_granule, filename, dt))
 
-        lock = threading.Lock()
-
         def process_granule(cmr_granule: CMRGranule, filename: str, dt: datetime):
             local_fp = os.path.join(self.target_dir, filename)
             os.makedirs(self.target_dir, exist_ok=True)
@@ -256,7 +240,8 @@ class CMR_Harvester(Harvester):
             download_duration = 0
             if (
                 not os.path.exists(local_fp)
-                or datetime.fromtimestamp(os.path.getmtime(local_fp)) < cmr_granule.mod_time
+                or datetime.fromtimestamp(os.path.getmtime(local_fp))
+                < cmr_granule.mod_time
             ):
                 logger.info(f"Downloading {filename} to {local_fp}")
                 try:
@@ -268,7 +253,11 @@ class CMR_Harvester(Harvester):
                         (datetime.utcnow() - download_start).total_seconds()
                     )
                     parent_granule = Granule(
-                        self.ds_name, local_fp, dt, cmr_granule.mod_time, cmr_granule.url
+                        self.ds_name,
+                        local_fp,
+                        dt,
+                        cmr_granule.mod_time,
+                        cmr_granule.url,
                     )
                     parent_granule.update_item(
                         self.solr_docs, False, str(e) or repr(e), download_duration
@@ -277,7 +266,9 @@ class CMR_Harvester(Harvester):
             else:
                 logger.info("File up to date. Slicing to ensure entries in Solr...")
                 downloaded = False
-            download_duration = int((datetime.utcnow() - download_start).total_seconds())
+            download_duration = int(
+                (datetime.utcnow() - download_start).total_seconds()
+            )
 
             ds = xr.open_dataset(local_fp, decode_times=True)
 
@@ -285,11 +276,15 @@ class CMR_Harvester(Harvester):
                 "datetime64[M]"
             )
             time_end = (
-                np.datetime64(ds.attrs["time_coverage_end"][:-1]).astype("datetime64[M]") + 1
+                np.datetime64(ds.attrs["time_coverage_end"][:-1]).astype(
+                    "datetime64[M]"
+                )
+                + 1
             )
             months = np.arange(time_start, time_end, 1, dtype="datetime64[M]")
             monthly_cts = [
-                TimeBound(rec_avg_start=month, period="AVG_MON").center for month in months
+                TimeBound(rec_avg_start=month, period="AVG_MON").center
+                for month in months
             ]
 
             logger.info("Slicing aggregated granule into monthly granules...")
@@ -299,7 +294,9 @@ class CMR_Harvester(Harvester):
                 slice_error_message = ""
                 try:
                     success = True
-                    sub_ds = ds.sel(time=np.datetime64(monthly_center), method="nearest")
+                    sub_ds = ds.sel(
+                        time=np.datetime64(monthly_center), method="nearest"
+                    )
                     sub_ds_time = sub_ds.time.values
 
                     if not (
@@ -347,13 +344,7 @@ class CMR_Harvester(Harvester):
                 solr_docs.extend(monthly_granule.get_solr_docs())
             return solr_docs
 
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futures = [executor.submit(process_granule, *args) for args in to_process]
-            for future in as_completed(futures):
-                with lock:
-                    self.updated_solr_docs.extend(future.result())
-
-        logger.info(f"Downloading {self.ds_name} complete")
+        self.drain_futures(process_granule, to_process)
 
     def fetch_rdeft4(self):
         # Data filenames contain end of time coverage. To get data covering an
@@ -397,8 +388,6 @@ class CMR_Harvester(Harvester):
                 continue
             to_process.append((cmr_granule, filename, dt))
 
-        lock = threading.Lock()
-
         def process_granule(cmr_granule: CMRGranule, filename: str, dt: datetime):
             year = str(dt.year)
             local_fp = os.path.join(self.target_dir, year, filename)
@@ -422,20 +411,18 @@ class CMR_Harvester(Harvester):
                 except Exception as e:
                     success = False
                     error_message = str(e)
-                download_duration = int((datetime.utcnow() - download_start).total_seconds())
+                download_duration = int(
+                    (datetime.utcnow() - download_start).total_seconds()
+                )
             else:
                 logger.debug(f"{filename} already downloaded and up to date")
 
-            granule.update_item(self.solr_docs, success, error_message, download_duration)
+            granule.update_item(
+                self.solr_docs, success, error_message, download_duration
+            )
             return granule.get_solr_docs()
 
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futures = [executor.submit(process_granule, *args) for args in to_process]
-            for future in as_completed(futures):
-                with lock:
-                    self.updated_solr_docs.extend(future.result())
-
-        logger.info(f"Downloading {self.ds_name} complete")
+        self.drain_futures(process_granule, to_process)
 
     def fetch_tolerance_filter(self):
         sorted_granules = sorted(self.cmr_granules, key=lambda x: x.url)
@@ -495,8 +482,6 @@ class CMR_Harvester(Harvester):
                 continue
             to_process.append((cmr_granule, filename, dt))
 
-        lock = threading.Lock()
-
         def process_granule(cmr_granule: CMRGranule, filename: str, dt: datetime):
             year = str(dt.year)
             local_fp = os.path.join(self.target_dir, year, filename)
@@ -520,20 +505,18 @@ class CMR_Harvester(Harvester):
                 except Exception as e:
                     success = False
                     error_message = str(e)
-                download_duration = int((datetime.utcnow() - download_start).total_seconds())
+                download_duration = int(
+                    (datetime.utcnow() - download_start).total_seconds()
+                )
             else:
                 logger.debug(f"{filename} already downloaded and up to date")
 
-            granule.update_item(self.solr_docs, success, error_message, download_duration)
+            granule.update_item(
+                self.solr_docs, success, error_message, download_duration
+            )
             return granule.get_solr_docs()
 
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futures = [executor.submit(process_granule, *args) for args in to_process]
-            for future in as_completed(futures):
-                with lock:
-                    self.updated_solr_docs.extend(future.result())
-
-        logger.info(f"Downloading {self.ds_name} complete")
+        self.drain_futures(process_granule, to_process)
 
 
 def harvester(config: dict) -> str:

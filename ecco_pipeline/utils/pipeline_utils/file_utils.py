@@ -9,8 +9,10 @@ def md5(fname: str) -> str:
     """
     hash_md5 = hashlib.md5()
 
+    # 1 MB reads keep the post-download checksum off the critical path for large
+    # granules (vs. many tiny 4 KB reads).
     with open(fname, "rb") as f:
-        for chunk in iter(lambda: f.read(4096), b""):
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
             hash_md5.update(chunk)
     return hash_md5.hexdigest()
 

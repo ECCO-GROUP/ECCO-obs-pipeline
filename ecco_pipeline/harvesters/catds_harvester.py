@@ -1,7 +1,5 @@
 import logging
 import os
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Iterable
 
@@ -10,8 +8,6 @@ from harvesters.harvesterclasses import Granule, Harvester
 from utils.pipeline_utils.file_utils import get_date
 
 logger = logging.getLogger("pipeline")
-
-MAX_WORKERS = 3
 
 
 class CATDS_Harvester(Harvester):
@@ -32,8 +28,6 @@ class CATDS_Harvester(Harvester):
 
         for _, _, dt in to_process:
             os.makedirs(os.path.join(self.target_dir, str(dt.year)), exist_ok=True)
-
-        lock = threading.Lock()
 
         def process_granule(catds_granule: CATDSGranule, filename: str, dt: datetime):
             year = str(dt.year)
@@ -57,23 +51,18 @@ class CATDS_Harvester(Harvester):
                 except Exception as e:
                     success = False
                     error_message = str(e)
-                download_duration = int((datetime.utcnow() - download_start).total_seconds())
+                download_duration = int(
+                    (datetime.utcnow() - download_start).total_seconds()
+                )
             else:
                 logger.debug(f"{filename} already downloaded and up to date")
 
-            granule.update_item(self.solr_docs, success, error_message, download_duration)
+            granule.update_item(
+                self.solr_docs, success, error_message, download_duration
+            )
             return granule.get_solr_docs()
 
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futures = [
-                executor.submit(process_granule, *args) for args in to_process
-            ]
-            for future in as_completed(futures):
-                docs = future.result()
-                with lock:
-                    self.updated_solr_docs.extend(docs)
-
-        logger.info(f"Downloading {self.ds_name} complete")
+        self.drain_futures(process_granule, to_process)
 
     def dl_file(self, src: str, dst: str):
         self._stream_download(src, dst)
