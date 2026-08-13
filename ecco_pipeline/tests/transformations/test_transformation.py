@@ -3,6 +3,7 @@ Unit tests for grid_transformation module (Transformation class).
 All file I/O and Solr calls are mocked.
 """
 
+import os
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -11,6 +12,10 @@ import xarray as xr
 
 import transformations.grid_transformation as grid_transformation
 from transformations.grid_transformation import Transformation
+
+_GRID_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "grids", "ECCO_llc90.nc"
+)
 
 
 class TransformationInitTestCase(unittest.TestCase):
@@ -349,6 +354,76 @@ class TransformationMakeFactorsTestCase(unittest.TestCase):
         # A second granule with different coords recomputes (no silent cache reuse).
         T.make_factors(grid_ds, ds)
         self.assertEqual(mock_along_track.call_count, 2)
+
+
+class TransformationEmptyAlongTrackTestCase(unittest.TestCase):
+    """
+    Regression: an along-track granule with zero samples must not crash.
+
+    time/lat/lon/value are per-sample coordinates, so an empty granule has a size-0
+    time array. perform_mapping used to do ds["time"].values.ravel()[0] unconditionally
+    and raised IndexError; it now falls back to the nominal record date.
+    """
+
+    def setUp(self):
+        grid_transformation._factors_cache.clear()
+        grid_transformation._grid_ds_cache.clear()
+
+    def get_config(self):
+        return {
+            "ds_name": "TEST_ALONGTRACK",
+            "start": "20200101T00:00:00Z",
+            "end": "20201231T00:00:00Z",
+            "data_time_scale": "daily",
+            "source_type": "along_track",
+            "mapping_operation": "nanmean",
+            "allow_nearest_neighbor": False,
+            "fields": [
+                {
+                    "name": "ssha",
+                    "long_name": "ssha",
+                    "standard_name": "ssha",
+                    "units": "m",
+                    "pre_transformations": [],
+                    "post_transformations": [],
+                }
+            ],
+            "original_dataset_title": "T",
+            "original_dataset_short_name": "T",
+            "original_dataset_url": "https://example.com",
+            "original_dataset_reference": "R",
+            "original_dataset_doi": "10.1234/t",
+            "t_version": 1.0,
+            "a_version": 1.0,
+            "notes": "",
+        }
+
+    @unittest.skipUnless(os.path.exists(_GRID_FILE), "ECCO_llc90 grid not present")
+    def test_empty_granule_does_not_crash(self):
+        empty = xr.Dataset(
+            {
+                "ssha": ("time", np.array([], dtype="float64")),
+                "latitude": ("time", np.array([], dtype="float32")),
+                "longitude": ("time", np.array([], dtype="float32")),
+            },
+            coords={"time": ("time", np.array([], dtype="datetime64[ns]"))},
+        )
+        grid_ds = xr.open_dataset(_GRID_FILE).reset_coords()
+
+        T = Transformation(
+            self.get_config(),
+            "/data/NASA-SSH_alt_ref_at_v1_1_20200617.nc",
+            "2020-06-17T00:00:00Z",
+        )
+        factors = T.make_factors(grid_ds, empty)
+        # No points binned anywhere.
+        self.assertEqual(len(factors[0]), 0)
+
+        field_DA = T.perform_mapping(empty, factors, T.fields[0], grid_ds)
+        # Time falls back to the nominal record date (no per-sample time to read).
+        self.assertEqual(str(field_DA.time.values[0])[:10], "2020-06-17")
+        # Every cell is empty (all-NaN) — a valid empty record, not a crash.
+        self.assertTrue(np.all(np.isnan(field_DA.values)))
 
 
 class TransformationLoadFileTestCase(unittest.TestCase):

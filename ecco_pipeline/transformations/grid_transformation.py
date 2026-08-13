@@ -321,9 +321,12 @@ class Transformation(Dataset):
         data_DA.time_start.values[0] = time_start.replace("Z", "")
         data_DA.time_end.values[0] = time_end.replace("Z", "")
 
-        if "time" in ds:
+        # A granule's time can be a per-sample coordinate (along-track), so an empty
+        # granule has a size-0 time array. Guard the [0] access and fall back to the
+        # nominal record date rather than crashing on IndexError.
+        if "time" in ds and ds["time"].values.size:
             data_DA.time.values[0] = ds["time"].values.ravel()[0]
-        elif "Time" in ds:
+        elif "Time" in ds and ds["Time"].values.size:
             data_DA.time.values[0] = ds["Time"].values.ravel()[0]
         else:
             data_DA.time.values[0] = self.date
