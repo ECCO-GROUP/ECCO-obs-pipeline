@@ -7,7 +7,10 @@ import unittest
 from unittest.mock import patch, MagicMock
 
 from transformations.grid_transformation import TxResult
-from transformations.transformation_factory import TxJobFactory, multiprocess_transformation
+from transformations.transformation_factory import (
+    TxJobFactory,
+    multiprocess_transformation,
+)
 
 
 class TxJobFactoryInitTestCase(unittest.TestCase):
@@ -47,7 +50,12 @@ class TxJobFactoryInitTestCase(unittest.TestCase):
         mock_config.user_cpus = 4
         mock_config.grids_to_use = ["grid1", "grid2"]
 
-        mock_query.return_value = [{"filename_s": "test1.nc", "pre_transformation_file_path_s": "/data/test1.nc"}]
+        mock_query.return_value = [
+            {
+                "filename_s": "test1.nc",
+                "pre_transformation_file_path_s": "/data/test1.nc",
+            }
+        ]
 
         config = self.get_base_config()
         factory = TxJobFactory(config)
@@ -124,7 +132,11 @@ class TxJobFactoryNeedToUpdateTestCase(unittest.TestCase):
         factory = TxJobFactory(config)
 
         granule = {"checksum_s": "abc123"}
-        tx = {"success_b": True, "transformation_version_f": 2.0, "origin_checksum_s": "abc123"}
+        tx = {
+            "success_b": True,
+            "transformation_version_f": 2.0,
+            "origin_checksum_s": "abc123",
+        }
 
         result = factory.need_to_update(granule, tx)
         self.assertFalse(result)
@@ -162,7 +174,11 @@ class TxJobFactoryNeedToUpdateTestCase(unittest.TestCase):
         factory = TxJobFactory(config)
 
         granule = {"checksum_s": "new_checksum"}
-        tx = {"success_b": True, "transformation_version_f": 2.0, "origin_checksum_s": "old_checksum"}
+        tx = {
+            "success_b": True,
+            "transformation_version_f": 2.0,
+            "origin_checksum_s": "old_checksum",
+        }
 
         result = factory.need_to_update(granule, tx)
         self.assertTrue(result)
@@ -253,6 +269,66 @@ class TxJobFactoryFindDataForFactorsTestCase(unittest.TestCase):
         self.assertTrue(any("_sh_" in p for p in paths))
 
 
+class TxJobFactoryPregenerateFactorsTestCase(unittest.TestCase):
+    """Tests for TxJobFactory.pregenerate_factors along-track no-op."""
+
+    def get_base_config(self):
+        return {
+            "ds_name": "TEST_DATASET",
+            "start": "20200101T00:00:00Z",
+            "end": "20201231T00:00:00Z",
+            "data_time_scale": "daily",
+            "fields": [],
+            "original_dataset_title": "Test",
+            "original_dataset_short_name": "TEST",
+            "original_dataset_url": "https://example.com",
+            "original_dataset_reference": "Ref",
+            "original_dataset_doi": "10.1234/test",
+            "t_version": 1.0,
+            "a_version": 1.0,
+            "notes": "",
+        }
+
+    @patch("transformations.transformation_factory.xr.open_dataset")
+    @patch("transformations.transformation_factory.solr_utils.solr_query")
+    @patch("transformations.transformation_factory.baseclasses.Config")
+    def test_pregenerate_factors_noop_for_along_track(
+        self, mock_config, mock_query, mock_open
+    ):
+        """along_track skips factor warm-up entirely (no grid open, no make_factors)."""
+        mock_config.user_cpus = 1
+        mock_config.grids_to_use = ["grid"]
+        mock_query.return_value = [{"pre_transformation_file_path_s": "/data/test1.nc"}]
+
+        config = self.get_base_config()
+        config["source_type"] = "along_track"
+        factory = TxJobFactory(config)
+
+        factory.pregenerate_factors()
+
+        # Never opened a grid file — the warm-up body was skipped.
+        mock_open.assert_not_called()
+
+    @patch("transformations.transformation_factory.Transformation.make_factors")
+    @patch("transformations.transformation_factory.xr.open_dataset")
+    @patch("transformations.transformation_factory.solr_utils.solr_query")
+    @patch("transformations.transformation_factory.baseclasses.Config")
+    def test_pregenerate_factors_runs_for_grid(
+        self, mock_config, mock_query, mock_open, mock_make_factors
+    ):
+        """The grid path still warms factors (regression guard on the branch)."""
+        mock_config.user_cpus = 1
+        mock_config.grids_to_use = ["grid"]
+        mock_query.return_value = [{"pre_transformation_file_path_s": "/data/test1.nc"}]
+
+        config = self.get_base_config()  # no source_type -> grid
+        factory = TxJobFactory(config)
+
+        factory.pregenerate_factors()
+
+        mock_make_factors.assert_called()
+
+
 class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
     """Tests for TxJobFactory.pipeline_cleanup method."""
 
@@ -277,7 +353,9 @@ class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
     @patch("transformations.transformation_factory.solr_utils.solr_update")
     @patch("transformations.transformation_factory.solr_utils.solr_query")
     @patch("transformations.transformation_factory.baseclasses.Config")
-    def test_pipeline_cleanup_all_successful(self, mock_config, mock_query, mock_update, mock_count):
+    def test_pipeline_cleanup_all_successful(
+        self, mock_config, mock_query, mock_update, mock_count
+    ):
         """Test cleanup when all transformations successful."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = ["grid"]
@@ -305,7 +383,9 @@ class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
     @patch("transformations.transformation_factory.solr_utils.solr_update")
     @patch("transformations.transformation_factory.solr_utils.solr_query")
     @patch("transformations.transformation_factory.baseclasses.Config")
-    def test_pipeline_cleanup_some_failed(self, mock_config, mock_query, mock_update, mock_count):
+    def test_pipeline_cleanup_some_failed(
+        self, mock_config, mock_query, mock_update, mock_count
+    ):
         """Test cleanup when some transformations failed."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = ["grid"]
@@ -331,7 +411,9 @@ class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
     @patch("transformations.transformation_factory.solr_utils.solr_update")
     @patch("transformations.transformation_factory.solr_utils.solr_query")
     @patch("transformations.transformation_factory.baseclasses.Config")
-    def test_pipeline_cleanup_none_performed(self, mock_config, mock_query, mock_update, mock_count):
+    def test_pipeline_cleanup_none_performed(
+        self, mock_config, mock_query, mock_update, mock_count
+    ):
         """Test cleanup when no transformations performed."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = ["grid"]
@@ -367,19 +449,29 @@ class MultiprocessTransformationTestCase(unittest.TestCase):
         4-tuple, and the worker path touches Solr zero times (ADR 0001)."""
         mock_logger = MagicMock()
         mock_logging.return_value = mock_logger
-        worker_results = [TxResult(doc_id="id1", grid="grid", field="field", success=True)]
+        worker_results = [
+            TxResult(doc_id="id1", grid="grid", field="field", success=True)
+        ]
         mock_transform.return_value = worker_results
 
         config = {"ds_name": "TEST"}
-        granule = {"pre_transformation_file_path_s": "/data/test.nc", "file_size_l": 1000, "date_dt": "2020-01-01"}
+        granule = {
+            "pre_transformation_file_path_s": "/data/test.nc",
+            "file_size_l": 1000,
+            "date_dt": "2020-01-01",
+        }
         field = MagicMock()
         field.name = "field"
         tx_jobs = {"grid": [field]}
         doc_id_map = {("grid", "field"): "id1"}
 
-        result = multiprocess_transformation(config, granule, tx_jobs, doc_id_map, "INFO", "/logs")
+        result = multiprocess_transformation(
+            config, granule, tx_jobs, doc_id_map, "INFO", "/logs"
+        )
 
-        mock_transform.assert_called_once_with("/data/test.nc", tx_jobs, config, "2020-01-01", doc_id_map)
+        mock_transform.assert_called_once_with(
+            "/data/test.nc", tx_jobs, config, "2020-01-01", doc_id_map
+        )
         # No filename_s on the granule, so the marker falls back to the file path.
         self.assertEqual(result, ("/data/test.nc", "ok", "", worker_results))
         mock_solr.solr_update.assert_not_called()
@@ -387,7 +479,9 @@ class MultiprocessTransformationTestCase(unittest.TestCase):
 
     @patch("transformations.transformation_factory.transform")
     @patch("transformations.transformation_factory.log_config.mp_logging")
-    def test_multiprocess_returns_failure_results_on_exception(self, mock_logging, mock_transform):
+    def test_multiprocess_returns_failure_results_on_exception(
+        self, mock_logging, mock_transform
+    ):
         """A granule that raises (e.g. in load_file) returns an error marker plus a
         failure TxResult per (grid, field), not an exception — the batch must not abort."""
         mock_logger = MagicMock()
@@ -407,7 +501,9 @@ class MultiprocessTransformationTestCase(unittest.TestCase):
         doc_id_map = {("grid", "field"): "id1"}
 
         # Must not raise — the whole batch would abort otherwise.
-        result = multiprocess_transformation(config, granule, tx_jobs, doc_id_map, "INFO", "/logs")
+        result = multiprocess_transformation(
+            config, granule, tx_jobs, doc_id_map, "INFO", "/logs"
+        )
 
         self.assertEqual(result[0], "bad.nc")
         self.assertEqual(result[1], "error")
@@ -500,12 +596,25 @@ class TxJobFactoryParentSolrIOTestCase(unittest.TestCase):
 
         results = [
             TxResult(
-                doc_id="id-ok", grid="g", field="f1", success=True,
-                output_filename="out.nc", output_path="/o/out.nc",
-                checksum="cs", error_message="",
+                doc_id="id-ok",
+                grid="g",
+                field="f1",
+                success=True,
+                output_filename="out.nc",
+                output_path="/o/out.nc",
+                checksum="cs",
+                error_message="",
             ),
-            TxResult(doc_id="id-fail", grid="g", field="f2", success=False, error_message="boom"),
-            TxResult(doc_id=None, grid="g", field="f3", success=False, error_message="no id"),
+            TxResult(
+                doc_id="id-fail",
+                grid="g",
+                field="f2",
+                success=False,
+                error_message="boom",
+            ),
+            TxResult(
+                doc_id=None, grid="g", field="f3", success=False, error_message="no id"
+            ),
         ]
 
         factory.record_results(results)

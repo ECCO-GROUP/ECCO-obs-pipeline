@@ -3,6 +3,7 @@ Unit tests for grid_transformation module (Transformation class).
 All file I/O and Solr calls are mocked.
 """
 
+import os
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -11,6 +12,10 @@ import xarray as xr
 
 import transformations.grid_transformation as grid_transformation
 from transformations.grid_transformation import Transformation
+
+_GRID_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "grids", "ECCO_llc90.nc"
+)
 
 
 class TransformationInitTestCase(unittest.TestCase):
@@ -43,7 +48,12 @@ class TransformationInitTestCase(unittest.TestCase):
             "data_res": 0.25,
             "area_extent": [-180, -90, 180, 90],
             "dims": [720, 360],
-            "proj_info": {"area_id": "test", "area_name": "Test", "proj_id": "test", "proj4_args": "+proj=latlong"},
+            "proj_info": {
+                "area_id": "test",
+                "area_name": "Test",
+                "proj_id": "test",
+                "proj4_args": "+proj=latlong",
+            },
             "notes": "",
         }
 
@@ -118,6 +128,41 @@ class TransformationInitTestCase(unittest.TestCase):
 
         self.assertEqual(T.hemi, "")
 
+    def test_source_type_defaults_to_grid(self):
+        """Absent source_type defaults to the grid path with nearest-neighbor on."""
+        config = self.get_base_config()
+
+        T = Transformation(config, "/data/test_20200115.nc", "2020-01-15")
+
+        self.assertEqual(T.source_type, "grid")
+        self.assertEqual(T.lat_var, "latitude")
+        self.assertEqual(T.lon_var, "longitude")
+        self.assertTrue(T.allow_nearest_neighbor)
+
+    def test_along_track_config_fields(self):
+        """along_track defaults nearest-neighbor off; lat/lon vars are configurable."""
+        config = self.get_base_config()
+        config["source_type"] = "along_track"
+        config["lat_var"] = "lat"
+        config["lon_var"] = "lon"
+
+        T = Transformation(config, "/data/test_20200115.nc", "2020-01-15")
+
+        self.assertEqual(T.source_type, "along_track")
+        self.assertEqual(T.lat_var, "lat")
+        self.assertEqual(T.lon_var, "lon")
+        self.assertFalse(T.allow_nearest_neighbor)
+
+    def test_allow_nearest_neighbor_explicit_override(self):
+        """An explicit allow_nearest_neighbor overrides the source_type default."""
+        config = self.get_base_config()
+        config["source_type"] = "along_track"
+        config["allow_nearest_neighbor"] = True
+
+        T = Transformation(config, "/data/test_20200115.nc", "2020-01-15")
+
+        self.assertTrue(T.allow_nearest_neighbor)
+
 
 class TransformationMakeFactorsTestCase(unittest.TestCase):
     """Tests for Transformation.make_factors method."""
@@ -147,7 +192,12 @@ class TransformationMakeFactorsTestCase(unittest.TestCase):
             "data_res": 0.25,
             "area_extent": [-180, -90, 180, 90],
             "dims": [720, 360],
-            "proj_info": {"area_id": "test", "area_name": "Test", "proj_id": "test", "proj4_args": "+proj=latlong"},
+            "proj_info": {
+                "area_id": "test",
+                "area_name": "Test",
+                "proj_id": "test",
+                "proj4_args": "+proj=latlong",
+            },
             "notes": "",
         }
 
@@ -155,7 +205,9 @@ class TransformationMakeFactorsTestCase(unittest.TestCase):
     @patch("transformations.grid_transformation.pickle.load")
     @patch("transformations.grid_transformation.os.path.exists")
     @patch("transformations.grid_transformation.os.makedirs")
-    def test_make_factors_loads_existing(self, mock_makedirs, mock_exists, mock_load, mock_dump):
+    def test_make_factors_loads_existing(
+        self, mock_makedirs, mock_exists, mock_load, mock_dump
+    ):
         """Test that existing factors are loaded from file."""
         mock_exists.return_value = True
         expected_factors = ({"0": [0, 1]}, [2], {"3": 4})
@@ -200,14 +252,24 @@ class TransformationMakeFactorsTestCase(unittest.TestCase):
         self.assertEqual(second, expected_factors)
         mock_load.assert_called_once()
 
-    @patch("transformations.grid_transformation.transformation_utils.find_mappings_from_source_to_target")
-    @patch("transformations.grid_transformation.transformation_utils.generalized_grid_product")
+    @patch(
+        "transformations.grid_transformation.transformation_utils.find_mappings_from_source_to_target"
+    )
+    @patch(
+        "transformations.grid_transformation.transformation_utils.generalized_grid_product"
+    )
     @patch("transformations.grid_transformation.pr.geometry.SwathDefinition")
     @patch("transformations.grid_transformation.pickle.dump")
     @patch("transformations.grid_transformation.os.path.exists")
     @patch("transformations.grid_transformation.os.makedirs")
     def test_make_factors_creates_new(
-        self, mock_makedirs, mock_exists, mock_dump, mock_swath, mock_grid_product, mock_find_mappings
+        self,
+        mock_makedirs,
+        mock_exists,
+        mock_dump,
+        mock_swath,
+        mock_grid_product,
+        mock_find_mappings,
     ):
         """Test that new factors are created when file doesn't exist."""
         mock_exists.return_value = False
@@ -237,6 +299,132 @@ class TransformationMakeFactorsTestCase(unittest.TestCase):
         self.assertEqual(result, expected_factors)
         mock_find_mappings.assert_called_once()
 
+    @patch(
+        "transformations.grid_transformation.transformation_utils.along_track_factors"
+    )
+    @patch("transformations.grid_transformation.pickle.load")
+    @patch("transformations.grid_transformation.os.path.exists")
+    @patch("transformations.grid_transformation.os.makedirs")
+    def test_make_factors_along_track_bypasses_caches(
+        self, mock_makedirs, mock_exists, mock_load, mock_along_track
+    ):
+        """
+        along_track make_factors computes fresh per granule: it must call
+        along_track_factors with the granule coords and touch neither cache (even if a
+        pickle exists on disk for the same grid+hemi+t_version key).
+        """
+        mock_exists.return_value = True  # a stale pickle exists for this key
+        expected = ({0: np.array([1])}, np.array([0, 1]), {})
+        mock_along_track.return_value = expected
+
+        config = self.get_base_config()
+        config["source_type"] = "along_track"
+        config["fields"] = [
+            {
+                "name": "ssha",
+                "long_name": "x",
+                "standard_name": "x",
+                "units": "m",
+                "pre_transformations": [],
+                "post_transformations": [],
+            }
+        ]
+        T = Transformation(config, "/data/test.nc", "2020-01-01")
+
+        grid_ds = MagicMock()
+        grid_ds.name = "test_grid"
+
+        ds = MagicMock()
+        lon_vals = np.array([0.0, 1.0])
+        lat_vals = np.array([0.0, 0.0])
+        ds.__getitem__.side_effect = lambda key: {
+            "longitude": MagicMock(values=lon_vals),
+            "latitude": MagicMock(values=lat_vals),
+        }[key]
+
+        result = T.make_factors(grid_ds, ds)
+
+        self.assertEqual(result, expected)
+        mock_along_track.assert_called_once()
+        # Never read the on-disk pickle despite os.path.exists being True.
+        mock_load.assert_not_called()
+        # Nothing written to the in-memory cache for this grid.
+        self.assertEqual(len(grid_transformation._factors_cache), 0)
+
+        # A second granule with different coords recomputes (no silent cache reuse).
+        T.make_factors(grid_ds, ds)
+        self.assertEqual(mock_along_track.call_count, 2)
+
+
+class TransformationEmptyAlongTrackTestCase(unittest.TestCase):
+    """
+    Regression: an along-track granule with zero samples must not crash.
+
+    time/lat/lon/value are per-sample coordinates, so an empty granule has a size-0
+    time array. perform_mapping used to do ds["time"].values.ravel()[0] unconditionally
+    and raised IndexError; it now falls back to the nominal record date.
+    """
+
+    def setUp(self):
+        grid_transformation._factors_cache.clear()
+        grid_transformation._grid_ds_cache.clear()
+
+    def get_config(self):
+        return {
+            "ds_name": "TEST_ALONGTRACK",
+            "start": "20200101T00:00:00Z",
+            "end": "20201231T00:00:00Z",
+            "data_time_scale": "daily",
+            "source_type": "along_track",
+            "mapping_operation": "nanmean",
+            "allow_nearest_neighbor": False,
+            "fields": [
+                {
+                    "name": "ssha",
+                    "long_name": "ssha",
+                    "standard_name": "ssha",
+                    "units": "m",
+                    "pre_transformations": [],
+                    "post_transformations": [],
+                }
+            ],
+            "original_dataset_title": "T",
+            "original_dataset_short_name": "T",
+            "original_dataset_url": "https://example.com",
+            "original_dataset_reference": "R",
+            "original_dataset_doi": "10.1234/t",
+            "t_version": 1.0,
+            "a_version": 1.0,
+            "notes": "",
+        }
+
+    @unittest.skipUnless(os.path.exists(_GRID_FILE), "ECCO_llc90 grid not present")
+    def test_empty_granule_does_not_crash(self):
+        empty = xr.Dataset(
+            {
+                "ssha": ("time", np.array([], dtype="float64")),
+                "latitude": ("time", np.array([], dtype="float32")),
+                "longitude": ("time", np.array([], dtype="float32")),
+            },
+            coords={"time": ("time", np.array([], dtype="datetime64[ns]"))},
+        )
+        grid_ds = xr.open_dataset(_GRID_FILE).reset_coords()
+
+        T = Transformation(
+            self.get_config(),
+            "/data/NASA-SSH_alt_ref_at_v1_1_20200617.nc",
+            "2020-06-17T00:00:00Z",
+        )
+        factors = T.make_factors(grid_ds, empty)
+        # No points binned anywhere.
+        self.assertEqual(len(factors[0]), 0)
+
+        field_DA = T.perform_mapping(empty, factors, T.fields[0], grid_ds)
+        # Time falls back to the nominal record date (no per-sample time to read).
+        self.assertEqual(str(field_DA.time.values[0])[:10], "2020-06-17")
+        # Every cell is empty (all-NaN) — a valid empty record, not a crash.
+        self.assertTrue(np.all(np.isnan(field_DA.values)))
+
 
 class TransformationLoadFileTestCase(unittest.TestCase):
     """Tests for Transformation.load_file method."""
@@ -258,7 +446,12 @@ class TransformationLoadFileTestCase(unittest.TestCase):
             "data_res": 0.25,
             "area_extent": [-180, -90, 180, 90],
             "dims": [720, 360],
-            "proj_info": {"area_id": "test", "area_name": "Test", "proj_id": "test", "proj4_args": "+proj=latlong"},
+            "proj_info": {
+                "area_id": "test",
+                "area_name": "Test",
+                "proj_id": "test",
+                "proj4_args": "+proj=latlong",
+            },
             "notes": "",
             "preprocessing": None,
         }
@@ -327,7 +520,12 @@ class TransformWorkerPurityTestCase(unittest.TestCase):
             "data_res": 0.25,
             "area_extent": [-180, -90, 180, 90],
             "dims": [720, 360],
-            "proj_info": {"area_id": "test", "area_name": "Test", "proj_id": "test", "proj4_args": "+proj=latlong"},
+            "proj_info": {
+                "area_id": "test",
+                "area_name": "Test",
+                "proj_id": "test",
+                "proj4_args": "+proj=latlong",
+            },
             "notes": "",
         }
 
@@ -343,8 +541,14 @@ class TransformWorkerPurityTestCase(unittest.TestCase):
     @patch("transformations.grid_transformation.load_grid")
     @patch.object(Transformation, "load_file")
     def test_transform_returns_txresults(
-        self, mock_load_file, mock_load_grid, mock_make_factors,
-        mock_method_transform, mock_makedirs, mock_save, mock_md5,
+        self,
+        mock_load_file,
+        mock_load_grid,
+        mock_make_factors,
+        mock_method_transform,
+        mock_makedirs,
+        mock_save,
+        mock_md5,
     ):
         """A successful field yields a TxResult carrying the preassigned doc id,
         the worker-computed checksum, and success=True — with no Solr access."""

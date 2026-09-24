@@ -16,7 +16,12 @@ logger = logging.getLogger("pipeline")
 
 
 def multiprocess_transformation(
-    config: dict, granule: dict, tx_jobs: dict, doc_id_map: dict, log_level: str, log_dir: str
+    config: dict,
+    granule: dict,
+    tx_jobs: dict,
+    doc_id_map: dict,
+    log_level: str,
+    log_dir: str,
 ) -> tuple:
     """
     Callable function that performs the actual transformation on a granule.
@@ -47,7 +52,7 @@ def multiprocess_transformation(
     try:
         # Perform remaining transformations
         logger.info(
-            f'{sum([len(v) for v in tx_jobs.values()])} remaining transformations for {granule_filepath.split("/")[-1]}'
+            f"{sum([len(v) for v in tx_jobs.values()])} remaining transformations for {granule_filepath.split('/')[-1]}"
         )
         results = transform(granule_filepath, tx_jobs, config, granule_date, doc_id_map)
         return (granule_name, "ok", "", results)
@@ -225,7 +230,9 @@ class TxJobFactory(baseclasses.Dataset):
             {
                 "id": dataset_metadata["id"],
                 "transformation_status_s": {"set": transformation_status},
-                "last_transformation_dt": {"set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")},
+                "last_transformation_dt": {
+                    "set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+                },
             }
         ]
 
@@ -247,6 +254,11 @@ class TxJobFactory(baseclasses.Dataset):
         Generates mapping factors for all grids used for the given transformation version. Loads them into
         Factors object which is used to reduce I/O.
         """
+        # Along-track factors are per-granule (source coords differ every granule) and
+        # not cacheable, so there is nothing to warm — and make_factors now requires the
+        # granule ds, which this warm-up path does not load. Skip it entirely (ADR 0002).
+        if self.config.get("source_type", "grid") == "along_track":
+            return
         for grid in self.grids:
             for granule in self.find_data_for_factors():
                 grid_ds = xr.open_dataset(f"grids/{grid}.nc")
@@ -316,7 +328,14 @@ class TxJobFactory(baseclasses.Dataset):
         new_jobs = []
         for granule, grid_fields in processable:
             doc_id_map = doc_id_maps[granule["filename_s"]]
-            job_params = (self.config, granule, grid_fields, doc_id_map, log_level, log_dir)
+            job_params = (
+                self.config,
+                granule,
+                grid_fields,
+                doc_id_map,
+                log_level,
+                log_dir,
+            )
             new_jobs.append(job_params)
         return new_jobs
 
@@ -331,7 +350,9 @@ class TxJobFactory(baseclasses.Dataset):
 
         Returns {granule_filename: {(grid_name, field_name): doc_id}}.
         """
-        in_progress_msg = "Transformation in progress (or interrupted before completion)"
+        in_progress_msg = (
+            "Transformation in progress (or interrupted before completion)"
+        )
         started_dt = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
         updates = []
@@ -344,36 +365,42 @@ class TxJobFactory(baseclasses.Dataset):
             field_map = {}
             for grid_name, fields in grid_fields.items():
                 for field in fields:
-                    existing_id = self.existing_tx_ids.get((filename, grid_name, field.name))
+                    existing_id = self.existing_tx_ids.get(
+                        (filename, grid_name, field.name)
+                    )
                     if existing_id:
                         # Reset status + refresh checksum in case the granule was
                         # re-harvested. Atomic update keyed by the existing id.
                         doc_id = existing_id
-                        updates.append({
-                            "id": doc_id,
-                            "transformation_in_progress_b": {"set": True},
-                            "success_b": {"set": False},
-                            "transformation_started_dt": {"set": started_dt},
-                            "error_message_s": {"set": in_progress_msg},
-                            "origin_checksum_s": {"set": checksum},
-                        })
+                        updates.append(
+                            {
+                                "id": doc_id,
+                                "transformation_in_progress_b": {"set": True},
+                                "success_b": {"set": False},
+                                "transformation_started_dt": {"set": started_dt},
+                                "error_message_s": {"set": in_progress_msg},
+                                "origin_checksum_s": {"set": checksum},
+                            }
+                        )
                     else:
                         doc_id = str(uuid.uuid4())
-                        updates.append({
-                            "id": doc_id,
-                            "type_s": "transformation",
-                            "date_dt": granule.get("date_dt"),
-                            "dataset_s": self.ds_name,
-                            "transformation_started_dt": started_dt,
-                            "pre_transformation_file_path_s": source_path,
-                            "hemisphere_s": hemi,
-                            "origin_checksum_s": checksum,
-                            "grid_name_s": grid_name,
-                            "field_s": field.name,
-                            "transformation_in_progress_b": True,
-                            "success_b": False,
-                            "error_message_s": in_progress_msg,
-                        })
+                        updates.append(
+                            {
+                                "id": doc_id,
+                                "type_s": "transformation",
+                                "date_dt": granule.get("date_dt"),
+                                "dataset_s": self.ds_name,
+                                "transformation_started_dt": started_dt,
+                                "pre_transformation_file_path_s": source_path,
+                                "hemisphere_s": hemi,
+                                "origin_checksum_s": checksum,
+                                "grid_name_s": grid_name,
+                                "field_s": field.name,
+                                "transformation_in_progress_b": True,
+                                "success_b": False,
+                                "error_message_s": in_progress_msg,
+                            }
+                        )
                     field_map[(grid_name, field.name)] = doc_id
             doc_id_maps[filename] = field_map
 
@@ -431,7 +458,9 @@ class TxJobFactory(baseclasses.Dataset):
             source_path = granule.get("pre_transformation_file_path_s")
             file_size = granule.get("file_size_l") or 0
             if not source_path:
-                error_msg = "Granule not harvested properly: no source file path recorded."
+                error_msg = (
+                    "Granule not harvested properly: no source file path recorded."
+                )
             else:
                 error_msg = (
                     f"Granule not harvested properly: source file missing or too small "
@@ -441,33 +470,39 @@ class TxJobFactory(baseclasses.Dataset):
             hemi = self._granule_hemi(filename)
             for grid_name, fields in grid_fields.items():
                 for field in fields:
-                    existing_id = self.existing_tx_ids.get((filename, grid_name, field.name))
+                    existing_id = self.existing_tx_ids.get(
+                        (filename, grid_name, field.name)
+                    )
                     if existing_id:
-                        updates.append({
-                            "id": existing_id,
-                            "success_b": {"set": False},
-                            "transformation_in_progress_b": {"set": False},
-                            "transformation_completed_dt": {"set": completed_dt},
-                            "error_message_s": {"set": error_msg},
-                        })
+                        updates.append(
+                            {
+                                "id": existing_id,
+                                "success_b": {"set": False},
+                                "transformation_in_progress_b": {"set": False},
+                                "transformation_completed_dt": {"set": completed_dt},
+                                "error_message_s": {"set": error_msg},
+                            }
+                        )
                     else:
                         # No doc yet — create one so the failure is visible on the
                         # dashboard instead of silently skipped.
-                        updates.append({
-                            "id": str(uuid.uuid4()),
-                            "type_s": "transformation",
-                            "dataset_s": self.ds_name,
-                            "date_dt": granule.get("date_dt"),
-                            "grid_name_s": grid_name,
-                            "field_s": field.name,
-                            "hemisphere_s": hemi,
-                            "pre_transformation_file_path_s": source_path or "",
-                            "transformation_started_dt": completed_dt,
-                            "transformation_completed_dt": completed_dt,
-                            "transformation_in_progress_b": False,
-                            "success_b": False,
-                            "error_message_s": error_msg,
-                        })
+                        updates.append(
+                            {
+                                "id": str(uuid.uuid4()),
+                                "type_s": "transformation",
+                                "dataset_s": self.ds_name,
+                                "date_dt": granule.get("date_dt"),
+                                "grid_name_s": grid_name,
+                                "field_s": field.name,
+                                "hemisphere_s": hemi,
+                                "pre_transformation_file_path_s": source_path or "",
+                                "transformation_started_dt": completed_dt,
+                                "transformation_completed_dt": completed_dt,
+                                "transformation_in_progress_b": False,
+                                "success_b": False,
+                                "error_message_s": error_msg,
+                            }
+                        )
         if updates:
             solr_utils.solr_update(updates, commit=False)
         self.unprocessable_count = len(unprocessable)
@@ -500,7 +535,9 @@ class TxJobFactory(baseclasses.Dataset):
             tx_dict[filename].append(tx)
             # Let prepopulate_jobs / record_unprocessable reuse this doc's id (atomic
             # update) instead of reading it back or minting a new one.
-            self.existing_tx_ids[(filename, tx["grid_name_s"], tx["field_s"])] = tx["id"]
+            self.existing_tx_ids[(filename, tx["grid_name_s"], tx["field_s"])] = tx[
+                "id"
+            ]
 
         all_jobs = []
         reconstructed = 0
@@ -650,7 +687,9 @@ class TxJobFactory(baseclasses.Dataset):
             "type_s": "transformation",
             "date_dt": granule["date_dt"],
             "dataset_s": self.ds_name,
-            "pre_transformation_file_path_s": granule.get("pre_transformation_file_path_s"),
+            "pre_transformation_file_path_s": granule.get(
+                "pre_transformation_file_path_s"
+            ),
             "hemisphere_s": hemi,
             "origin_checksum_s": granule.get("checksum_s"),
             "grid_name_s": grid_name,
@@ -673,7 +712,9 @@ class TxJobFactory(baseclasses.Dataset):
         # a single commit after the batch.
         r = solr_utils.solr_update([doc], r=True, commit=False)
         if r.status_code == 200:
-            logger.debug(f"Reconstructed missing Solr transformation doc for {output_filename}")
+            logger.debug(
+                f"Reconstructed missing Solr transformation doc for {output_filename}"
+            )
         else:
             logger.warning(
                 f"Failed to reconstruct Solr transformation doc for {output_filename}"
