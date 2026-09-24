@@ -13,10 +13,22 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 
 ## [Unreleased]
 
+### Bug Fixes
+
+- **Empty along-track granules crashed the transformation**: along-track `time` is a per-sample coordinate, so a zero-length granule gave a size-0 array and `ds["time"].values.ravel()[0]` raised `IndexError`. The `time` / `Time` lookups are now size-guarded and fall back to the granule's nominal date.
+
 ### Improvements
 
+- **Tests**: added coverage for along-track binning, the factors cache bypass, the NASA-SSH QC masking and DAC/IBC pre-transformations, and zero-length granules.
+- **Dataset schema**: `ds_schema.json` moved to draft-07, added `source_type`, `lat_var`, `lon_var`, `allow_nearest_neighbor`, and `mapping_operation` as optional properties, and made `data_res` conditionally required — it only builds the grid path's synthetic source grid, which `along_track` doesn't use.
+- **Docs**: documented the two `source_type` paths in `transformations/README.md`, plus a new `utils/processing_utils/README.md` for the pre/post-transformation registries.
 - **Harvest throughput**: download workers now reuse a per-thread keep-alive session (skipping the per-file TCP/TLS + Earthdata Login redirect overhead), download concurrency is configurable via `HARVEST_MAX_WORKERS` (default 8), and `md5()` reads in larger chunks. A test collection went from ~70 to ~660 granules/min.
 - **Durable harvest Solr writes**: granule docs are now flushed to Solr in batches during the harvest (with a single hard commit at the run boundary) instead of one write after the whole collection finishes, so large harvests are visible mid-run and survive an interruption. The shared drain loop lives in `Harvester.drain_futures`.
+
+### New Features
+
+- **Along-track `source_type`**: the transformation stage now handles 1-D along-track (satellite ground track) sources alongside gridded ones. Setting `source_type: along_track` with `lat_var` / `lon_var` routes to `along_track_factors`, which bins each valid observation into its nearest target cell via a spherical (ECEF) kd-tree, drops observations beyond that cell's own radius, and averages the rest. It returns the grid path's factor shape, so downstream averaging is reused and the grid path is unchanged. Track geometry differs per granule, so these factors are not cacheable — `make_factors` bypasses the in-memory and on-disk caches for `along_track` and `pregenerate_factors` is a no-op. See `docs/adr/0002-alongtrack-nearest-cell-binning.md`. Adds `scipy`.
+- **NASA_SSH_REF_ALONGTRACK_V11**: added processing support with a quicklook validation notebook, plus two pre-transformation functions: `NASA_SSH_mask_nasa_flag` applies the source `nasa_flag` mask to `ssha` only (`ssha_smoothed` already ships masked), and `NASA_SSH_apply_dac_ibc` subtracts the dynamic atmospheric correction and adds the inverse barometric correction, guarded by a dataset attribute so the non-idempotent correction runs exactly once per dataset object. `skipna_in_mean` is `True` — coverage is sparse enough that a non-skipping mean yields all-NaN monthly aggregates.
 
 ---
 
