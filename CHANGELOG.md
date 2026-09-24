@@ -2,7 +2,7 @@
 
 All notable changes to ECCO-obs-pipeline are documented here.
 
-Each release is named after a marine animal, in the spirit of the ocean data this pipeline serves.
+Each major release is named after a marine animal, in the spirit of the ocean data this pipeline serves.
 Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`):
 
 - **MAJOR** — breaking changes (incompatible config or schema changes)
@@ -12,6 +12,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 ---
 
 ## [Unreleased]
+
+---
+
+## [v2.3.0] — 2026-09-24
 
 ### Bug Fixes
 
