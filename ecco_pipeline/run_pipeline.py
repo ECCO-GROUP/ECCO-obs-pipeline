@@ -2,6 +2,9 @@ import argparse
 import importlib
 import logging
 import os
+import sys
+import time
+import traceback
 from glob import glob
 from multiprocessing import cpu_count
 from pathlib import Path
@@ -9,8 +12,12 @@ from typing import List
 
 import yaml
 from aggregations.aggregation_factory import AgJobFactory
+from monitoring import run_summary
+from monitoring.run_summary import StageResult
 from transformations.transformation_factory import TxJobFactory
 from utils.pipeline_utils import init_pipeline
+
+logger = logging.getLogger("pipeline")
 
 
 def create_parser() -> argparse.Namespace:
@@ -95,7 +102,8 @@ def create_parser() -> argparse.Namespace:
     return args
 
 
-def show_menu():
+def show_menu() -> List[StageResult]:
+    results = []
     while True:
         print("\n===== ECCO PREPROCESSING PIPELINE =====")
         print("\n------------- OPTIONS -------------")
@@ -124,19 +132,19 @@ def show_menu():
     # Run all
     if chosen_option == "1":
         for ds in datasets:
-            run_harvester([ds])
-            run_transformation([ds])
-            run_aggregation([ds])
+            results += run_harvester([ds])
+            results += run_transformation([ds])
+            results += run_aggregation([ds])
 
     # Run harvester
     elif chosen_option == "2":
-        run_harvester(datasets)
+        results += run_harvester(datasets)
 
     # Run up through transformation
     elif chosen_option == "3":
         for ds in datasets:
-            run_harvester([ds])
-            run_transformation([ds])
+            results += run_harvester([ds])
+            results += run_transformation([ds])
 
     # Manually enter dataset and pipeline step(s)
     elif chosen_option == "4":
@@ -187,19 +195,41 @@ def show_menu():
         wanted_steps = steps_dict[int(steps_index)]
 
         if "harvest" in wanted_steps:
-            run_harvester([wanted_ds])
+            results += run_harvester([wanted_ds])
         if "transform" in wanted_steps:
-            run_transformation([wanted_ds])
+            results += run_transformation([wanted_ds])
         if "aggregate" in wanted_steps:
-            run_aggregation([wanted_ds])
+            results += run_aggregation([wanted_ds])
         if wanted_steps == "all":
-            run_harvester([wanted_ds])
-            run_transformation([wanted_ds])
-            run_aggregation([wanted_ds])
+            results += run_harvester([wanted_ds])
+            results += run_transformation([wanted_ds])
+            results += run_aggregation([wanted_ds])
+
+    return results
 
 
-def run_harvester(datasets: List[str]):
+def _failed_result(ds: str, stage: str, started: float, exc: Exception) -> StageResult:
+    """
+    Capture a stage exception for the run summary.
+
+    The traceback is kept because it is what makes a failure triageable later — it
+    distinguishes "the source returned 503" from "our parser broke on a new file
+    layout". Until now it existed only in pipeline.log.
+    """
+    return StageResult(
+        dataset=ds,
+        stage=stage,
+        duration_s=time.monotonic() - started,
+        exc_type=type(exc).__name__,
+        exc_message=str(exc) or repr(exc),
+        traceback_tail=traceback.format_exc(),
+    )
+
+
+def run_harvester(datasets: List[str]) -> List[StageResult]:
+    results = []
     for ds in datasets:
+        started = time.monotonic()
         try:
             logger.info(f"Beginning harvesting {ds}")
             with open(Path(f"conf/ds_configs/{ds}.yaml"), "r") as stream:
@@ -213,35 +243,74 @@ def run_harvester(datasets: List[str]):
             )
             status = harvester.harvester(config)
             logger.info(f"{ds} harvesting complete. {status}")
+            results.append(
+                StageResult(
+                    dataset=ds,
+                    stage="harvest",
+                    status_text=status,
+                    duration_s=time.monotonic() - started,
+                )
+            )
         except Exception as e:
             logger.exception(f"{ds} harvesting failed. {e}")
+            results.append(_failed_result(ds, "harvest", started, e))
+    return results
 
 
-def run_transformation(datasets: List[str]):
+def run_transformation(datasets: List[str]) -> List[StageResult]:
+    results = []
     for ds in datasets:
+        started = time.monotonic()
         try:
             logger.info(f"Beginning transformations on {ds}")
             with open(Path(f"conf/ds_configs/{ds}.yaml"), "r") as stream:
                 config = yaml.load(stream, yaml.Loader)
             status = TxJobFactory(config).start_factory()
             logger.info(f"{ds} transformation complete. {status}")
-        except Exception:
+            results.append(
+                StageResult(
+                    dataset=ds,
+                    stage="transform",
+                    status_text=status,
+                    duration_s=time.monotonic() - started,
+                )
+            )
+        except Exception as e:
             logger.exception(f"{ds} transformation failed.")
+            results.append(_failed_result(ds, "transform", started, e))
+    return results
 
 
-def run_aggregation(datasets: List[str]):
+def run_aggregation(datasets: List[str]) -> List[StageResult]:
+    results = []
     for ds in datasets:
+        started = time.monotonic()
         try:
             logger.info(f"Beginning aggregation on {ds}")
             with open(Path(f"conf/ds_configs/{ds}.yaml"), "r") as stream:
                 config = yaml.load(stream, yaml.Loader)
-            status = AgJobFactory(config).start_factory()
+            # Keep the factory so its collected worker-failure markers can be read
+            # back; a worker can die before writing its Solr doc, in which case those
+            # markers are the only record of the failure.
+            factory = AgJobFactory(config)
+            status = factory.start_factory()
             logger.info(f"{ds} aggregation complete. {status}")
+            results.append(
+                StageResult(
+                    dataset=ds,
+                    stage="aggregate",
+                    status_text=status,
+                    duration_s=time.monotonic() - started,
+                    worker_errors=list(factory.worker_errors),
+                )
+            )
         except Exception as e:
             logger.exception(f"{ds} aggregation failed: {e}")
+            results.append(_failed_result(ds, "aggregate", started, e))
+    return results
 
 
-def start_pipeline(args: argparse.Namespace):
+def start_pipeline(args: argparse.Namespace) -> List[StageResult]:
     if args.dataset:
         datasets = [args.dataset]
     else:
@@ -253,23 +322,68 @@ def start_pipeline(args: argparse.Namespace):
             ]
         )
 
+    results = []
     if args.step == "harvest":
-        run_harvester(datasets)
+        results += run_harvester(datasets)
     elif args.step == "transform":
-        run_transformation(datasets)
+        results += run_transformation(datasets)
     elif args.step == "aggregate":
-        run_aggregation(datasets)
+        results += run_aggregation(datasets)
     else:
-        run_harvester(datasets)
-        run_transformation(datasets)
-        run_aggregation(datasets)
+        results += run_harvester(datasets)
+        results += run_transformation(datasets)
+        results += run_aggregation(datasets)
+    return results
+
+
+def main() -> int:
+    """
+    Run the pipeline and return the process exit code.
+
+    Every exit path records a run summary, so a run always leaves evidence of what it
+    did — including an abort, which previously exited 0 with no trace at all and so
+    looked identical to a clean run from cron's point of view.
+    """
+    args = create_parser()
+    started_dt = run_summary.utc_now()
+
+    try:
+        init_pipeline.init_pipeline(args)
+    except init_pipeline.PipelinePreconditionError as e:
+        # The log dir may not exist yet and Solr may be the thing that is down, so the
+        # JSON artifact is the only record this run will leave.
+        summary = run_summary.record_run(
+            [], args=args, started_dt=started_dt, outcome="aborted", abort_reason=str(e)
+        )
+        return summary["exit_code"]
+
+    if args.menu:
+        results = show_menu()
+        outcome = None
+    else:
+        try:
+            results = start_pipeline(args)
+            outcome = None
+        except Exception as e:
+            logger.exception(f"Pipeline run failed: {e}")
+            results = []
+            outcome = "crashed"
+
+    summary = run_summary.record_run(
+        results or [],
+        args=args,
+        started_dt=started_dt,
+        outcome=outcome,
+        abort_reason=None,
+    )
+    totals = summary["totals"]
+    logger.info(
+        f"Run {summary['run_id']} finished: {summary['outcome']} "
+        f"(exit {summary['exit_code']}); "
+        f"{totals['datasets_with_failures']} of {totals['datasets']} datasets with failures"
+    )
+    return summary["exit_code"]
 
 
 if __name__ == "__main__":
-    args = create_parser()
-    init_pipeline.init_pipeline(args)
-    logger = logging.getLogger("pipeline")
-    if args.menu:
-        show_menu()
-    else:
-        start_pipeline(args)
+    sys.exit(main())

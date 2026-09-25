@@ -2,6 +2,7 @@
 ECCO Pipeline Dashboard
 Run with:  streamlit run ecco_pipeline/dashboard/app.py
 """
+
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,6 +10,7 @@ from pathlib import Path
 # Allow imports from ecco_pipeline root
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import pandas as pd
 import streamlit as st
 
 from dashboard import solr_client
@@ -57,6 +59,17 @@ def check_solr_connection():
     return solr_client.ping()
 
 
+@st.cache_data(ttl=300)
+def load_latest_run():
+    return solr_client.get_latest_run()
+
+
+# A run that never started cannot report itself, so the dashboard flags a stale last-run
+# timestamp: past this many days since the last recorded run, something is wrong with the
+# schedule rather than with a dataset.
+STALE_RUN_DAYS = 10
+
+
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
@@ -82,6 +95,42 @@ with st.sidebar:
         r2c1.metric("Transformations", totals["transformations"])
         r2c2.metric("Aggregations", totals["aggregations"])
         st.caption(f"Updated {totals_loaded_at.strftime('%H:%M UTC')}")
+
+        latest_run = load_latest_run()
+        st.divider()
+        st.caption("**Last run**")
+        if not latest_run:
+            st.caption("No run recorded yet.")
+        else:
+            outcome = latest_run.get("outcome_s", "unknown")
+            started = pd.to_datetime(
+                latest_run.get("started_dt"), errors="coerce", utc=True
+            )
+            label = f"`{latest_run.get('run_id_s', '?')}` — {outcome}"
+            if outcome == "ok":
+                st.success(label, icon="✅")
+            elif outcome == "aborted":
+                st.error(
+                    f"{label}\n\n{latest_run.get('abort_reason_s', '')}", icon="🛑"
+                )
+            elif outcome == "crashed":
+                st.error(label, icon="🛑")
+            else:
+                st.warning(
+                    f"{label} — {latest_run.get('n_datasets_failed_i', 0)} of "
+                    f"{latest_run.get('n_datasets_i', 0)} datasets",
+                    icon="⚠️",
+                )
+            if pd.notna(started):
+                age_days = (
+                    datetime.now(timezone.utc) - started
+                ).total_seconds() / 86400
+                st.caption(f"Started {started.strftime('%Y-%m-%d %H:%M UTC')}")
+                if age_days > STALE_RUN_DAYS:
+                    st.warning(
+                        f"No run in {age_days:.0f} days — the schedule may not be running.",
+                        icon="🕒",
+                    )
 
     st.divider()
     page = st.radio(

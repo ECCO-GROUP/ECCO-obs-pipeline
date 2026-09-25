@@ -2,6 +2,7 @@
 Thin wrapper around solr_utils that returns pandas DataFrames.
 All Solr field names are normalised here so views don't need to know them.
 """
+
 import json
 from datetime import datetime, timedelta, timezone
 from glob import glob
@@ -67,7 +68,9 @@ def _query(fq: list[str], fl: str = "") -> list[dict]:
         params["fl"] = fl
     url = f"{SOLR_HOST}{SOLR_COLLECTION}/select?"
     try:
-        resp = requests.get(url, params=params, headers={"Connection": "close"}, timeout=10)
+        resp = requests.get(
+            url, params=params, headers={"Connection": "close"}, timeout=10
+        )
         resp.raise_for_status()
         return resp.json()["response"]["docs"]
     except Exception:
@@ -78,6 +81,7 @@ def _query(fq: list[str], fl: str = "") -> list[dict]:
 # Datasets
 # ---------------------------------------------------------------------------
 
+
 def get_datasets() -> pd.DataFrame:
     docs = _query(["type_s:dataset"])
     if not docs:
@@ -85,10 +89,18 @@ def get_datasets() -> pd.DataFrame:
     df = pd.DataFrame(docs)
     # Normalise expected columns that may not exist yet
     for col in [
-        "dataset_s", "harvest_status_s", "transformation_status_s",
-        "aggregation_status_s", "last_checked_dt", "last_transformation_dt",
-        "last_aggregation_dt", "n_granules_i", "n_granules_success_i",
-        "n_granules_failed_i", "harvester_type_s", "ecco_variable_s",
+        "dataset_s",
+        "harvest_status_s",
+        "transformation_status_s",
+        "aggregation_status_s",
+        "last_checked_dt",
+        "last_transformation_dt",
+        "last_aggregation_dt",
+        "n_granules_i",
+        "n_granules_success_i",
+        "n_granules_failed_i",
+        "harvester_type_s",
+        "ecco_variable_s",
     ]:
         if col not in df.columns:
             df[col] = None
@@ -101,12 +113,15 @@ def get_datasets() -> pd.DataFrame:
 # Pipeline-wide aggregates
 # ---------------------------------------------------------------------------
 
+
 def _count(fq: list[str]) -> int:
     """Number of docs matching fq, without fetching any docs."""
     params = {"q": "*:*", "fq": fq, "rows": 0}
     url = f"{SOLR_HOST}{SOLR_COLLECTION}/select?"
     try:
-        resp = requests.get(url, params=params, headers={"Connection": "close"}, timeout=10)
+        resp = requests.get(
+            url, params=params, headers={"Connection": "close"}, timeout=10
+        )
         resp.raise_for_status()
         return resp.json()["response"]["numFound"]
     except Exception:
@@ -126,6 +141,32 @@ def get_total_counts() -> dict:
         "aggregations": _count(["type_s:aggregation", fq_ds]),
         "datasets": _count(["type_s:dataset", fq_ds]),
     }
+
+
+def get_latest_run() -> Optional[dict]:
+    """
+    The most recent type_s:pipeline_run doc, or None if the pipeline has not written one
+    yet (runs predating run-summary recording leave no such doc).
+    """
+    params = {
+        "q": "*:*",
+        "fq": ["type_s:pipeline_run"],
+        "sort": "started_dt desc",
+        "rows": 1,
+        "fl": "run_id_s,started_dt,ended_dt,outcome_s,exit_code_i,abort_reason_s,"
+        "n_datasets_i,n_datasets_failed_i,granules_failed_i,"
+        "transformations_failed_i,aggregations_failed_i",
+    }
+    url = f"{SOLR_HOST}{SOLR_COLLECTION}/select?"
+    try:
+        resp = requests.get(
+            url, params=params, headers={"Connection": "close"}, timeout=10
+        )
+        resp.raise_for_status()
+        docs = resp.json()["response"]["docs"]
+    except Exception:
+        return None
+    return docs[0] if docs else None
 
 
 def get_harvest_coverage() -> pd.DataFrame:
@@ -151,7 +192,9 @@ def get_harvest_coverage() -> pd.DataFrame:
     url = f"{SOLR_HOST}{SOLR_COLLECTION}/select?"
     cols = ["dataset_s", "start", "end", "count"]
     try:
-        resp = requests.get(url, params=params, headers={"Connection": "close"}, timeout=10)
+        resp = requests.get(
+            url, params=params, headers={"Connection": "close"}, timeout=10
+        )
         resp.raise_for_status()
         buckets = resp.json()["facets"]["datasets"]["buckets"]
     except Exception:
@@ -178,6 +221,7 @@ def get_harvest_coverage() -> pd.DataFrame:
 # Recent activity  (last N days, all datasets)
 # ---------------------------------------------------------------------------
 
+
 def _since(days: int) -> str:
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     return cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -192,17 +236,35 @@ def get_recent_granules(days: int = 7) -> pd.DataFrame:
         fl="dataset_s,date_dt,filename_s,harvest_success_b,error_message_s,download_time_dt,last_attempt_dt,download_duration_i",
     )
     if not docs:
-        return pd.DataFrame(columns=["dataset_s", "date_dt", "filename_s",
-                                      "harvest_success_b", "error_message_s",
-                                      "download_time_dt", "last_attempt_dt"])
+        return pd.DataFrame(
+            columns=[
+                "dataset_s",
+                "date_dt",
+                "filename_s",
+                "harvest_success_b",
+                "error_message_s",
+                "download_time_dt",
+                "last_attempt_dt",
+            ]
+        )
     df = pd.DataFrame(docs)
-    df = _ensure_columns(df, {
-        "dataset_s": "", "filename_s": "", "error_message_s": "",
-        "harvest_success_b": True, "download_time_dt": None,
-        "last_attempt_dt": None,
-    })
-    df["download_time_dt"] = pd.to_datetime(df["download_time_dt"], errors="coerce", utc=True)
-    df["last_attempt_dt"] = pd.to_datetime(df["last_attempt_dt"], errors="coerce", utc=True)
+    df = _ensure_columns(
+        df,
+        {
+            "dataset_s": "",
+            "filename_s": "",
+            "error_message_s": "",
+            "harvest_success_b": True,
+            "download_time_dt": None,
+            "last_attempt_dt": None,
+        },
+    )
+    df["download_time_dt"] = pd.to_datetime(
+        df["download_time_dt"], errors="coerce", utc=True
+    )
+    df["last_attempt_dt"] = pd.to_datetime(
+        df["last_attempt_dt"], errors="coerce", utc=True
+    )
     df["date_dt"] = pd.to_datetime(df["date_dt"], errors="coerce", utc=True)
     df["harvest_success_b"] = df["harvest_success_b"].astype(bool)
     return _filter_active(df)
@@ -215,15 +277,29 @@ def get_recent_transformations(days: int = 7) -> pd.DataFrame:
         fl="dataset_s,date_dt,grid_name_s,field_s,success_b,error_message_s,transformation_started_dt",
     )
     if not docs:
-        return pd.DataFrame(columns=["dataset_s", "date_dt", "grid_name_s",
-                                      "field_s", "success_b", "error_message_s",
-                                      "transformation_started_dt"])
+        return pd.DataFrame(
+            columns=[
+                "dataset_s",
+                "date_dt",
+                "grid_name_s",
+                "field_s",
+                "success_b",
+                "error_message_s",
+                "transformation_started_dt",
+            ]
+        )
     df = pd.DataFrame(docs)
-    df = _ensure_columns(df, {
-        "dataset_s": "", "grid_name_s": "", "field_s": "",
-        "error_message_s": "", "success_b": True,
-        "transformation_started_dt": None,
-    })
+    df = _ensure_columns(
+        df,
+        {
+            "dataset_s": "",
+            "grid_name_s": "",
+            "field_s": "",
+            "error_message_s": "",
+            "success_b": True,
+            "transformation_started_dt": None,
+        },
+    )
     df["transformation_started_dt"] = pd.to_datetime(
         df["transformation_started_dt"], errors="coerce", utc=True
     )
@@ -238,15 +314,30 @@ def get_recent_aggregations(days: int = 7) -> pd.DataFrame:
         fl="dataset_s,year_i,grid_name_s,field_s,aggregation_success_b,error_message_s,aggregation_time_dt",
     )
     if not docs:
-        return pd.DataFrame(columns=["dataset_s", "year_i", "grid_name_s",
-                                      "field_s", "aggregation_success_b",
-                                      "error_message_s", "aggregation_time_dt"])
+        return pd.DataFrame(
+            columns=[
+                "dataset_s",
+                "year_i",
+                "grid_name_s",
+                "field_s",
+                "aggregation_success_b",
+                "error_message_s",
+                "aggregation_time_dt",
+            ]
+        )
     df = pd.DataFrame(docs)
-    df = _ensure_columns(df, {
-        "dataset_s": "", "year_i": None, "grid_name_s": "", "field_s": "",
-        "error_message_s": "", "aggregation_success_b": True,
-        "aggregation_time_dt": None,
-    })
+    df = _ensure_columns(
+        df,
+        {
+            "dataset_s": "",
+            "year_i": None,
+            "grid_name_s": "",
+            "field_s": "",
+            "error_message_s": "",
+            "aggregation_success_b": True,
+            "aggregation_time_dt": None,
+        },
+    )
     df["aggregation_time_dt"] = pd.to_datetime(
         df["aggregation_time_dt"], errors="coerce", utc=True
     )
@@ -257,6 +348,7 @@ def get_recent_aggregations(days: int = 7) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Per-dataset detail
 # ---------------------------------------------------------------------------
+
 
 def _ensure_columns(df: pd.DataFrame, columns: dict) -> pd.DataFrame:
     """Add any missing columns with a default value so views can assume they exist."""
@@ -274,15 +366,20 @@ def get_granules(ds_name: str) -> pd.DataFrame:
     if not docs:
         return pd.DataFrame()
     df = pd.DataFrame(docs)
-    df = _ensure_columns(df, {
-        "filename_s": "",
-        "error_message_s": "",
-        "download_duration_i": None,
-        "last_update_dt": None,
-        "harvest_success_b": True,
-    })
+    df = _ensure_columns(
+        df,
+        {
+            "filename_s": "",
+            "error_message_s": "",
+            "download_duration_i": None,
+            "last_update_dt": None,
+            "harvest_success_b": True,
+        },
+    )
     df["date_dt"] = pd.to_datetime(df["date_dt"], errors="coerce", utc=True)
-    df["last_update_dt"] = pd.to_datetime(df["last_update_dt"], errors="coerce", utc=True)
+    df["last_update_dt"] = pd.to_datetime(
+        df["last_update_dt"], errors="coerce", utc=True
+    )
     df["harvest_success_b"] = df["harvest_success_b"].astype(bool)
     return df.sort_values("date_dt")
 
@@ -295,13 +392,16 @@ def get_transformations(ds_name: str) -> pd.DataFrame:
     if not docs:
         return pd.DataFrame()
     df = pd.DataFrame(docs)
-    df = _ensure_columns(df, {
-        "grid_name_s": "",
-        "field_s": "",
-        "error_message_s": "",
-        "transformation_completed_dt": None,
-        "success_b": True,
-    })
+    df = _ensure_columns(
+        df,
+        {
+            "grid_name_s": "",
+            "field_s": "",
+            "error_message_s": "",
+            "transformation_completed_dt": None,
+            "success_b": True,
+        },
+    )
     df["date_dt"] = pd.to_datetime(df["date_dt"], errors="coerce", utc=True)
     df["success_b"] = df["success_b"].astype(bool)
     return df.sort_values("date_dt")
@@ -315,14 +415,17 @@ def get_aggregations(ds_name: str) -> pd.DataFrame:
     if not docs:
         return pd.DataFrame()
     df = pd.DataFrame(docs)
-    df = _ensure_columns(df, {
-        "year_i": None,
-        "grid_name_s": "",
-        "field_s": "",
-        "error_message_s": "",
-        "aggregation_time_dt": None,
-        "aggregation_success_b": True,
-    })
+    df = _ensure_columns(
+        df,
+        {
+            "year_i": None,
+            "grid_name_s": "",
+            "field_s": "",
+            "error_message_s": "",
+            "aggregation_time_dt": None,
+            "aggregation_success_b": True,
+        },
+    )
     df["aggregation_success_b"] = df["aggregation_success_b"].astype(bool)
     df["year_i"] = pd.to_numeric(df.get("year_i"), errors="coerce")
     return df.sort_values("year_i")

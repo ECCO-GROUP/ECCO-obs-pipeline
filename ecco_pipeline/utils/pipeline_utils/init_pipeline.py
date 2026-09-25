@@ -11,11 +11,22 @@ from utils.pipeline_utils import solr_utils, config_validator, log_config, file_
 import baseclasses
 
 try:
-    from conf.global_settings import OUTPUT_DIR, SOLR_COLLECTION, GRIDS
+    from conf.global_settings import OUTPUT_DIR, SOLR_COLLECTION, SOLR_HOST, GRIDS
 except ImportError:
     raise ImportError(
         "Missing global_settings.py file. See ecco_pipeline/conf/global_settings.py.example for more info."
     )
+
+
+class PipelinePreconditionError(Exception):
+    """
+    A precondition for running the pipeline is not met — Solr unreachable, missing
+    Earthdata credentials, missing output directory, grids absent from Solr.
+
+    Raised instead of calling exit() so run_pipeline can record the aborted run and
+    exit with a distinct non-zero code. A bare exit() returns 0, which made every one
+    of these look like a successful run to cron.
+    """
 
 
 def setup_logger(args):
@@ -31,7 +42,9 @@ def validate_output_dir():
     # Verify output directory is valid
     if not os.path.isdir(OUTPUT_DIR):
         logger.fatal("Missing output directory. Please fill in. Exiting.")
-        exit()
+        raise PipelinePreconditionError(
+            f"Output directory does not exist: {OUTPUT_DIR}"
+        )
     logger.debug(f"Using output directory: {OUTPUT_DIR}")
 
 
@@ -45,13 +58,15 @@ def validate_solr():
         solr_utils.ping_solr()
     except requests.ConnectionError:
         logger.fatal("Solr is not currently running! Start Solr and try again.")
-        exit()
+        raise PipelinePreconditionError(f"Solr unreachable at {SOLR_HOST}")
 
     if not solr_utils.collection_check():
         logger.fatal(
             f'Solr collection {SOLR_COLLECTION} does not exist. Add a collection using "bin/solr create -c {{collection_name}}".'
         )
-        exit()
+        raise PipelinePreconditionError(
+            f"Solr collection does not exist: {SOLR_COLLECTION}"
+        )
 
 
 def wipe_factors():
@@ -74,12 +89,12 @@ def validate_netrc():
         nrc = netrc.netrc()
         if "urs.earthdata.nasa.gov" not in nrc.hosts.keys():
             logger.fatal("Earthdata login required in netrc file.")
-            exit()
+            raise PipelinePreconditionError("netrc has no urs.earthdata.nasa.gov entry")
     except FileNotFoundError:
         logger.fatal(
             "No netrc found. Please create one and add Earthdata login credentials."
         )
-        exit()
+        raise PipelinePreconditionError("No netrc file found")
 
 
 def update_solr_grid(grid_name: str, grid_type: str, grid_file_path: str):
@@ -228,18 +243,24 @@ def init_pipeline(args: Namespace):
     baseclasses.set_grids(grids_to_use)
 
     if args.grids_to_solr or solr_utils.check_grids():
+        grids_not_in_solr = []
         try:
-            grids_not_in_solr = []
             grids_not_in_solr = grids_to_solr(grids_to_use)
-            if grids_not_in_solr:
-                for name in grids_not_in_solr:
-                    logger.exception(
-                        f'Grid "{name}" not in Solr. Ensure it\'s file name is present in grids_config.yaml and run pipeline with the --grids_to_solr argument'
-                    )
-                exit()
-            logger.info("Successfully updated grids on Solr.")
+            if not grids_not_in_solr:
+                logger.info("Successfully updated grids on Solr.")
         except Exception as e:
             logger.exception(e)
+        # Raised outside the try: PipelinePreconditionError is an Exception, so raising
+        # it inside would be swallowed by the handler above and the run would continue
+        # without its grids — the bare exit() this replaced escaped as SystemExit.
+        if grids_not_in_solr:
+            for name in grids_not_in_solr:
+                logger.error(
+                    f'Grid "{name}" not in Solr. Ensure it\'s file name is present in grids_config.yaml and run pipeline with the --grids_to_solr argument'
+                )
+            raise PipelinePreconditionError(
+                f"Grids missing from Solr: {', '.join(grids_not_in_solr)}"
+            )
 
     if args.wipe_factors:
         wipe_factors()
