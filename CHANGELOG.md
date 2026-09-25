@@ -13,6 +13,70 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 
 ## [Unreleased]
 
+### Bug Fixes
+
+- **Every pipeline run exited 0**: `run_pipeline.py` caught each per-dataset exception and
+  only logged it, so cron saw success even when every dataset failed. `init_pipeline`'s
+  bare `exit()` calls (Solr down, missing `.netrc`, missing `OUTPUT_DIR`, grids absent from
+  Solr) were also exit code 0 and left no trace anywhere. Those now raise
+  `PipelinePreconditionError` and the process exits with a meaningful code: `0` clean,
+  `1` dataset/stage failures, `2` precondition abort, `3` unexpected fatal error.
+- **Aggregation worker failures were discarded**: `execute_jobs` called
+  `pool.starmap_async` without ever retrieving the result, so a failing job's return value
+  and any escaped exception were thrown away — leaving only a `JOB FAILED` log line, with
+  nothing in Solr when the worker died before its write. `multiprocess_aggregate` now
+  returns a status marker and the pool uses synchronous `starmap`, matching the pattern
+  the transformation factory already uses.
+- **`run_pipeline` could not be imported**: its `logger` was assigned inside the
+  `__main__` block, so `run_harvester`/`run_transformation`/`run_aggregation` referenced an
+  undefined global outside script execution. Now a module-level logger, as elsewhere.
+
+### Removed
+
+- **`solr_utils.clean_solr`**, and its call from `Harvester.__init__`. It deleted every
+  granule, transformation and aggregation doc for a dataset outside its config date range —
+  a destructive blast radius for something that ran unconditionally on every harvest, with
+  no `type_s` filter and no confirmation.
+
+  It had also never actually worked. It converted config dates with
+  `f"{s[:4]}-{s[4:6]}-{s[6:]}"`, which assumes a bare `yyyymmdd`, but every config carries
+  `yyyymmddThh:mm:ssZ` (and `end: "NOW"` is stamped the same way). That produced
+  `2026-09-01T00:00:00ZT00:00:00Z`, Solr rejected it with a 400, and the unchecked
+  `requests.post` swallowed the error — so both delete-by-query calls were silent no-ops
+  for all 26 datasets. Removal is therefore behaviour-preserving, and it retires a landmine
+  that would have started deleting for real the moment someone fixed the date handling.
+
+  Nothing replaces it. If pruning out-of-range state is ever wanted, it should be an opt-in
+  flag alongside `--wipe_transformations`, not an unconditional side effect of harvesting.
+
+### Improvements
+
+- **Run records**: every run writes `logs/<run_id>/run_summary.json` — per-dataset,
+  per-stage counts, durations, captured tracebacks, error samples, and log ERROR counts —
+  mirrored to a new `type_s:pipeline_run` Solr doc. Written even when a run aborts, so
+  "Solr was unreachable" leaves evidence instead of silence. See
+  `ecco_pipeline/monitoring/README.md`.
+- **Per-run counts instead of cumulative ones**: the existing stage status strings count
+  every doc ever written for a dataset (`get_agg_status` says so in its docstring), so one
+  historical failure makes them read "N failed" forever. The summary counts only what the
+  run itself touched, bounding Solr queries on each stage's existing activity timestamp.
+  The cumulative string is retained as `status_text`, labelled as such.
+- **`run_id_s` on Solr docs**: granule, transformation and aggregation docs are stamped
+  with the run that wrote them, and dataset docs carry `last_run_id_s`. Purely additive —
+  pre-existing docs simply lack it. Counted alongside the timestamp window as a
+  cross-check, since a missed stamp site would under-report failures while an overlapping
+  run over-reports; mismatches are surfaced in `totals.count_divergence`.
+- **Consecutive-failure tracking**: the summary carries `consecutive_failures` and
+  `first_failed_run_id` per (dataset, stage), so a one-off flake reads differently from
+  four weeks of breakage. Streaks for datasets a partial run didn't touch are carried
+  forward rather than reset.
+- **Email digest**: `ecco_pipeline/monitoring/notify.py` renders and sends a run digest
+  (`--dry-run` to preview), configured via new optional `SMTP_*` / `NOTIFY_*` settings in
+  `global_settings.py`. Invoked by the new `scripts/run_pipeline_cron.sh` after the
+  pipeline so the run's exit code survives, and so a hung relay can't affect a run.
+- **Dashboard**: the sidebar shows the last recorded run's outcome and start time, and
+  warns when no run has been recorded for over 10 days.
+
 ---
 
 ## [v2.3.0] — 2026-09-24
