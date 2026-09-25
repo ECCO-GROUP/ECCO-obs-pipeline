@@ -10,6 +10,7 @@ from transformations.grid_transformation import TxResult
 from transformations.transformation_factory import (
     TxJobFactory,
     multiprocess_transformation,
+    stamp_run_id,
 )
 
 
@@ -735,6 +736,42 @@ class TxJobFactoryReconstructTestCase(unittest.TestCase):
         self.assertEqual(mock_update.call_count, 1)
         _, kwargs = mock_update.call_args
         self.assertFalse(kwargs.get("commit", True))
+
+
+class StampRunIdTestCase(unittest.TestCase):
+    """
+    Run-id stamping at the Solr write boundary.
+
+    Applied at the write boundaries rather than at each doc-construction site so a write
+    path added later is stamped automatically — a missed site would silently under-count
+    the run's activity, which is the one direction a monitoring system cannot tolerate.
+    """
+
+    def test_new_doc_gets_a_plain_value(self):
+        docs = stamp_run_id([{"type_s": "transformation", "dataset_s": "DS_A"}], "RUN1")
+
+        self.assertEqual(docs[0]["run_id_s"], "RUN1")
+
+    def test_atomic_update_gets_the_set_form(self):
+        """A doc without type_s is a partial update keyed by id, so it needs {"set": ...}."""
+        docs = stamp_run_id([{"id": "abc", "success_b": {"set": True}}], "RUN1")
+
+        self.assertEqual(docs[0]["run_id_s"], {"set": "RUN1"})
+
+    def test_mixed_batch_is_stamped_per_doc(self):
+        docs = stamp_run_id(
+            [
+                {"type_s": "transformation", "dataset_s": "DS_A"},
+                {"id": "abc", "success_b": {"set": False}},
+            ],
+            "RUN1",
+        )
+
+        self.assertEqual(docs[0]["run_id_s"], "RUN1")
+        self.assertEqual(docs[1]["run_id_s"], {"set": "RUN1"})
+
+    def test_empty_batch_is_fine(self):
+        self.assertEqual(stamp_run_id([], "RUN1"), [])
 
 
 if __name__ == "__main__":

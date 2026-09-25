@@ -77,11 +77,28 @@ def multiprocess_transformation(
         return (granule_name, "error", error_str, results)
 
 
+def stamp_run_id(docs: Iterable[dict], run_id: str) -> list:
+    """
+    Add run_id_s to each transformation doc on its way to Solr.
+
+    Applied at the four write boundaries rather than at each doc-construction site, so
+    a write path added later is stamped automatically. That matters because a missed
+    stamp site would silently under-count the run's activity.
+
+    A doc carrying "type_s" is a complete new doc and takes a plain value; one without
+    it is an atomic update keyed by id and needs the {"set": ...} form.
+    """
+    for doc in docs:
+        doc["run_id_s"] = run_id if "type_s" in doc else {"set": run_id}
+    return list(docs)
+
+
 class TxJobFactory(baseclasses.Dataset):
     def __init__(self, config: dict) -> None:
         super().__init__(config)
         self.config = config
         self.user_cpus = baseclasses.Config.user_cpus
+        self.run_id = log_config.run_id()
         # Count of transformation docs rebuilt from existing outputs during job
         # generation (get_tx_jobs); surfaced so a reconstruction-only run reports
         # its status instead of "No transformations performed".
@@ -233,6 +250,7 @@ class TxJobFactory(baseclasses.Dataset):
                 "last_transformation_dt": {
                     "set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
                 },
+                "last_run_id_s": {"set": self.run_id},
             }
         ]
 
@@ -405,7 +423,7 @@ class TxJobFactory(baseclasses.Dataset):
             doc_id_maps[filename] = field_map
 
         if updates:
-            solr_utils.solr_update(updates, commit=False)
+            solr_utils.solr_update(stamp_run_id(updates, self.run_id), commit=False)
         return doc_id_maps
 
     def record_results(self, results: Iterable[TxResult]) -> None:
@@ -440,7 +458,7 @@ class TxJobFactory(baseclasses.Dataset):
             updates.append(update)
 
         if updates:
-            solr_utils.solr_update(updates, commit=False)
+            solr_utils.solr_update(stamp_run_id(updates, self.run_id), commit=False)
 
     def record_unprocessable(self, unprocessable: Iterable[tuple]) -> None:
         """
@@ -504,7 +522,7 @@ class TxJobFactory(baseclasses.Dataset):
                             }
                         )
         if updates:
-            solr_utils.solr_update(updates, commit=False)
+            solr_utils.solr_update(stamp_run_id(updates, self.run_id), commit=False)
         self.unprocessable_count = len(unprocessable)
 
     def _granule_hemi(self, filename: str) -> str:
@@ -710,7 +728,9 @@ class TxJobFactory(baseclasses.Dataset):
         # commit per doc was a commit/searcher-warming storm that made job generation
         # hang for minutes on datasets with many existing outputs. get_tx_jobs issues
         # a single commit after the batch.
-        r = solr_utils.solr_update([doc], r=True, commit=False)
+        r = solr_utils.solr_update(
+            stamp_run_id([doc], self.run_id), r=True, commit=False
+        )
         if r.status_code == 200:
             logger.debug(
                 f"Reconstructed missing Solr transformation doc for {output_filename}"
