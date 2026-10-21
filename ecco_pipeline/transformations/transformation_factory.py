@@ -849,14 +849,6 @@ class TxJobFactory(baseclasses.Dataset):
         """
         return not self.usable_output_exists(granule, grid_name, field)
 
-    def _file_transformation_version(self, output_path: str):
-        """
-        Read the transformation_version global attribute baked into a transformed
-        netCDF by grid_transformation.transform(). Returns None if the file can't
-        be read or carries no version (treated as a version mismatch by callers).
-        """
-        return self._inspect_output_file(output_path)[0]
-
     def _inspect_output_file(self, output_path: str) -> tuple:
         """
         Read back the two things that decide whether an existing output netCDF can be
