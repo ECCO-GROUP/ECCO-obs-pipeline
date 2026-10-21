@@ -1,10 +1,20 @@
 """
 Unit tests for transformation_factory module (TxJobFactory class).
-All Solr and file I/O calls are mocked.
+
+Solr calls are mocked throughout. File I/O is mocked too, except in
+OutputFileTrustTestCase, which writes real netCDFs on purpose: whether
+transformation_version (a global attr) and empty_record_note (a variable attr) survive
+save_netcdf is exactly what that logic depends on, and a mock would assert nothing.
 """
 
+import os
+import shutil
+import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
+
+import numpy as np
+import xarray as xr
 
 from transformations.grid_transformation import TxResult
 from transformations.transformation_factory import (
@@ -736,6 +746,433 @@ class TxJobFactoryReconstructTestCase(unittest.TestCase):
         self.assertEqual(mock_update.call_count, 1)
         _, kwargs = mock_update.call_args
         self.assertFalse(kwargs.get("commit", True))
+
+
+class InterruptedRunRecoveryTestCase(unittest.TestCase):
+    """
+    Recovery of transformation docs left unsuccessful by an interrupted run.
+
+    prepopulate_jobs writes success_b=False for every dispatched (grid, field) with
+    commitWithin, so a late crash leaves committed docs behind. Those docs sent the next
+    run down need_to_update (which re-transforms) instead of the filesystem fallback in
+    need_to_transform (reachable only when no doc exists at all), so a 25k-job run that
+    died at the end redid all 25k despite valid outputs on disk.
+
+    These tests pin both halves: the recovery works, AND it refuses to adopt an output
+    that must not be trusted.
+    """
+
+    def get_base_config(self):
+        return {
+            "ds_name": "TEST_DATASET",
+            "start": "20200101T00:00:00Z",
+            "end": "20201231T00:00:00Z",
+            "data_time_scale": "daily",
+            "fields": [],
+            "original_dataset_title": "Test",
+            "original_dataset_short_name": "TEST",
+            "original_dataset_url": "https://example.com",
+            "original_dataset_reference": "Ref",
+            "original_dataset_doi": "10.1234/test",
+            "t_version": 2.0,
+            "a_version": 1.0,
+            "notes": "",
+        }
+
+    @patch("transformations.transformation_factory.solr_utils.solr_query")
+    @patch("transformations.transformation_factory.baseclasses.Config")
+    def _factory(self, mock_config, mock_query):
+        mock_config.user_cpus = 1
+        mock_config.grids_to_use = ["grid"]
+        mock_query.return_value = []
+        return TxJobFactory(self.get_base_config())
+
+    def _field(self, name="f1"):
+        field = MagicMock()
+        field.name = name
+        return field
+
+    def _granule(self, checksum="abc"):
+        return {
+            "filename_s": "test1.nc",
+            "pre_transformation_file_path_s": "/data/test1.nc",
+            "date_dt": "2020-01-01T00:00:00Z",
+            "checksum_s": checksum,
+        }
+
+    def _tx(self, **overrides):
+        tx = {
+            "id": "existing-id",
+            "success_b": False,
+            "origin_checksum_s": "abc",
+            "field_s": "f1",
+            "grid_name_s": "grid",
+        }
+        tx.update(overrides)
+        return tx
+
+    def test_recovers_interrupted_doc_when_output_is_usable(self):
+        """The core fix: an unsuccessful doc whose output on disk is current is adopted
+        (doc id returned) rather than re-transformed."""
+        factory = self._factory()
+        with patch.object(factory, "usable_output_exists", return_value=True):
+            doc_id = factory.recoverable_from_disk(
+                self._granule(), self._tx(), "grid", self._field()
+            )
+        self.assertEqual(doc_id, "existing-id")
+
+    def test_does_not_recover_when_output_is_not_usable(self):
+        factory = self._factory()
+        with patch.object(factory, "usable_output_exists", return_value=False):
+            doc_id = factory.recoverable_from_disk(
+                self._granule(), self._tx(), "grid", self._field()
+            )
+        self.assertIsNone(doc_id)
+
+    def test_does_not_recover_when_granule_was_reharvested(self):
+        """A checksum mismatch means the output on disk was built from the OLD source,
+        so it must be rebuilt no matter how current the file looks. The file is not even
+        inspected — the cheap guard short-circuits first."""
+        factory = self._factory()
+        with patch.object(factory, "usable_output_exists") as mock_usable:
+            doc_id = factory.recoverable_from_disk(
+                self._granule(checksum="NEW"),
+                self._tx(origin_checksum_s="OLD"),
+                "grid",
+                self._field(),
+            )
+        self.assertIsNone(doc_id)
+        mock_usable.assert_not_called()
+
+    def test_already_successful_doc_is_not_a_recovery_candidate(self):
+        factory = self._factory()
+        with patch.object(factory, "usable_output_exists", return_value=True):
+            doc_id = factory.recoverable_from_disk(
+                self._granule(), self._tx(success_b=True), "grid", self._field()
+            )
+        self.assertIsNone(doc_id)
+
+    @patch("transformations.transformation_factory.file_utils.md5")
+    @patch("transformations.transformation_factory.os.path.getmtime")
+    @patch("transformations.transformation_factory.solr_utils.solr_update")
+    def test_record_recovered_batches_atomic_updates(
+        self, mock_update, mock_getmtime, mock_md5
+    ):
+        """Recovered docs are written as ONE bulk atomic update against the existing id
+        — not as new docs via reconstruct_tx_solr_doc, which would mint a fresh uuid and
+        duplicate a doc that already exists."""
+        factory = self._factory()
+        mock_getmtime.return_value = 0
+        mock_md5.return_value = "checksum"
+
+        recovered = [
+            ("id-1", self._granule(), "grid", self._field("f1")),
+            ("id-2", self._granule(), "grid", self._field("f2")),
+        ]
+        factory.record_recovered(recovered)
+
+        self.assertEqual(mock_update.call_count, 1)
+        _, kwargs = mock_update.call_args
+        self.assertFalse(kwargs.get("commit", True))  # commitWithin, not a hard commit
+        body = mock_update.call_args[0][0]
+        self.assertEqual(len(body), 2)
+        self.assertEqual(factory.recovered_count, 2)
+
+        doc = next(d for d in body if d["id"] == "id-1")
+        # Atomic-update form throughout, and no type_s (which would make it a new doc).
+        self.assertNotIn("type_s", doc)
+        self.assertEqual(doc["success_b"], {"set": True})
+        self.assertEqual(doc["transformation_version_f"], {"set": 2.0})
+        self.assertEqual(doc["transformation_in_progress_b"], {"set": False})
+        self.assertEqual(doc["error_message_s"], {"set": ""})
+        self.assertEqual(doc["transformation_checksum_s"], {"set": "checksum"})
+
+    @patch("transformations.transformation_factory.solr_utils.solr_update")
+    def test_record_recovered_noop_when_empty(self, mock_update):
+        factory = self._factory()
+        factory.record_recovered([])
+        mock_update.assert_not_called()
+        self.assertEqual(factory.recovered_count, 0)
+
+
+class OutputFileTrustTestCase(unittest.TestCase):
+    """
+    usable_output_exists / _inspect_output_file against REAL netCDF files.
+
+    The regression that matters: a failed mapping still writes an output netCDF (an
+    all-fill-value record) stamped with the current transformation_version and a fresh
+    mtime. So exists + newer-than-source + current-version is NOT sufficient to conclude
+    success. Without the empty_record_note check, a genuine failure would be accepted as
+    a finished transformation and recorded success_b=True — silently laundering failures
+    into permanent successes. These tests use real files because the attribute's
+    survival through save_netcdf (global vs variable attrs) is the whole point.
+    """
+
+    def get_base_config(self):
+        return {
+            "ds_name": "TEST_DATASET",
+            "start": "20200101T00:00:00Z",
+            "end": "20201231T00:00:00Z",
+            "data_time_scale": "daily",
+            "fields": [],
+            "original_dataset_title": "Test",
+            "original_dataset_short_name": "TEST",
+            "original_dataset_url": "https://example.com",
+            "original_dataset_reference": "Ref",
+            "original_dataset_doi": "10.1234/test",
+            "t_version": 2.0,
+            "a_version": 1.0,
+            "notes": "",
+        }
+
+    @patch("transformations.transformation_factory.solr_utils.solr_query")
+    @patch("transformations.transformation_factory.baseclasses.Config")
+    def _factory(self, mock_config, mock_query):
+        mock_config.user_cpus = 1
+        mock_config.grids_to_use = ["grid"]
+        mock_query.return_value = []
+        return TxJobFactory(self.get_base_config())
+
+    def _write_output(self, path, t_version=2.0, empty_record_note=None):
+        """Write a transformed-output netCDF the way grid_transformation does:
+        transformation_version as a GLOBAL attr, empty_record_note on the DataArray
+        (and therefore a VARIABLE attr in the saved file)."""
+        time = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        da = xr.DataArray(
+            np.full((1, 3), np.nan, "f4"), dims=("time", "x"), coords={"time": time}
+        )
+        da.name = "f1_interpolated_to_grid"
+        if empty_record_note is not None:
+            da.attrs["empty_record_note"] = empty_record_note
+        ds = da.to_dataset()
+        if t_version is not None:
+            ds = ds.assign_attrs({"transformation_version": t_version})
+        ds.to_netcdf(path)
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.source = os.path.join(self.tmp, "src.nc")
+        with open(self.source, "w") as f:
+            f.write("source")
+        self.output = os.path.join(self.tmp, "out.nc")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _usable(self, factory):
+        """Run usable_output_exists with the output path pinned to our temp file."""
+        granule = {
+            "filename_s": "test1.nc",
+            "pre_transformation_file_path_s": self.source,
+            "checksum_s": "abc",
+        }
+        field = MagicMock()
+        field.name = "f1"
+        with patch.object(factory, "_output_path", return_value=self.output):
+            # Output must be newer than source for the mtime gate to pass.
+            os.utime(self.output, (3000, 3000))
+            os.utime(self.source, (1000, 1000))
+            return factory.usable_output_exists(granule, "grid", field)
+
+    def test_failure_placeholder_is_rejected(self):
+        """THE regression: a failed-transform placeholder must NOT be accepted, even
+        though it exists, is newer than its source, and carries the current version."""
+        factory = self._factory()
+        self._write_output(self.output, empty_record_note="Transformation failed")
+        self.assertFalse(self._usable(factory))
+
+    def test_failed_post_transformation_placeholder_is_rejected(self):
+        factory = self._factory()
+        self._write_output(
+            self.output, empty_record_note="Post transformation(s) failed"
+        )
+        self.assertFalse(self._usable(factory))
+
+    def test_missing_field_empty_record_is_accepted(self):
+        """The 'field missing from source data' empty record sets mapping_success=True
+        on purpose — an empty record is the accepted output for a field the source does
+        not carry. It must NOT be swept up by the failure check, or these would
+        re-transform forever."""
+        factory = self._factory()
+        self._write_output(self.output, empty_record_note="f1 missing from source data")
+        self.assertTrue(self._usable(factory))
+
+    def test_clean_current_output_is_accepted(self):
+        factory = self._factory()
+        self._write_output(self.output)
+        self.assertTrue(self._usable(factory))
+
+    def test_stale_version_output_is_rejected(self):
+        factory = self._factory()
+        self._write_output(self.output, t_version=1.0)
+        self.assertFalse(self._usable(factory))
+
+    def test_unreadable_output_is_rejected(self):
+        """A corrupt/truncated file is both a version mismatch and untrustworthy."""
+        factory = self._factory()
+        with open(self.output, "w") as f:
+            f.write("not a netcdf")
+        self.assertFalse(self._usable(factory))
+
+    def test_output_older_than_source_is_rejected(self):
+        factory = self._factory()
+        self._write_output(self.output)
+        granule = {
+            "filename_s": "test1.nc",
+            "pre_transformation_file_path_s": self.source,
+            "checksum_s": "abc",
+        }
+        field = MagicMock()
+        field.name = "f1"
+        with patch.object(factory, "_output_path", return_value=self.output):
+            os.utime(self.output, (1000, 1000))
+            os.utime(self.source, (3000, 3000))
+            self.assertFalse(factory.usable_output_exists(granule, "grid", field))
+
+    def test_need_to_transform_still_inverts_usable(self):
+        """need_to_transform is the no-doc-exists fallback and must stay the inverse of
+        usable_output_exists."""
+        factory = self._factory()
+        with patch.object(factory, "usable_output_exists", return_value=True):
+            self.assertFalse(factory.need_to_transform({}, "grid", self._field_f1()))
+        with patch.object(factory, "usable_output_exists", return_value=False):
+            self.assertTrue(factory.need_to_transform({}, "grid", self._field_f1()))
+
+    def _field_f1(self):
+        field = MagicMock()
+        field.name = "f1"
+        return field
+
+
+class IncrementalFlushTestCase(unittest.TestCase):
+    """
+    drain_results: worker results are recorded to Solr as they complete rather than
+    once at the end, so a late crash does not discard the status of every finished job.
+    The parent remains the sole Solr writer (ADR 0001) — flush cadence is keyed to
+    result count, not worker count.
+    """
+
+    def get_base_config(self):
+        return {
+            "ds_name": "TEST_DATASET",
+            "start": "20200101T00:00:00Z",
+            "end": "20201231T00:00:00Z",
+            "data_time_scale": "daily",
+            "fields": [],
+            "original_dataset_title": "Test",
+            "original_dataset_short_name": "TEST",
+            "original_dataset_url": "https://example.com",
+            "original_dataset_reference": "Ref",
+            "original_dataset_doi": "10.1234/test",
+            "t_version": 1.0,
+            "a_version": 1.0,
+            "notes": "",
+        }
+
+    @patch("transformations.transformation_factory.solr_utils.solr_query")
+    @patch("transformations.transformation_factory.baseclasses.Config")
+    def _factory(self, mock_config, mock_query):
+        mock_config.user_cpus = 1
+        mock_config.grids_to_use = ["grid"]
+        mock_query.return_value = []
+        return TxJobFactory(self.get_base_config())
+
+    def _marker(self, n_results):
+        results = [
+            TxResult(
+                doc_id=f"id-{i}",
+                grid="g",
+                field=f"f{i}",
+                success=True,
+                output_filename="o.nc",
+                output_path="/o/o.nc",
+                checksum="cs",
+            )
+            for i in range(n_results)
+        ]
+        return ("granule.nc", "ok", "", results)
+
+    def test_flushes_mid_run_once_the_interval_is_reached(self):
+        """Results are written before the run ends — the whole point. One flush at the
+        interval boundary, one for the remainder."""
+        factory = self._factory()
+        factory.job_params = [None] * 3
+        # 3 markers x 200 results = 600 >= SOLR_FLUSH_INTERVAL (500) partway through.
+        result_iter = iter([self._marker(200) for _ in range(3)])
+
+        with patch.object(factory, "record_results") as mock_record:
+            results = factory.drain_results(result_iter)
+
+        self.assertEqual(len(results), 3)
+        # Flushed mid-run at the interval boundary, not once at the end.
+        self.assertGreaterEqual(mock_record.call_count, 1)
+        # Every result is written exactly once across the flushes — nothing dropped,
+        # nothing double-counted.
+        self.assertEqual(sum(len(c[0][0]) for c in mock_record.call_args_list), 600)
+
+    def test_small_run_flushes_once_at_the_end(self):
+        factory = self._factory()
+        factory.job_params = [None] * 2
+        result_iter = iter([self._marker(1), self._marker(1)])
+
+        with patch.object(factory, "record_results") as mock_record:
+            factory.drain_results(result_iter)
+
+        self.assertEqual(mock_record.call_count, 1)
+        self.assertEqual(len(mock_record.call_args[0][0]), 2)
+
+    def test_no_results_writes_nothing(self):
+        factory = self._factory()
+        factory.job_params = []
+        with patch.object(factory, "record_results") as mock_record:
+            factory.drain_results(iter([]))
+        mock_record.assert_not_called()
+
+    def test_worker_markers_with_no_results_are_still_returned(self):
+        """A marker carrying no TxResults still counts toward summarize_results, which
+        is how worker-level failures stay visible."""
+        factory = self._factory()
+        factory.job_params = [None]
+        with patch.object(factory, "record_results") as mock_record:
+            results = factory.drain_results(iter([("g.nc", "error", "boom", [])]))
+        self.assertEqual(len(results), 1)
+        mock_record.assert_not_called()
+
+    @patch("transformations.transformation_factory.solr_utils.commit_solr")
+    @patch("transformations.transformation_factory.Pool")
+    def test_pooled_path_uses_imap_unordered(self, mock_pool_cls, mock_commit):
+        """starmap only returns once every job is done, so it cannot flush
+        incrementally. The pooled path must consume results as they complete."""
+        factory = self._factory()
+        factory.user_cpus = 4
+        factory.job_params = [("a",), ("b",)]
+
+        pool = MagicMock()
+        mock_pool_cls.return_value.__enter__.return_value = pool
+        pool.imap_unordered.return_value = iter([self._marker(1), self._marker(1)])
+
+        with patch.object(factory, "record_results"):
+            factory.execute_jobs()
+
+        pool.imap_unordered.assert_called_once()
+        pool.starmap.assert_not_called()
+
+    @patch("transformations.transformation_factory.solr_utils.commit_solr")
+    @patch("transformations.transformation_factory.multiprocess_transformation")
+    def test_single_cpu_path_also_flushes_incrementally(
+        self, mock_transform, mock_commit
+    ):
+        """--multiprocesses 1 takes a different branch; it must go through the same
+        drain, not build a list and write once at the end."""
+        factory = self._factory()
+        factory.user_cpus = 1
+        factory.job_params = [("a",), ("b",)]
+        mock_transform.return_value = self._marker(1)
+
+        with patch.object(factory, "drain_results", return_value=[]) as mock_drain:
+            factory.execute_jobs()
+
+        mock_drain.assert_called_once()
 
 
 class StampRunIdTestCase(unittest.TestCase):

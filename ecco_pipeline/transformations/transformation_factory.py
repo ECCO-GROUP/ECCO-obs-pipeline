@@ -14,6 +14,31 @@ from utils.pipeline_utils import file_utils, log_config, solr_utils
 
 logger = logging.getLogger("pipeline")
 
+# Worker results are flushed to Solr every SOLR_FLUSH_INTERVAL results rather than
+# once at the end, so a run that dies late keeps the status it already earned.
+SOLR_FLUSH_INTERVAL = 500
+
+# Values of the ``empty_record_note`` variable attribute that mark a (grid, field)
+# whose output netCDF is an all-fill-value placeholder written by a *failed*
+# transformation (grid_transformation.Transformation.transform).
+#
+# "<field> missing from source data" is deliberately absent: that path sets
+# mapping_success=True on purpose, because an empty record is the accepted output for
+# a field the source simply does not carry. Only genuine failures belong here — a
+# file carrying one of these must never be accepted as a recovered transformation,
+# or a real failure would be laundered into a permanent success.
+FAILURE_RECORD_NOTES = frozenset(
+    {"Transformation failed", "Post transformation(s) failed"}
+)
+
+
+def _star_transformation(job_param: tuple) -> tuple:
+    """
+    Single-argument adapter so job params can go through Pool.imap_unordered, which
+    (unlike starmap) does not unpack tuples. Module-level so it stays picklable.
+    """
+    return multiprocess_transformation(*job_param)
+
 
 def multiprocess_transformation(
     config: dict,
@@ -103,6 +128,12 @@ class TxJobFactory(baseclasses.Dataset):
         # generation (get_tx_jobs); surfaced so a reconstruction-only run reports
         # its status instead of "No transformations performed".
         self.reconstructed_count = 0
+        # Count of transformation docs left unsuccessful by an interrupted run that were
+        # adopted from outputs already on disk (record_recovered). Surfaced for the same
+        # reason as reconstructed_count: a recovery-only run still needs cleanup to run,
+        # otherwise it reports "No transformations performed" and leaves the dataset
+        # status stale.
+        self.recovered_count = 0
         # Count of harvest-quality failures recorded by the parent during job
         # generation (granules with no source path or a too-small file). Surfaced
         # for the same reason as reconstructed_count: a run that only recorded
@@ -139,20 +170,25 @@ class TxJobFactory(baseclasses.Dataset):
         self.initialize_jobs()
         if self.job_params:
             self.execute_jobs()
-        elif not self.reconstructed_count and not self.unprocessable_count:
-            # No new transformations, nothing reconstructed, and no harvest-quality
-            # failures — genuinely nothing changed, so skip the cleanup queries.
+        elif (
+            not self.reconstructed_count
+            and not self.unprocessable_count
+            and not self.recovered_count
+        ):
+            # No new transformations, nothing reconstructed or recovered, and no
+            # harvest-quality failures — genuinely nothing changed, so skip the
+            # cleanup queries.
             return "No transformations performed"
         else:
-            # Nothing was dispatched, but job generation reconstructed docs and/or
-            # recorded harvest-quality failures with commitWithin. Flush them so the
-            # cleanup counts below see committed state (execute_jobs would otherwise
+            # Nothing was dispatched, but job generation reconstructed/recovered docs
+            # and/or recorded harvest-quality failures with commitWithin. Flush them so
+            # the cleanup counts below see committed state (execute_jobs would otherwise
             # have owned this commit).
             solr_utils.commit_solr()
 
-        # Either new transformations ran, docs were reconstructed, or unprocessable
-        # granules were recorded during job generation; run cleanup so the dataset
-        # status and counts reflect the actual Solr state (and refresh the dashboard).
+        # Either new transformations ran, docs were reconstructed or recovered, or
+        # unprocessable granules were recorded during job generation; run cleanup so the
+        # dataset status and counts reflect the actual Solr state (and refresh the dashboard).
         pipeline_status = self.pipeline_cleanup()
         return pipeline_status
 
@@ -164,42 +200,80 @@ class TxJobFactory(baseclasses.Dataset):
         )
 
     def execute_jobs(self):
-        if self.job_params:
-            if self.user_cpus == 1:
-                logger.info("Not using multiprocessing to do transformation")
-                results = [
-                    multiprocess_transformation(*job_param)
-                    for job_param in self.job_params
-                ]
-            else:
-                # Honor the user's requested process count (already bounded to
-                # [1, cpu_count()] by the --multiprocesses argparse choices), capped
-                # only by the number of jobs actually available to run.
-                user_cpus = min(self.user_cpus, len(self.job_params))
-                logger.info(
-                    f"Using {user_cpus} CPUs to do {len(self.job_params)} multiprocess transformation jobs"
+        if not self.job_params:
+            return
+
+        if self.user_cpus == 1:
+            logger.info("Not using multiprocessing to do transformation")
+            # A generator, not a list: it keeps the single-CPU path lazy so it flows
+            # through the same incremental-flush drain as the pooled path. Building a
+            # list here would restore all-or-nothing behavior for --multiprocesses 1.
+            result_iter = (
+                multiprocess_transformation(*job_param) for job_param in self.job_params
+            )
+            results = self.drain_results(result_iter)
+        else:
+            # Honor the user's requested process count (already bounded to
+            # [1, cpu_count()] by the --multiprocesses argparse choices), capped
+            # only by the number of jobs actually available to run.
+            user_cpus = min(self.user_cpus, len(self.job_params))
+            logger.info(
+                f"Using {user_cpus} CPUs to do {len(self.job_params)} multiprocess transformation jobs"
+            )
+
+            # imap_unordered rather than starmap: starmap only returns once every job
+            # has finished, so there is nothing to flush incrementally and a run that
+            # dies late loses the status of all its completed work. Results are
+            # consumed as they complete instead.
+            #
+            # multiprocess_transformation is exception-safe and returns a marker rather
+            # than propagating, so one bad granule does not abort the remaining jobs.
+            with Pool(processes=user_cpus) as pool:
+                results = self.drain_results(
+                    pool.imap_unordered(_star_transformation, self.job_params)
                 )
 
-                # Synchronous starmap so worker return markers are collected (and any
-                # unhandled exception is re-raised here). multiprocess_transformation
-                # is exception-safe and returns a marker instead of propagating, so one
-                # bad granule no longer aborts the remaining jobs.
-                with Pool(processes=user_cpus) as pool:
-                    results = pool.starmap(multiprocess_transformation, self.job_params)
+        self.summarize_results(results)
 
-            self.summarize_results(results)
+        # prepopulate_jobs and the batched record_results writes use commitWithin, so
+        # the in-progress/success updates may not be committed yet. Flush them before
+        # pipeline_cleanup counts success_b:false, otherwise just-finished
+        # transformations transiently read as failed.
+        solr_utils.commit_solr()
 
-            # Workers make no Solr calls (ADR 0001); the parent records every returned
-            # TxResult here in one batch, then hard-commits once. This is the sole
-            # writer for result status, so Solr load no longer scales with worker count.
-            all_tx_results = [tx for r in results if r for tx in (r[3] or [])]
-            self.record_results(all_tx_results)
+    def drain_results(self, result_iter: Iterable[tuple]) -> list:
+        """
+        Consume worker results as they complete, recording them to Solr every
+        SOLR_FLUSH_INTERVAL TxResults instead of once at the end. Returns the full list
+        of per-granule status markers for summarize_results.
 
-            # prepopulate_jobs and record_results write with commitWithin, so the
-            # in-progress/success updates may not be committed yet. Flush them before
-            # pipeline_cleanup counts success_b:false, otherwise just-finished
-            # transformations transiently read as failed.
-            solr_utils.commit_solr()
+        Workers still make no Solr calls (ADR 0001) — the parent remains the sole
+        writer, so Solr load stays decoupled from worker count. The flush cadence is
+        keyed to result count, not worker count, which is what preserves that property:
+        this is N batched writes, not one write per worker.
+
+        Why incremental: a late crash in a 25k-job run previously discarded the status
+        of every completed job, because nothing was written until every job had
+        finished. Flushing as we go bounds that loss to the current partial batch.
+        """
+        results = []
+        pending = []
+        total = len(self.job_params)
+        for result in result_iter:
+            results.append(result)
+            if result and result[3]:
+                pending.extend(result[3])
+            if len(results) % SOLR_FLUSH_INTERVAL == 0:
+                logger.info(
+                    f"{self.ds_name}: processed {len(results)}/{total} granules"
+                )
+            if len(pending) >= SOLR_FLUSH_INTERVAL:
+                self.record_results(pending)
+                pending = []
+
+        if pending:
+            self.record_results(pending)
+        return results
 
     def summarize_results(self, results: Iterable[tuple]):
         """
@@ -559,6 +633,7 @@ class TxJobFactory(baseclasses.Dataset):
 
         all_jobs = []
         reconstructed = 0
+        recovered = []
         for granule in self.harvested_granules:
             grid_fields = {}
             for grid in self.grids:
@@ -568,6 +643,16 @@ class TxJobFactory(baseclasses.Dataset):
                     for tx in tx_dict[granule["filename_s"]]:
                         if tx["field_s"] == field.name and tx["grid_name_s"] == grid:
                             update = self.need_to_update(granule, tx)
+                            if update:
+                                # An unsuccessful doc may be the residue of an
+                                # interrupted run whose output is complete on disk;
+                                # adopt it instead of re-transforming.
+                                doc_id = self.recoverable_from_disk(
+                                    granule, tx, grid, field
+                                )
+                                if doc_id:
+                                    recovered.append((doc_id, granule, grid, field))
+                                    update = False
                             break
                     else:
                         update = self.need_to_transform(granule, grid, field)
@@ -590,15 +675,65 @@ class TxJobFactory(baseclasses.Dataset):
                 all_jobs.append((granule, grid_fields))
 
         self.reconstructed_count = reconstructed
-        if reconstructed:
-            logger.info(
-                f"Reconstructed {reconstructed} missing transformation Solr doc(s) from "
-                f"existing outputs (no re-transformation needed)."
-            )
-            # reconstruct_tx_solr_doc uses commitWithin; flush the batch now so the
-            # docs are searchable before pipeline_cleanup counts them.
+        self.record_recovered(recovered)
+        if reconstructed or recovered:
+            if reconstructed:
+                logger.info(
+                    f"Reconstructed {reconstructed} missing transformation Solr doc(s) from "
+                    f"existing outputs (no re-transformation needed)."
+                )
+            # reconstruct_tx_solr_doc and record_recovered use commitWithin; flush the
+            # batch now so the docs are searchable before pipeline_cleanup counts them.
             solr_utils.commit_solr()
         return all_jobs
+
+    def record_recovered(self, recovered: Iterable[tuple]) -> None:
+        """
+        Mark transformation docs left unsuccessful by an interrupted run as successful,
+        using the output already on disk. One bulk atomic update with commitWithin.
+
+        These are atomic updates against the existing doc id, NOT new docs via
+        reconstruct_tx_solr_doc: that function mints a fresh uuid and a full doc, which
+        would duplicate a doc that already exists here.
+
+        Hashing the outputs is the expensive part (one md5 per file), but it is the same
+        work reconstruct_tx_solr_doc already does and is orders of magnitude cheaper
+        than re-running the transformations.
+        """
+        if not recovered:
+            return
+
+        updates = []
+        for doc_id, granule, grid_name, field in recovered:
+            output_path = self._output_path(granule, grid_name, field)
+            completed_dt = datetime.utcfromtimestamp(
+                os.path.getmtime(output_path)
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+            updates.append(
+                {
+                    "id": doc_id,
+                    "transformation_in_progress_b": {"set": False},
+                    "success_b": {"set": True},
+                    "filename_s": {"set": os.path.basename(output_path)},
+                    "transformation_file_path_s": {"set": output_path},
+                    "transformation_checksum_s": {"set": file_utils.md5(output_path)},
+                    "transformation_version_f": {"set": self.t_version},
+                    "transformation_completed_dt": {"set": completed_dt},
+                    "error_message_s": {"set": ""},
+                }
+            )
+            if len(updates) % 250 == 0:
+                logger.info(
+                    f"Recovered {len(updates)} interrupted transformation(s) from "
+                    f"existing outputs so far..."
+                )
+
+        self.recovered_count = len(updates)
+        logger.info(
+            f"Recovered {self.recovered_count} transformation(s) left unfinished by an "
+            f"interrupted run; outputs on disk are current, so no re-transformation needed."
+        )
+        solr_utils.solr_update(stamp_run_id(updates, self.run_id), commit=False)
 
     def need_to_update(self, granule: dict, tx: dict) -> bool:
         """
@@ -616,16 +751,47 @@ class TxJobFactory(baseclasses.Dataset):
             return False
         return True
 
-    def need_to_transform(self, granule: dict, grid_name: str, field) -> bool:
+    def recoverable_from_disk(self, granule: dict, tx: dict, grid_name: str, field):
         """
-        Filesystem fallback used when no Solr transformation doc exists for a
-        granule/grid/field combination.  Skip reprocessing only if the transformed
-        output file already exists, is newer than the source granule file, and was
-        produced by the current transformation version — the same version contract
-        need_to_update() applies to the Solr-doc path.
+        Decide whether an unsuccessful transformation doc is merely the residue of an
+        interrupted run whose output is in fact complete on disk. Returns the doc id to
+        mark successful, or None to re-transform.
+
+        Why this exists: prepopulate_jobs writes a doc with success_b=False for every
+        dispatched (grid, field) using commitWithin, so on a long run those docs are
+        committed well before a late crash. On the next run get_tx_jobs finds them and
+        routes to need_to_update, which re-transforms — meaning the filesystem fallback
+        in need_to_transform (reached only when NO doc exists) never fires, and a
+        25k-job run that dies at the end redoes all 25k despite every output netCDF
+        sitting valid on disk. This is the gap in ADR 0001's stated recovery story.
+
+        Guards, in order of cost:
+        - Only an unsuccessful doc is a recovery candidate; a successful one is already
+          handled by need_to_update.
+        - origin_checksum_s must still match the granule's current checksum. If the
+          granule was re-harvested since that doc was written, the output on disk came
+          from the old source and must be rebuilt no matter how current it looks.
+        - The output itself must pass usable_output_exists (version + failure
+          placeholder + mtime), which is where the file is actually opened.
+        """
+        if tx.get("success_b"):
+            return None
+        if not tx.get("id"):
+            return None
+        if tx.get("origin_checksum_s") != granule.get("checksum_s"):
+            return None
+        if not self.usable_output_exists(granule, grid_name, field):
+            return None
+        return tx["id"]
+
+    def _output_path(self, granule: dict, grid_name: str, field) -> str:
+        """
+        Conventional path of the transformed output for a granule/grid/field. Must stay
+        in step with grid_transformation.transform(), which builds the same path from
+        the same parts when it writes the file.
         """
         stem = os.path.splitext(granule["filename_s"])[0]
-        output_path = os.path.join(
+        return os.path.join(
             OUTPUT_DIR,
             self.ds_name,
             "transformed_products",
@@ -634,24 +800,54 @@ class TxJobFactory(baseclasses.Dataset):
             field.name,
             f"{grid_name}_{field.name}_{stem}.nc",
         )
+
+    def usable_output_exists(self, granule: dict, grid_name: str, field) -> bool:
+        """
+        True when the transformed output on disk can be trusted as a completed,
+        successful transformation: it exists, is newer than its source granule, was
+        produced by the current transformation version, and is not a failure
+        placeholder.
+
+        The version check is what makes bumping t_version in config the single lever
+        that forces re-transformation after any output-affecting code change.
+
+        The failure-placeholder check is essential, not defensive: a failed mapping
+        still writes an output netCDF (an all-fill-value record) stamped with the
+        current version and a fresh mtime, so exists + newer + current version is NOT
+        sufficient to conclude success. Without this check a real failure would be
+        accepted as a finished transformation and recorded success_b=True.
+        """
+        output_path = self._output_path(granule, grid_name, field)
         if not os.path.exists(output_path):
-            return True
+            return False
         source_path = granule.get("pre_transformation_file_path_s")
         if not source_path or not os.path.exists(source_path):
-            return True
+            return False
         if os.path.getmtime(output_path) <= os.path.getmtime(source_path):
-            return True
-        # mtime says the file is current, but only trust it if it was produced by
-        # the current transformation version. Bumping t_version in config is the
-        # single lever that forces re-transformation after any output-affecting
-        # code change — keeps this path consistent with need_to_update().
-        if self._file_transformation_version(output_path) != self.t_version:
+            return False
+
+        version, failed = self._inspect_output_file(output_path)
+        if version != self.t_version:
             logger.info(
                 f"Existing transformed file {output_path} was produced by a "
                 f"different transformation version — will re-transform."
             )
-            return True
-        return False
+            return False
+        if failed:
+            logger.info(
+                f"Existing transformed file {output_path} is a failure placeholder "
+                f"(empty record written by a failed transformation) — will re-transform."
+            )
+            return False
+        return True
+
+    def need_to_transform(self, granule: dict, grid_name: str, field) -> bool:
+        """
+        Filesystem fallback used when no Solr transformation doc exists for a
+        granule/grid/field combination. Skip reprocessing only if the output on disk is
+        trustworthy per usable_output_exists().
+        """
+        return not self.usable_output_exists(granule, grid_name, field)
 
     def _file_transformation_version(self, output_path: str):
         """
@@ -659,17 +855,39 @@ class TxJobFactory(baseclasses.Dataset):
         netCDF by grid_transformation.transform(). Returns None if the file can't
         be read or carries no version (treated as a version mismatch by callers).
         """
+        return self._inspect_output_file(output_path)[0]
+
+    def _inspect_output_file(self, output_path: str) -> tuple:
+        """
+        Read back the two things that decide whether an existing output netCDF can be
+        trusted as a completed transformation: ``(transformation_version, failed)``.
+
+        ``transformation_version`` is a *global* attribute; ``empty_record_note`` is set
+        on the DataArray and so lands as a *variable* attribute — hence the two
+        different lookups. Both are read in one open, because this runs once per
+        candidate output file and a large backlog means tens of thousands of opens.
+
+        ``failed`` is True when any data variable carries a note in
+        FAILURE_RECORD_NOTES, i.e. the file is a placeholder written by a failed
+        transformation. An unreadable file returns ``(None, True)``: it is both a
+        version mismatch and untrustworthy, so every caller re-transforms.
+        """
         try:
             with xr.open_dataset(output_path) as ds:
                 version = ds.attrs.get("transformation_version")
+                failed = any(
+                    ds[var].attrs.get("empty_record_note") in FAILURE_RECORD_NOTES
+                    for var in ds.data_vars
+                )
         except Exception:
-            return None
-        if version is None:
-            return None
-        try:
-            return float(version)
-        except (TypeError, ValueError):
-            return version
+            return None, True
+
+        if version is not None:
+            try:
+                version = float(version)
+            except (TypeError, ValueError):
+                pass
+        return version, failed
 
     def reconstruct_tx_solr_doc(self, granule: dict, grid_name: str, field) -> None:
         """

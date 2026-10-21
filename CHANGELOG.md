@@ -15,6 +15,29 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 
 ### Bug Fixes
 
+- **A crashed transformation run redid all its work**: `prepopulate_jobs` writes a
+  `success_b=false` doc for every dispatched (grid, field) with `commitWithin`, so a late
+  crash left committed docs behind. The next run found them, routed to `need_to_update`,
+  and re-transformed everything — the filesystem fallback in `need_to_transform` is only
+  reachable when *no* doc exists, so it never fired. A 25k-job run dying at the end redid
+  all 25k despite every output netCDF being valid on disk. Unsuccessful docs whose output
+  is trustworthy are now adopted via one bulk atomic update (`recoverable_from_disk` /
+  `record_recovered`), guarded on `origin_checksum_s` so a re-harvested granule still
+  rebuilds. ADR 0001, which claimed this case was already handled, is amended.
+- **Failed transformations could be laundered into permanent successes**: a failed
+  mapping still writes an output netCDF — an all-fill-value `make_empty_record` — stamped
+  with the current `transformation_version` and a fresh mtime, so "exists + newer than
+  source + current version" passes for a file representing a genuine failure. Any
+  filesystem-trust path would have recorded `success_b=true` for it. `usable_output_exists`
+  now rejects outputs carrying a failure `empty_record_note`, while still accepting the
+  deliberate *field missing from source data* empty record.
+- **Transformation status was all-or-nothing**: `execute_jobs` used `pool.starmap`, which
+  returns only once every job has finished, so nothing was written to Solr until the end
+  and a late crash discarded the status of all completed work. It now consumes
+  `imap_unordered` through `drain_results`, flushing every `SOLR_FLUSH_INTERVAL` results.
+  The `--multiprocesses 1` path goes through the same drain. The parent remains the sole
+  Solr writer and flush cadence is keyed to result count, not worker count, so Solr load
+  stays decoupled from `--multiprocesses` (ADR 0001).
 - **Every pipeline run exited 0**: `run_pipeline.py` caught each per-dataset exception and
   only logged it, so cron saw success even when every dataset failed. `init_pipeline`'s
   bare `exit()` calls (Solr down, missing `.netrc`, missing `OUTPUT_DIR`, grids absent from

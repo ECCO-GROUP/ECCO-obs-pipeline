@@ -43,10 +43,54 @@ Granules.
   construction (one writer), not merely tuned down.
 - Workers become unit-testable (assert they make no Solr calls).
 - Status metadata is now batched rather than persisted per-granule, so a hard kill
-  (OOM/segfault) can leave a batch's docs at `success_b=false` / in-progress. This is
-  recovered on the next run by the existing filesystem fallback
-  (`need_to_transform`: output file exists + newer than source + current version), and
-  no output is lost because the expensive artifact — the output netCDF — is still
-  written per-granule in the worker. No new reconciliation logic was added.
+  (OOM/segfault) can leave a batch's docs at `success_b=false` / in-progress. No output
+  is lost, because the expensive artifact — the output netCDF — is still written
+  per-granule in the worker.
 - Scope is transformation-only. The aggregation stage has the same worker-owns-Solr
   shape and is left as future work.
+
+## Amendment: recovery after a hard kill
+
+This ADR originally claimed the leftover `success_b=false` docs were "recovered on the
+next run by the existing filesystem fallback (`need_to_transform`)" with "no new
+reconciliation logic". **That was wrong**, and it cost a full re-run of a large job batch
+before it was noticed.
+
+`need_to_transform` is reached only via the `for/else` in `get_tx_jobs` — i.e. only when
+**no** transformation doc exists. But `prepopulate_jobs` writes a doc for every
+dispatched (grid, field) with `commitWithin=15s`, so on any run long enough to matter
+those docs are committed and searchable before the kill. The next run finds them, routes
+to `need_to_update`, sees `success_b=false`, and re-transforms — with every valid output
+netCDF sitting on disk, untouched. A 25k-job run dying at the end redid all 25k.
+`transformation_in_progress_b` was written in five places and read in none.
+
+Two changes close the gap:
+
+1. **`recoverable_from_disk` / `record_recovered`** — an unsuccessful doc whose output on
+   disk is trustworthy is adopted via one bulk **atomic update against the existing doc
+   id** (not `reconstruct_tx_solr_doc`, which mints a fresh uuid and would duplicate the
+   doc). Guarded on `origin_checksum_s` still matching the granule: if it was
+   re-harvested, the output came from the old source and must be rebuilt.
+2. **Incremental flushing** — `execute_jobs` consumes `imap_unordered` through
+   `drain_results`, recording results every `SOLR_FLUSH_INTERVAL`. `starmap` returned
+   only after every job finished, so there was nothing to flush and a late crash
+   discarded all earned status. The parent is still the sole writer and cadence is keyed
+   to result count, not worker count, so this ADR's core property holds: Solr load stays
+   decoupled from `--multiprocesses`.
+
+### The trap: a failed transformation still writes a plausible output file
+
+Trusting the filesystem requires more than "exists + newer than source + current
+version". When `perform_mapping` throws, `Transformation.transform` substitutes
+`make_empty_record(...)` and that all-fill-value record flows through the **same**
+`save_netcdf` call, stamped with the **current** `transformation_version` and a fresh
+mtime. Those three checks therefore pass for a file representing a genuine failure.
+
+Accepting it would record `success_b=true` and permanently launder real failures into
+successes — worse than the re-run bug it fixes, and invisible. So `usable_output_exists`
+also rejects any output whose variable attrs carry an `empty_record_note` in
+`FAILURE_RECORD_NOTES`. Note the asymmetry: the *field missing from source data* empty
+record deliberately sets `mapping_success=True` and must stay **accepted**, or those
+granules re-transform forever. The discriminator is the note text, not the emptiness.
+`transformation_version` is a global attr while `empty_record_note` is a variable attr;
+`_inspect_output_file` reads both in one open, since this runs once per candidate file.
