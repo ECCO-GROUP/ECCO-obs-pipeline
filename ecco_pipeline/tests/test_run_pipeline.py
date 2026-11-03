@@ -110,6 +110,91 @@ class ExitCodeTestCase(unittest.TestCase):
         self.assertEqual(recorded["outcome"], "crashed")
 
 
+class ArgumentErrorTestCase(unittest.TestCase):
+    """
+    A bad invocation must still leave a run summary.
+
+    create_parser() used to run outside the try, so `--dataset TYPPO` escaped as an
+    uncaught ValueError: no summary was written, and `notify.py --run-id latest` then
+    picked up the *previous* run and mailed a digest reporting ITS success. A typo in a
+    cron entry therefore looked like a clean run — the exact blind spot the summary and
+    exit codes exist to close.
+    """
+
+    def run_main_with_parser(self, parser_side_effect):
+        recorded = {}
+
+        def fake_record_run(
+            results, args=None, started_dt="", outcome=None, abort_reason=None
+        ):
+            recorded["outcome"] = outcome
+            recorded["abort_reason"] = abort_reason
+            recorded["args"] = args
+            return {
+                "run_id": "R",
+                "outcome": outcome or "ok",
+                "exit_code": run_summary.EXIT_ABORTED,
+                "totals": {"datasets": 0, "datasets_with_failures": 0},
+            }
+
+        with (
+            patch.object(run_pipeline, "create_parser", side_effect=parser_side_effect),
+            patch.object(run_pipeline.init_pipeline, "init_pipeline"),
+            patch.object(run_pipeline, "start_pipeline", return_value=[]),
+            patch.object(
+                run_pipeline.run_summary, "record_run", side_effect=fake_record_run
+            ),
+        ):
+            code = run_pipeline.main()
+        return code, recorded
+
+    def test_invalid_dataset_name_is_recorded_as_an_abort(self):
+        code, recorded = self.run_main_with_parser(
+            ValueError("BAD_DS is not valid dataset. Check spelling.")
+        )
+
+        self.assertEqual(code, run_summary.EXIT_ABORTED)
+        self.assertEqual(recorded["outcome"], "aborted")
+        self.assertIn("BAD_DS", recorded["abort_reason"])
+        # args could not be parsed, so None must be tolerated by the summary builder.
+        self.assertIsNone(recorded["args"])
+
+    def test_argparse_error_is_recorded_as_an_abort(self):
+        """argparse raises SystemExit(2) for an unknown flag or a bad --step choice."""
+        code, recorded = self.run_main_with_parser(SystemExit(2))
+
+        self.assertEqual(code, run_summary.EXIT_ABORTED)
+        self.assertEqual(recorded["outcome"], "aborted")
+        self.assertIn("Invalid pipeline arguments", recorded["abort_reason"])
+
+    def test_help_still_exits_cleanly_without_a_summary(self):
+        """
+        --help is SystemExit(0). It must stay a no-op that prints usage, NOT get turned
+        into a bogus 'aborted' run — otherwise every `--help` pollutes the run history
+        and the notifier would report one.
+        """
+        with self.assertRaises(SystemExit) as ctx:
+            self.run_main_with_parser(SystemExit(0))
+
+        self.assertFalse(ctx.exception.code)
+
+    def test_help_writes_no_summary(self):
+        recorded = []
+
+        with (
+            patch.object(run_pipeline, "create_parser", side_effect=SystemExit(0)),
+            patch.object(
+                run_pipeline.run_summary,
+                "record_run",
+                side_effect=lambda *a, **k: recorded.append(k) or {},
+            ),
+        ):
+            with self.assertRaises(SystemExit):
+                run_pipeline.main()
+
+        self.assertEqual(recorded, [])
+
+
 class StageResultTestCase(unittest.TestCase):
     """The run_* functions report what happened instead of only logging it."""
 

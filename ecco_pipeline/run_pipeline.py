@@ -344,8 +344,29 @@ def main() -> int:
     did — including an abort, which previously exited 0 with no trace at all and so
     looked identical to a clean run from cron's point of view.
     """
-    args = create_parser()
     started_dt = run_summary.utc_now()
+
+    try:
+        args = create_parser()
+    except SystemExit as e:
+        # argparse raises SystemExit for an unknown flag or a bad --step choice (code 2)
+        # and also for --help/--version (code 0). Only the former is an operator error
+        # worth recording; re-raise a successful --help so it stays a no-op that prints
+        # usage and exits 0 without manufacturing a bogus "aborted" run.
+        if not e.code:
+            raise
+        reason = f"Invalid pipeline arguments (argparse exit {e.code})"
+        summary = run_summary.record_run(
+            [], args=None, started_dt=started_dt, outcome="aborted", abort_reason=reason
+        )
+        logger.error(f"Pipeline aborted before starting: {reason}")
+        return summary["exit_code"]
+    except ValueError as e:
+        summary = run_summary.record_run(
+            [], args=None, started_dt=started_dt, outcome="aborted", abort_reason=str(e)
+        )
+        logger.error(f"Pipeline aborted before starting: {e}")
+        return summary["exit_code"]
 
     try:
         init_pipeline.init_pipeline(args)

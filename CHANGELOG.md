@@ -44,6 +44,13 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
   Solr) were also exit code 0 and left no trace anywhere. Those now raise
   `PipelinePreconditionError` and the process exits with a meaningful code: `0` clean,
   `1` dataset/stage failures, `2` precondition abort, `3` unexpected fatal error.
+- **A bad `--dataset` reported the previous run as successful**: `create_parser()` ran
+  outside `main()`'s try block, so a misspelled dataset escaped as an uncaught
+  `ValueError` and the run wrote no summary at all. `notify.py --run-id latest` then
+  resolved to the *previous* run and mailed a digest reporting its success, so a typo in
+  a cron entry was indistinguishable from a clean run. Argument parsing is now inside the
+  try and records a precondition abort (exit `2`); `--help` still exits `0` without
+  manufacturing a run.
 - **Aggregation worker failures were discarded**: `execute_jobs` called
   `pool.starmap_async` without ever retrieving the result, so a failing job's return value
   and any escaped exception were thrown away — leaving only a `JOB FAILED` log line, with
