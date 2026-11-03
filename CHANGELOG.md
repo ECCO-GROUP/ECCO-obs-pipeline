@@ -13,6 +13,8 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 
 ## [Unreleased]
 
+## [v2.4.0] — 2026-11-03
+
 ### Bug Fixes
 
 - **A crashed transformation run redid all its work**: `prepopulate_jobs` writes a
