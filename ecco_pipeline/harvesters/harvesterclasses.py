@@ -8,7 +8,7 @@ import requests
 
 from baseclasses import Dataset
 from conf.global_settings import OUTPUT_DIR
-from utils.pipeline_utils import file_utils, solr_utils
+from utils.pipeline_utils import file_utils, log_config, solr_utils
 
 logger = logging.getLogger("pipeline")
 
@@ -68,6 +68,9 @@ class Granule:
         self.solr_item["last_attempt_dt"] = datetime.utcnow().strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
+        # The run that made this attempt. Harvest downloads run on threads in the parent
+        # process, so reading the module-level run id here is safe.
+        self.solr_item["run_id_s"] = log_config.run_id()
 
         if success:
             # calculate checksum and expected file size
@@ -112,7 +115,6 @@ class Harvester(Dataset):
         )
 
         self.ensure_target_dir()
-        solr_utils.clean_solr(config)
 
         self.solr_docs = self.get_solr_docs()
         self.config: dict = config
@@ -208,6 +210,7 @@ class Harvester(Dataset):
         ds_meta["source_s"] = source
         ds_meta["data_time_scale_s"] = self.data_time_scale
         ds_meta["last_checked_dt"] = chk_time
+        ds_meta["last_run_id_s"] = log_config.run_id()
         ds_meta["original_dataset_title_s"] = self.og_ds_metadata[
             "original_dataset_title"
         ]
@@ -342,6 +345,7 @@ class Harvester(Dataset):
             ds_meta = {}
             ds_meta["id"] = dataset_metadata["id"]
             ds_meta["last_checked_dt"] = {"set": check_time}
+            ds_meta["last_run_id_s"] = {"set": log_config.run_id()}
             ds_meta["ecco_variable_s"] = {"set": self.ecco_variable}
             ds_meta["n_granules_i"] = {"set": n_failed + n_success}
             ds_meta["n_granules_success_i"] = {"set": n_success}

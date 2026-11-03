@@ -1,7 +1,6 @@
 import logging
 import os
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
@@ -12,8 +11,8 @@ from conf.global_settings import SOLR_COLLECTION, SOLR_HOST
 logger = logging.getLogger("pipeline")
 
 _TIMEOUT = 60
-_MAX_RETRIES = 3           # retries after the initial attempt
-_BACKOFF_BASE = 2          # seconds; exponential backoff: 2, 4, 8, ...
+_MAX_RETRIES = 3  # retries after the initial attempt
+_BACKOFF_BASE = 2  # seconds; exponential backoff: 2, 4, 8, ...
 _COMMIT_WITHIN_MS = 15000  # let Solr batch commits instead of one hard commit per write
 
 # One requests.Session per process for connection reuse (keep-alive). Keyed on PID so
@@ -44,10 +43,14 @@ def _request(method: str, url: str, **kwargs):
             return _get_session().request(method, url, **kwargs)
         except Exception as e:
             if attempt == _MAX_RETRIES:
-                logger.error(f"Solr request failed after {_MAX_RETRIES + 1} attempts: {e}")
+                logger.error(
+                    f"Solr request failed after {_MAX_RETRIES + 1} attempts: {e}"
+                )
                 raise
-            delay = _BACKOFF_BASE * (2 ** attempt)
-            logger.warning(f"Solr request failed ({e}), retry {attempt + 1}/{_MAX_RETRIES} in {delay}s...")
+            delay = _BACKOFF_BASE * (2**attempt)
+            logger.warning(
+                f"Solr request failed ({e}), retry {attempt + 1}/{_MAX_RETRIES} in {delay}s..."
+            )
             time.sleep(delay)
 
 
@@ -184,42 +187,6 @@ def validate_granules():
 
     if docs_to_remove:
         solr_update({"delete": docs_to_remove})
-
-
-def clean_solr(config):
-    """
-    Remove harvested and transformed entries in Solr for dates
-    outside of config date range. Also remove related aggregations, and force
-    aggregation rerun for those years.
-    """
-    dataset_name = config["ds_name"]
-    config_start = config["start"]
-    config_end = config["end"]
-
-    if config_end == "NOW":
-        config_end = datetime.utcnow().strftime("%Y%m%dT%H:%M:%SZ")
-
-    # Convert config dates to Solr format
-    config_start = f"{config_start[:4]}-{config_start[4:6]}-{config_start[6:]}"
-    config_end = f"{config_end[:4]}-{config_end[4:6]}-{config_end[6:]}"
-
-    fq = ["type_s:dataset", f"dataset_s:{dataset_name}"]
-    dataset_metadata = solr_query(fq)
-
-    if not dataset_metadata:
-        return
-    else:
-        dataset_metadata = dataset_metadata[0]
-
-    # Remove entries earlier than config start date
-    fq = f"dataset_s:{dataset_name} AND date_dt:[* TO {config_start}T00:00:00Z}}"
-    url = f"{SOLR_HOST}{SOLR_COLLECTION}/update?commit=true"
-    requests.post(url, json={"delete": {"query": fq}})
-
-    # Remove entries later than config end date
-    fq = f"dataset_s:{dataset_name} AND date_dt:{{{config_end}T00:00:00Z TO *]"
-    url = f"{SOLR_HOST}{SOLR_COLLECTION}/update?commit=true"
-    requests.post(url, json={"delete": {"query": fq}})
 
 
 def delete_mismatch_transformations():

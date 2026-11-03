@@ -14,6 +14,26 @@ GRIDS = ['ECCO_llc90']
 SOLR_HOST = 'http://localhost:8983/solr/'
 SOLR_COLLECTION = 'ecco_datasets'
 
+'''
+Run notification (ecco_pipeline/monitoring/notify.py).
+
+All optional — with SMTP_HOST, NOTIFY_FROM or NOTIFY_TO unset the notifier logs a
+warning and does nothing, so the pipeline runs unchanged without them.
+
+This file is gitignored, so credentials set here are not committed. Prefer reading a
+password from the environment anyway:  SMTP_PASSWORD = os.environ.get('ECCO_SMTP_PASSWORD')
+'''
+SMTP_HOST = None            # e.g. 'smtp.example.org'
+SMTP_PORT = 25
+SMTP_USE_TLS = False
+SMTP_USER = None            # None for an unauthenticated relay
+SMTP_PASSWORD = None
+NOTIFY_FROM = None          # e.g. 'ecco-pipeline@example.org'
+NOTIFY_TO = []              # e.g. ['you@example.org']
+# 'always' or 'failures_only'. Keep 'always' at first: a digest you expect every week
+# makes its absence a signal, which is the only cover for a run that never starts.
+NOTIFY_ON = 'always'
+
 log_filename = ''
 
 os.chdir(ROOT_DIR)

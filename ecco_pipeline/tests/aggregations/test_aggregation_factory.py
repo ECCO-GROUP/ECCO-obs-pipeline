@@ -227,7 +227,9 @@ class AgJobFactoryGetJobsTestCase(unittest.TestCase):
     @patch("aggregations.aggregation_factory.Aggregation")
     @patch("aggregations.aggregation_factory.solr_utils.solr_query")
     @patch("aggregations.aggregation_factory.baseclasses.Config")
-    def test_get_jobs_creates_all_years_on_version_change(self, mock_config, mock_query, mock_agg_class):
+    def test_get_jobs_creates_all_years_on_version_change(
+        self, mock_config, mock_query, mock_agg_class
+    ):
         """Test that all years are processed when version changes."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = ["GRID1"]
@@ -251,7 +253,9 @@ class AgJobFactoryGetJobsTestCase(unittest.TestCase):
 
     @patch("aggregations.aggregation_factory.solr_utils.solr_query")
     @patch("aggregations.aggregation_factory.baseclasses.Config")
-    def test_get_jobs_creates_selective_jobs_same_version(self, mock_config, mock_query):
+    def test_get_jobs_creates_selective_jobs_same_version(
+        self, mock_config, mock_query
+    ):
         """Test that only needed jobs are created when version is same."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = ["GRID1"]
@@ -300,14 +304,21 @@ class AgJobFactoryMakeJobsTestCase(unittest.TestCase):
     @patch("aggregations.aggregation_factory.Aggregation")
     @patch("aggregations.aggregation_factory.solr_utils.solr_query")
     @patch("aggregations.aggregation_factory.baseclasses.Config")
-    def test_make_jobs_creates_job_for_new_transformation(self, mock_config, mock_query, mock_agg_class):
+    def test_make_jobs_creates_job_for_new_transformation(
+        self, mock_config, mock_query, mock_agg_class
+    ):
         """Test creating job when new transformation exists."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = ["GRID1"]
 
         mock_query.side_effect = [
             [{"grid_name_s": "GRID1"}],  # grids
-            [{"start_date_dt": "2020-01-01T00:00:00Z", "aggregation_version_s": "2.0"}],  # ds_meta
+            [
+                {
+                    "start_date_dt": "2020-01-01T00:00:00Z",
+                    "aggregation_version_s": "2.0",
+                }
+            ],  # ds_meta
             [{"date_dt": "2020-01-15T00:00:00Z"}],  # transformations
             [],  # no existing aggregation
         ]
@@ -321,14 +332,21 @@ class AgJobFactoryMakeJobsTestCase(unittest.TestCase):
     @patch("aggregations.aggregation_factory.Aggregation")
     @patch("aggregations.aggregation_factory.solr_utils.solr_query")
     @patch("aggregations.aggregation_factory.baseclasses.Config")
-    def test_make_jobs_skips_up_to_date_aggregation(self, mock_config, mock_query, mock_agg_class):
+    def test_make_jobs_skips_up_to_date_aggregation(
+        self, mock_config, mock_query, mock_agg_class
+    ):
         """Test skipping job when aggregation is up to date."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = ["GRID1"]
 
         mock_query.side_effect = [
             [{"grid_name_s": "GRID1"}],  # grids
-            [{"start_date_dt": "2020-01-01T00:00:00Z", "aggregation_version_s": "2.0"}],  # ds_meta
+            [
+                {
+                    "start_date_dt": "2020-01-01T00:00:00Z",
+                    "aggregation_version_s": "2.0",
+                }
+            ],  # ds_meta
             [  # transformations
                 {
                     "date_dt": "2020-01-15T00:00:00Z",
@@ -352,14 +370,21 @@ class AgJobFactoryMakeJobsTestCase(unittest.TestCase):
     @patch("aggregations.aggregation_factory.Aggregation")
     @patch("aggregations.aggregation_factory.solr_utils.solr_query")
     @patch("aggregations.aggregation_factory.baseclasses.Config")
-    def test_make_jobs_creates_job_when_transformation_newer(self, mock_config, mock_query, mock_agg_class):
+    def test_make_jobs_creates_job_when_transformation_newer(
+        self, mock_config, mock_query, mock_agg_class
+    ):
         """Test creating job when transformation is newer than aggregation."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = ["GRID1"]
 
         mock_query.side_effect = [
             [{"grid_name_s": "GRID1"}],  # grids
-            [{"start_date_dt": "2020-01-01T00:00:00Z", "aggregation_version_s": "2.0"}],  # ds_meta
+            [
+                {
+                    "start_date_dt": "2020-01-01T00:00:00Z",
+                    "aggregation_version_s": "2.0",
+                }
+            ],  # ds_meta
             [  # transformations
                 {
                     "date_dt": "2020-01-15T00:00:00Z",
@@ -402,7 +427,9 @@ class AgJobFactoryMakeJobsAllYearsTestCase(unittest.TestCase):
     @patch("aggregations.aggregation_factory.Aggregation")
     @patch("aggregations.aggregation_factory.solr_utils.solr_query")
     @patch("aggregations.aggregation_factory.baseclasses.Config")
-    def test_make_jobs_all_years_creates_jobs_for_range(self, mock_config, mock_query, mock_agg_class):
+    def test_make_jobs_all_years_creates_jobs_for_range(
+        self, mock_config, mock_query, mock_agg_class
+    ):
         """Test creating jobs for all years in date range."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = ["GRID1"]
@@ -573,7 +600,9 @@ class AgJobFactoryUpdateSolrDsTestCase(unittest.TestCase):
                     "aggregation_version_s": "1.0",
                 }
             ],  # dataset metadata (get_jobs during init)
-            [{"id": "dataset_id", "start_date_dt": "2020-01-01T00:00:00Z"}],  # dataset metadata (update_solr_ds call)
+            [
+                {"id": "dataset_id", "start_date_dt": "2020-01-01T00:00:00Z"}
+            ],  # dataset metadata (update_solr_ds call)
         ]
 
         mock_response = MagicMock()
@@ -588,7 +617,9 @@ class AgJobFactoryUpdateSolrDsTestCase(unittest.TestCase):
         mock_update.assert_called_once()
         update_body = mock_update.call_args[0][0]
         self.assertEqual(update_body[0]["aggregation_version_s"]["set"], "2.0")
-        self.assertEqual(update_body[0]["aggregation_status_s"]["set"], "All aggregations successful")
+        self.assertEqual(
+            update_body[0]["aggregation_status_s"]["set"], "All aggregations successful"
+        )
 
 
 class AgJobFactoryExecuteJobsTestCase(unittest.TestCase):
@@ -617,7 +648,9 @@ class AgJobFactoryExecuteJobsTestCase(unittest.TestCase):
     @patch("aggregations.aggregation_factory.multiprocess_aggregate")
     @patch("aggregations.aggregation_factory.solr_utils.solr_query")
     @patch("aggregations.aggregation_factory.baseclasses.Config")
-    def test_execute_jobs_single_cpu(self, mock_config, mock_query, mock_multiprocess, mock_agg_class, mock_logger):
+    def test_execute_jobs_single_cpu(
+        self, mock_config, mock_query, mock_multiprocess, mock_agg_class, mock_logger
+    ):
         """Test executing jobs with single CPU (no multiprocessing)."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = ["GRID1"]
@@ -658,7 +691,9 @@ class AgJobFactoryExecuteJobsTestCase(unittest.TestCase):
     @patch("aggregations.aggregation_factory.Pool")
     @patch("aggregations.aggregation_factory.solr_utils.solr_query")
     @patch("aggregations.aggregation_factory.baseclasses.Config")
-    def test_execute_jobs_multiprocessing(self, mock_config, mock_query, mock_pool_class, mock_agg_class, mock_logger):
+    def test_execute_jobs_multiprocessing(
+        self, mock_config, mock_query, mock_pool_class, mock_agg_class, mock_logger
+    ):
         """Test executing jobs with multiprocessing."""
         mock_config.user_cpus = 4
         mock_config.grids_to_use = ["GRID1"]
@@ -684,6 +719,7 @@ class AgJobFactoryExecuteJobsTestCase(unittest.TestCase):
 
         # Mock Pool
         mock_pool = MagicMock()
+        mock_pool.starmap.return_value = [("GRID1, 2020, ssha", "ok", "")]
         mock_pool_class.return_value.__enter__.return_value = mock_pool
 
         config = self.get_base_config()
@@ -694,9 +730,12 @@ class AgJobFactoryExecuteJobsTestCase(unittest.TestCase):
 
         factory.execute_jobs()
 
-        # Should use Pool
+        # Should use Pool, and specifically the synchronous starmap: the previous
+        # starmap_async result was never retrieved, so worker failure markers were
+        # discarded and a failing job left nothing but a log line.
         mock_pool_class.assert_called()
-        mock_pool.starmap_async.assert_called_once()
+        mock_pool.starmap.assert_called_once()
+        mock_pool.starmap_async.assert_not_called()
 
 
 class AgJobFactoryPipelineCleanupTestCase(unittest.TestCase):
@@ -726,7 +765,9 @@ class AgJobFactoryPipelineCleanupTestCase(unittest.TestCase):
     @patch("aggregations.aggregation_factory.solr_utils.solr_update")
     @patch("aggregations.aggregation_factory.solr_utils.solr_query")
     @patch("aggregations.aggregation_factory.baseclasses.Config")
-    def test_pipeline_cleanup_returns_status(self, mock_config, mock_query, mock_update, mock_agg_class, mock_count):
+    def test_pipeline_cleanup_returns_status(
+        self, mock_config, mock_query, mock_update, mock_agg_class, mock_count
+    ):
         """Test that pipeline_cleanup returns status."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = ["GRID1"]
@@ -788,7 +829,9 @@ class AgJobFactoryStartFactoryTestCase(unittest.TestCase):
     @patch("aggregations.aggregation_factory.solr_utils.solr_update")
     @patch("aggregations.aggregation_factory.solr_utils.solr_query")
     @patch("aggregations.aggregation_factory.baseclasses.Config")
-    def test_start_factory_no_jobs(self, mock_config, mock_query, mock_update, mock_count):
+    def test_start_factory_no_jobs(
+        self, mock_config, mock_query, mock_update, mock_count
+    ):
         """Test start_factory when there are no jobs."""
         mock_config.user_cpus = 1
         mock_config.grids_to_use = ["GRID1"]
@@ -826,21 +869,48 @@ class AgJobFactoryStartFactoryTestCase(unittest.TestCase):
 class MultiprocessAggregateTestCase(unittest.TestCase):
     """Tests for multiprocess_aggregate function."""
 
-    @patch("aggregations.aggregation_factory.log_config.mp_logging")
-    def test_multiprocess_aggregate_calls_aggregate(self, mock_logging):
-        """Test that multiprocess_aggregate calls job.aggregate()."""
-        mock_logger = MagicMock()
-        mock_logging.return_value = mock_logger
-
+    def make_job(self):
         mock_job = MagicMock()
         mock_job.grid = {"grid_name_s": "TEST_GRID"}
         mock_job.year = "2020"
         mock_job.field = MagicMock()
         mock_job.field.name = "ssha"
+        return mock_job
 
-        multiprocess_aggregate(mock_job, "INFO", "/tmp/logs")
+    @patch("aggregations.aggregation_factory.log_config.mp_logging")
+    def test_multiprocess_aggregate_calls_aggregate(self, mock_logging):
+        """Test that multiprocess_aggregate calls job.aggregate()."""
+        mock_logging.return_value = MagicMock()
+        mock_job = self.make_job()
+
+        multiprocess_aggregate(mock_job, "INFO", "/tmp/logs", "20260101T000000")
 
         mock_job.aggregate.assert_called_once()
+
+    @patch("aggregations.aggregation_factory.log_config.mp_logging")
+    def test_multiprocess_aggregate_stamps_passed_run_id(self, mock_logging):
+        """
+        The run id reaches aggregate() as an argument, not from module state.
+
+        With the "spawn" start method (the macOS default) the worker re-imports
+        log_config and would generate its own, different run id, so docs would be
+        stamped with an id that matches no run.
+        """
+        mock_logging.return_value = MagicMock()
+        mock_job = self.make_job()
+
+        multiprocess_aggregate(mock_job, "INFO", "/tmp/logs", "20260101T000000")
+
+        mock_job.aggregate.assert_called_once_with("20260101T000000")
+
+    @patch("aggregations.aggregation_factory.log_config.mp_logging")
+    def test_multiprocess_aggregate_returns_ok_marker(self, mock_logging):
+        """A successful job reports itself, so the parent can count what ran."""
+        mock_logging.return_value = MagicMock()
+
+        result = multiprocess_aggregate(self.make_job(), "INFO", "/tmp/logs", "RUN")
+
+        self.assertEqual(result, ("TEST_GRID, 2020, ssha", "ok", ""))
 
     @patch("aggregations.aggregation_factory.log_config.mp_logging")
     def test_multiprocess_aggregate_handles_exception(self, mock_logging):
@@ -848,17 +918,54 @@ class MultiprocessAggregateTestCase(unittest.TestCase):
         mock_logger = MagicMock()
         mock_logging.return_value = mock_logger
 
-        mock_job = MagicMock()
-        mock_job.grid = {"grid_name_s": "TEST_GRID"}
-        mock_job.year = "2020"
-        mock_job.field = MagicMock()
-        mock_job.field.name = "ssha"
+        mock_job = self.make_job()
         mock_job.aggregate.side_effect = Exception("Test error")
 
         # Should not raise exception
-        multiprocess_aggregate(mock_job, "INFO", "/tmp/logs")
+        result = multiprocess_aggregate(mock_job, "INFO", "/tmp/logs", "RUN")
 
         mock_logger.exception.assert_called_once()
+        # The failure is returned rather than only logged — this is what made worker
+        # failures invisible to the parent before.
+        self.assertEqual(result, ("TEST_GRID, 2020, ssha", "error", "Test error"))
+
+
+class AgJobFactorySummarizeResultsTestCase(unittest.TestCase):
+    """Tests for AgJobFactory.summarize_results."""
+
+    def make_factory(self):
+        # summarize_results touches no Solr and no config, so bypass __init__ rather
+        # than mocking the whole initialization chain.
+        return AgJobFactory.__new__(AgJobFactory)
+
+    def test_error_markers_are_retained_for_the_run_summary(self):
+        factory = self.make_factory()
+
+        factory.summarize_results(
+            [
+                ("GRID1, 2020, ssha", "ok", ""),
+                ("GRID1, 2021, ssha", "error", "boom"),
+            ]
+        )
+
+        self.assertEqual(
+            factory.worker_errors, [{"job": "GRID1, 2021, ssha", "error": "boom"}]
+        )
+
+    def test_clean_batch_records_no_errors(self):
+        factory = self.make_factory()
+
+        factory.summarize_results([("GRID1, 2020, ssha", "ok", "")])
+
+        self.assertEqual(factory.worker_errors, [])
+
+    def test_none_results_are_skipped(self):
+        """A worker that returned nothing at all must not break the summary."""
+        factory = self.make_factory()
+
+        factory.summarize_results([None, ("GRID1, 2020, ssha", "error", "boom")])
+
+        self.assertEqual(len(factory.worker_errors), 1)
 
 
 if __name__ == "__main__":

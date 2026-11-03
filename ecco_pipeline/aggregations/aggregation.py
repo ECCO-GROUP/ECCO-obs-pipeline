@@ -61,7 +61,7 @@ class Aggregation(Dataset):
         Creates "empty record" and fills in relevant metadata
         """
         data_da = records.make_empty_record(date, model_grid_ds)
-        data_da.name = f'{self.field.name}_interpolated_to_{grid.get("grid_name_s")}'
+        data_da.name = f"{self.field.name}_interpolated_to_{grid.get('grid_name_s')}"
         data_ds = data_da.to_dataset()
 
         # add time_bnds coordinate
@@ -124,9 +124,9 @@ class Aggregation(Dataset):
             f"dataset_s:{self.ds_name}",
             "type_s:transformation",
             "success_b:True",
-            f'grid_name_s:{self.grid["grid_name_s"]}',
+            f"grid_name_s:{self.grid['grid_name_s']}",
             f"field_s:{self.field.name}",
-            f"date_dt:[{self.year}-01-01T00:00:00Z TO {int(self.year)+1}-01-01T00:00:00Z}}",
+            f"date_dt:[{self.year}-01-01T00:00:00Z TO {int(self.year) + 1}-01-01T00:00:00Z}}",
         ]
         docs = solr_utils.solr_query(fq)
         filepaths = defaultdict(list)
@@ -193,9 +193,9 @@ class Aggregation(Dataset):
             f"dataset_s:{self.ds_name}",
             "type_s:transformation",
             "success_b:True",
-            f'grid_name_s:{self.grid["grid_name_s"]}',
+            f"grid_name_s:{self.grid['grid_name_s']}",
             f"field_s:{self.field.name}",
-            f"date_dt:[{self.year}-01-01T00:00:00Z TO {int(self.year)+1}-01-01T00:00:00Z}}",
+            f"date_dt:[{self.year}-01-01T00:00:00Z TO {int(self.year) + 1}-01-01T00:00:00Z}}",
         ]
         docs = solr_utils.solr_query(fq)
         doc_dates = sorted([doc["date_dt"][:10] for doc in docs])
@@ -204,7 +204,9 @@ class Aggregation(Dataset):
 
         if data_time_scale == "daily":
             dates_in_year = np.arange(
-                f"{self.year}-01-01", f"{int(self.year)+1}-01-01", dtype="datetime64[D]"
+                f"{self.year}-01-01",
+                f"{int(self.year) + 1}-01-01",
+                dtype="datetime64[D]",
             ).astype(str)
             missing_dates = sorted(list(set(dates_in_year) - set(doc_dates)))
         elif data_time_scale == "monthly":
@@ -243,10 +245,10 @@ class Aggregation(Dataset):
             # for december we go up one year, and set month to january
             if month < 12:
                 cur_mon_year = np.datetime64(
-                    f"{self.year}-{str(month+1).zfill(2)}-01", "ns"
+                    f"{self.year}-{str(month + 1).zfill(2)}-01", "ns"
                 )
             else:
-                cur_mon_year = np.datetime64(f"{int(self.year)+1}-01-01", "ns")
+                cur_mon_year = np.datetime64(f"{int(self.year) + 1}-01-01", "ns")
 
             mon_str = str(self.year) + "-" + str(month).zfill(2)
             cur_mon = ds[var].sel(time=mon_str)
@@ -296,7 +298,12 @@ class Aggregation(Dataset):
 
         return mon_DS_year_merged
 
-    def aggregate(self):
+    def aggregate(self, run_id: str = ""):
+        """
+        `run_id` identifies the pipeline run writing this aggregation and is stamped on
+        the Solr doc. It is passed in from the parent process rather than read from
+        log_config, which would produce a different value in a spawned worker.
+        """
         aggregation_successes = True
         aggregation_started_dt = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
         # Construct list of dates corresponding to data time scale
@@ -342,7 +349,9 @@ class Aggregation(Dataset):
                     for date in sorted(missing_dates)
                 ]
                 missing_dates_ds = xr.concat(empty_records, dim="time")
-                daily_annual_ds = xr.concat([daily_annual_ds, missing_dates_ds], dim="time")
+                daily_annual_ds = xr.concat(
+                    [daily_annual_ds, missing_dates_ds], dim="time"
+                )
             daily_annual_ds = daily_annual_ds.sortby(daily_annual_ds.time)
 
             data_var = list(daily_annual_ds.keys())[0]
@@ -393,9 +402,9 @@ class Aggregation(Dataset):
                         mon_DS_year_merged = self.monthly_aggregation(
                             daily_annual_ds, data_var, uuids[1]
                         )
-                        mon_DS_year_merged[data_var] = mon_DS_year_merged[data_var].fillna(
-                            NETCDF_FILL_VALUE
-                        )
+                        mon_DS_year_merged[data_var] = mon_DS_year_merged[
+                            data_var
+                        ].fillna(NETCDF_FILL_VALUE)
 
                         records.save_binary(
                             mon_DS_year_merged,
@@ -405,7 +414,9 @@ class Aggregation(Dataset):
                             data_var,
                         )
                         records.save_netcdf(
-                            mon_DS_year_merged, f"{monthly_filename}.nc", netCDF_output_dir
+                            mon_DS_year_merged,
+                            f"{monthly_filename}.nc",
+                            netCDF_output_dir,
                         )
 
                     except Exception as e:
@@ -432,7 +443,11 @@ class Aggregation(Dataset):
                 )
 
                 records.save_binary(
-                    daily_annual_ds, shortest_filename, bin_output_dir, grid_type, data_var
+                    daily_annual_ds,
+                    shortest_filename,
+                    bin_output_dir,
+                    grid_type,
+                    data_var,
                 )
                 records.save_netcdf(
                     daily_annual_ds, f"{shortest_filename}.nc", netCDF_output_dir
@@ -440,11 +455,15 @@ class Aggregation(Dataset):
 
             if not empty_year:
                 solr_output_filepaths = {
-                    "daily_bin": os.path.join(output_path, "bin", f"{shortest_filename}"),
+                    "daily_bin": os.path.join(
+                        output_path, "bin", f"{shortest_filename}"
+                    ),
                     "daily_netCDF": os.path.join(
                         output_path, "netCDF", f"{shortest_filename}.nc"
                     ),
-                    "monthly_bin": os.path.join(output_path, "bin", f"{monthly_filename}"),
+                    "monthly_bin": os.path.join(
+                        output_path, "bin", f"{monthly_filename}"
+                    ),
                     "monthly_netCDF": os.path.join(
                         output_path, "netCDF", f"{monthly_filename}.nc"
                     ),
@@ -496,7 +515,9 @@ class Aggregation(Dataset):
                 "aggregation_success_b": {"set": success},
                 "aggregation_started_dt": {"set": aggregation_started_dt},
                 "year_i": {"set": self.year},
-                "error_message_s": {"set": "" if success else (error_message or "Aggregation failed")},
+                "error_message_s": {
+                    "set": "" if success else (error_message or "Aggregation failed")
+                },
                 **{k: {"set": v} for k, v in checksums.items()},
             }
         else:
@@ -510,7 +531,9 @@ class Aggregation(Dataset):
                 "aggregation_started_dt": aggregation_started_dt,
                 "aggregation_success_b": success,
                 "aggregation_version_s": self.version,
-                "error_message_s": "" if success else (error_message or "Aggregation failed"),
+                "error_message_s": ""
+                if success
+                else (error_message or "Aggregation failed"),
                 **checksums,
             }
 
@@ -538,6 +561,11 @@ class Aggregation(Dataset):
             }
         else:
             update_doc["notes_s"] = {"set": ""}
+
+        # Stamp the run that wrote this doc: atomic-update form when updating an
+        # existing doc, plain value when creating one.
+        if run_id:
+            update_doc["run_id_s"] = {"set": run_id} if "id" in update_doc else run_id
 
         r = solr_utils.solr_update([update_doc], r=True)
 

@@ -13,18 +13,30 @@ from utils.pipeline_utils import log_config, solr_utils
 logger = logging.getLogger("pipeline")
 
 
-def multiprocess_aggregate(job: Aggregation, log_level: str, log_dir: str):
+def multiprocess_aggregate(
+    job: Aggregation, log_level: str, log_dir: str, run_id: str
+) -> tuple:
     """
     Function used to execute by multiprocessing to execute a single grid/year/field aggregation
+
+    Returns a ``(job_label, status, detail)`` marker, where status is "ok" or "error",
+    so the parent can see worker-level failures. It previously returned None into a
+    discarded ``starmap_async`` result, which meant a failing job left nothing but a log
+    line — invisible to Solr and to any caller.
+
+    ``run_id`` is passed in rather than read from log_config: with the "spawn" start
+    method (the macOS default) this module is re-imported in the worker and would
+    generate its own, different run id.
     """
     logger = log_config.mp_logging(str(current_process().pid), log_level, log_dir)
-    logger.info(
-        f'Beginning aggregation for {job.grid["grid_name_s"]}, {job.year}, {job.field.name}'
-    )
+    job_label = f"{job.grid['grid_name_s']}, {job.year}, {job.field.name}"
+    logger.info(f"Beginning aggregation for {job_label}")
     try:
-        job.aggregate()
+        job.aggregate(run_id)
+        return (job_label, "ok", "")
     except Exception as e:
         logger.exception(f"JOB FAILED: {e}")
+        return (job_label, "error", str(e) or repr(e))
 
 
 class AgJobFactory(baseclasses.Dataset):
@@ -33,6 +45,11 @@ class AgJobFactory(baseclasses.Dataset):
         self.config = config
         self.user_cpus = baseclasses.Config.user_cpus
         self.grids = self.get_grids(baseclasses.Config.grids_to_use)
+        # Worker-level failure markers collected by execute_jobs. Read back by the
+        # caller for the run summary: a worker that dies before writing its Solr doc
+        # leaves no other record of the failure.
+        self.worker_errors = []
+        self.run_id = log_config.run_id()
         self.agg_jobs = self.get_jobs()
 
     def start_factory(self) -> str:
@@ -51,23 +68,51 @@ class AgJobFactory(baseclasses.Dataset):
         log_dir = os.path.join(log_dir[log_dir.find("logs/") :], f"ag_{self.ds_name}")
 
         logger.info(
-            f'Executing ({len(self.agg_jobs)}) jobs: {", ".join([str(job) for job in self.agg_jobs])}'
+            f"Executing ({len(self.agg_jobs)}) jobs: {', '.join([str(job) for job in self.agg_jobs])}"
         )
 
         if self.user_cpus == 1:
             logger.info("Not using multiprocessing to do aggregations")
-            for agg_job in self.agg_jobs:
-                multiprocess_aggregate(agg_job, log_level, log_dir)
+            results = [
+                multiprocess_aggregate(agg_job, log_level, log_dir, self.run_id)
+                for agg_job in self.agg_jobs
+            ]
         else:
             user_cpus = min(self.user_cpus, int(cpu_count() / 2), 8, len(self.agg_jobs))
             logger.info(f"Using {user_cpus} CPUs to do multiprocess aggregation")
+            # Synchronous starmap so worker return markers are collected, matching the
+            # transformation factory. The previous starmap_async result was never
+            # retrieved, so a failing job's marker (and any exception that escaped the
+            # worker) was discarded.
             with Pool(processes=user_cpus) as pool:
-                pool.starmap_async(
+                results = pool.starmap(
                     multiprocess_aggregate,
-                    [(job, log_level, log_dir) for job in self.agg_jobs],
+                    [(job, log_level, log_dir, self.run_id) for job in self.agg_jobs],
                 )
-                pool.close()
-                pool.join()
+
+        self.summarize_results(results)
+
+    def summarize_results(self, results: Iterable[tuple]):
+        """
+        Log a summary of the per-job status markers returned by multiprocess_aggregate
+        and retain the failures on the factory for the run summary.
+        """
+        results = [r for r in results if r]
+        total = len(results)
+        errors = [r for r in results if r[1] == "error"]
+
+        self.worker_errors = [
+            {"job": job_label, "error": detail} for job_label, _, detail in errors
+        ]
+
+        if errors:
+            logger.error(f"{len(errors)} of {total} aggregation jobs failed:")
+            for job_label, _, detail in errors:
+                logger.error(f"  {job_label}: {detail}")
+        logger.info(
+            f"Aggregation batch complete: {total - len(errors)} of {total} jobs "
+            "processed without a worker-level error."
+        )
 
     def pipeline_cleanup(self) -> str:
         aggregation_status = self.get_agg_status()
@@ -114,7 +159,10 @@ class AgJobFactory(baseclasses.Dataset):
                 "id": ds_metadata["id"],
                 "aggregation_version_s": {"set": str(self.a_version)},
                 "aggregation_status_s": {"set": aggregation_status},
-                "last_aggregation_dt": {"set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")},
+                "last_aggregation_dt": {
+                    "set": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+                },
+                "last_run_id_s": {"set": self.run_id},
             }
         ]
 
@@ -234,7 +282,11 @@ class AgJobFactory(baseclasses.Dataset):
                         if not needs_reaggregate:
                             self._ensure_provenance(grid, field, year)
                     else:
-                        year_tx_docs = [t for t in transformation_docs if int(t["date_dt"][:4]) == year]
+                        year_tx_docs = [
+                            t
+                            for t in transformation_docs
+                            if int(t["date_dt"][:4]) == year
+                        ]
                         if self.need_to_aggregate(grid_name, field, year, year_tx_docs):
                             years_to_aggregate.append(year)
                         else:
@@ -247,7 +299,9 @@ class AgJobFactory(baseclasses.Dataset):
                 )
         return all_jobs
 
-    def need_to_aggregate(self, grid_name: str, field, year: int, year_tx_docs: list) -> bool:
+    def need_to_aggregate(
+        self, grid_name: str, field, year: int, year_tx_docs: list
+    ) -> bool:
         """
         Filesystem fallback used when no Solr aggregation doc exists for a
         grid/field/year combination.  Skip re-aggregation if the output netCDF
@@ -291,7 +345,9 @@ class AgJobFactory(baseclasses.Dataset):
         """
         grid_name = grid["grid_name_s"]
         data_time_scale = self.data_time_scale
-        shortest_filename = f"{self.ds_name}_{grid_name}_{data_time_scale.upper()}_{field.name}_{year}"
+        shortest_filename = (
+            f"{self.ds_name}_{grid_name}_{data_time_scale.upper()}_{field.name}_{year}"
+        )
         monthly_filename = f"{self.ds_name}_{grid_name}_MONTHLY_{field.name}_{year}"
         output_path = os.path.join(
             OUTPUT_DIR,
@@ -304,9 +360,9 @@ class AgJobFactory(baseclasses.Dataset):
 
         netcdf_path = os.path.join(output_path, "netCDF", f"{shortest_filename}.nc")
 
-        agg_time = datetime.utcfromtimestamp(
-            os.path.getmtime(netcdf_path)
-        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        agg_time = datetime.utcfromtimestamp(os.path.getmtime(netcdf_path)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
 
         doc = {
             "type_s": "aggregation",
@@ -318,11 +374,17 @@ class AgJobFactory(baseclasses.Dataset):
             "aggregation_success_b": True,
             "aggregation_version_s": str(self.a_version),
             "error_message_s": "",
+            # Stamped even though aggregation_time_dt is backdated to the output file's
+            # mtime: this run did write the doc. The run summary's divergence check is
+            # one-directional precisely so this does not read as an anomaly.
+            "run_id_s": self.run_id,
         }
 
         if data_time_scale == "daily":
             daily_bin = os.path.join(output_path, "bin", shortest_filename)
-            doc["aggregated_daily_bin_path_s"] = daily_bin if os.path.exists(daily_bin) else ""
+            doc["aggregated_daily_bin_path_s"] = (
+                daily_bin if os.path.exists(daily_bin) else ""
+            )
             doc["aggregated_daily_netCDF_path_s"] = netcdf_path
 
         with xr.open_dataset(netcdf_path) as ds:
@@ -332,10 +394,16 @@ class AgJobFactory(baseclasses.Dataset):
 
         do_monthly = self.config.get("do_monthly_aggregation", False)
         if data_time_scale == "monthly" or do_monthly:
-            monthly_netcdf = os.path.join(output_path, "netCDF", f"{monthly_filename}.nc")
+            monthly_netcdf = os.path.join(
+                output_path, "netCDF", f"{monthly_filename}.nc"
+            )
             monthly_bin = os.path.join(output_path, "bin", monthly_filename)
-            doc["aggregated_monthly_netCDF_path_s"] = monthly_netcdf if os.path.exists(monthly_netcdf) else ""
-            doc["aggregated_monthly_bin_path_s"] = monthly_bin if os.path.exists(monthly_bin) else ""
+            doc["aggregated_monthly_netCDF_path_s"] = (
+                monthly_netcdf if os.path.exists(monthly_netcdf) else ""
+            )
+            doc["aggregated_monthly_bin_path_s"] = (
+                monthly_bin if os.path.exists(monthly_bin) else ""
+            )
             if os.path.exists(monthly_netcdf):
                 with xr.open_dataset(monthly_netcdf) as ds:
                     monthly_uuid = ds.attrs.get("uuid")
@@ -361,7 +429,9 @@ class AgJobFactory(baseclasses.Dataset):
         aggregation itself is not re-run (e.g. after a Solr wipe and repopulation).
         """
         grid_name = grid["grid_name_s"]
-        json_filename = f"{self.ds_name}_{field.name}_{grid_name}_{year}_descendants.json"
+        json_filename = (
+            f"{self.ds_name}_{field.name}_{grid_name}_{year}_descendants.json"
+        )
         json_path = os.path.join(
             OUTPUT_DIR,
             self.ds_name,

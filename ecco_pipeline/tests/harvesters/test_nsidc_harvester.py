@@ -48,7 +48,6 @@ def get_mock_config():
 
 
 @patch("harvesters.harvesterclasses.solr_utils.solr_query")
-@patch("harvesters.harvesterclasses.solr_utils.clean_solr")
 @patch("harvesters.nsidc_harvester.search_nsidc")
 class NSIDCHarvesterTestCase(unittest.TestCase):
     """Tests for the NSIDC_Harvester class."""
@@ -60,7 +59,7 @@ class NSIDCHarvesterTestCase(unittest.TestCase):
         self.mock_solr_update = patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_harvester_initialization(self, mock_search, mock_clean, mock_query):
+    def test_harvester_initialization(self, mock_search, mock_query):
         """Test NSIDC_Harvester initializes correctly."""
         mock_query.return_value = []
         mock_search.return_value = []
@@ -75,7 +74,7 @@ class NSIDCHarvesterTestCase(unittest.TestCase):
                 self.assertEqual(harvester.ddir, "CDR")
                 mock_search.assert_called_once()
 
-    def test_fetch_no_granules(self, mock_search, mock_clean, mock_query):
+    def test_fetch_no_granules(self, mock_search, mock_query):
         """Test fetch when no granules are available."""
         mock_query.return_value = []
         mock_search.return_value = []
@@ -90,9 +89,7 @@ class NSIDCHarvesterTestCase(unittest.TestCase):
                 self.assertEqual(len(h.updated_solr_docs), 0)
 
     @patch("requests.Session.get")
-    def test_fetch_downloads_file(
-        self, mock_requests, mock_search, mock_clean, mock_query
-    ):
+    def test_fetch_downloads_file(self, mock_requests, mock_search, mock_query):
         """Test fetch downloads files correctly."""
         mock_query.return_value = []
 
@@ -119,7 +116,7 @@ class NSIDCHarvesterTestCase(unittest.TestCase):
 
     @patch("requests.Session.get")
     def test_fetch_skips_out_of_range_dates(
-        self, mock_requests, mock_search, mock_clean, mock_query
+        self, mock_requests, mock_search, mock_query
     ):
         """Test fetch skips granules outside date range."""
         mock_query.return_value = []
@@ -143,7 +140,7 @@ class NSIDCHarvesterTestCase(unittest.TestCase):
 
     @patch("requests.Session.get")
     def test_fetch_handles_download_failure(
-        self, mock_requests, mock_search, mock_clean, mock_query
+        self, mock_requests, mock_search, mock_query
     ):
         """Test fetch handles download failures gracefully."""
         mock_query.return_value = []
@@ -174,7 +171,7 @@ class NSIDCHarvesterTestCase(unittest.TestCase):
 
     @patch("requests.Session.get")
     def test_fetch_skips_existing_up_to_date_files(
-        self, mock_requests, mock_search, mock_clean, mock_query
+        self, mock_requests, mock_search, mock_query
     ):
         """Test fetch skips files that are already up to date."""
         # Setup existing Solr doc
@@ -205,16 +202,13 @@ class NSIDCHarvesterTestCase(unittest.TestCase):
 
 
 @patch("harvesters.harvesterclasses.solr_utils.solr_query")
-@patch("harvesters.harvesterclasses.solr_utils.clean_solr")
 @patch("harvesters.harvesterclasses.solr_utils.solr_update")
 @patch("harvesters.harvesterclasses.solr_utils.solr_count")
 @patch("harvesters.nsidc_harvester.search_nsidc")
 class NSIDCHarvesterFunctionTestCase(unittest.TestCase):
     """Tests for the harvester() module function."""
 
-    def test_harvester_function(
-        self, mock_search, mock_count, mock_update, mock_clean, mock_query
-    ):
+    def test_harvester_function(self, mock_search, mock_count, mock_update, mock_query):
         """Test the harvester() function runs complete workflow."""
         mock_query.return_value = []
         mock_search.return_value = []

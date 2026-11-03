@@ -1,6 +1,7 @@
 """
 Pytest configuration and shared fixtures for harvester tests.
 """
+
 import os
 import shutil
 import sys
@@ -44,19 +45,15 @@ def make_mock_download_response(content: bytes = b"mock netcdf file content"):
 @pytest.fixture
 def mock_solr():
     """Fixture to mock all Solr interactions."""
-    with patch("harvesters.harvesterclasses.solr_utils.solr_query") as mock_query, \
-         patch("harvesters.harvesterclasses.solr_utils.clean_solr") as mock_clean, \
-         patch("harvesters.harvesterclasses.solr_utils.solr_update") as mock_update:
-
+    with (
+        patch("harvesters.harvesterclasses.solr_utils.solr_query") as mock_query,
+        patch("harvesters.harvesterclasses.solr_utils.solr_update") as mock_update,
+    ):
         mock_query.return_value = []
-        mock_response = type('Response', (), {'status_code': 200})()
+        mock_response = type("Response", (), {"status_code": 200})()
         mock_update.return_value = mock_response
 
-        yield {
-            "query": mock_query,
-            "clean": mock_clean,
-            "update": mock_update
-        }
+        yield {"query": mock_query, "update": mock_update}
 
 
 @pytest.fixture
@@ -86,7 +83,7 @@ def base_config():
                 "standard_name": "test",
                 "units": "1",
                 "pre_transformations": [],
-                "post_transformations": []
+                "post_transformations": [],
             }
         ],
         "original_dataset_title": "Test Dataset",
@@ -98,5 +95,5 @@ def base_config():
         "preprocessing": None,
         "t_version": 1.0,
         "a_version": 1.0,
-        "notes": ""
+        "notes": "",
     }

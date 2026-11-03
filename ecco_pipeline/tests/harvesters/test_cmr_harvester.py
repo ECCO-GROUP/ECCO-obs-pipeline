@@ -61,7 +61,6 @@ def create_mock_cmr_granule(filename, date, provider="POCLOUD"):
 
 
 @patch("harvesters.harvesterclasses.solr_utils.solr_query")
-@patch("harvesters.harvesterclasses.solr_utils.clean_solr")
 @patch("harvesters.cmr_harvester.CMRQuery")
 class CMRHarvesterTestCase(unittest.TestCase):
     """Tests for the CMR_Harvester class."""
@@ -73,9 +72,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
         self.mock_solr_update = patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_harvester_initialization(
-        self, mock_cmr_query, mock_clean, mock_solr_query
-    ):
+    def test_harvester_initialization(self, mock_cmr_query, mock_solr_query):
         """Test CMR_Harvester initializes correctly."""
         mock_solr_query.return_value = []
         mock_query_instance = MagicMock()
@@ -96,7 +93,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
                 self.assertEqual(h.provider, "POCLOUD")
                 mock_cmr_query.assert_called_once()
 
-    def test_fetch_no_granules(self, mock_cmr_query, mock_clean, mock_solr_query):
+    def test_fetch_no_granules(self, mock_cmr_query, mock_solr_query):
         """Test fetch when no granules are available."""
         mock_solr_query.return_value = []
         mock_query_instance = MagicMock()
@@ -113,9 +110,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
                 self.assertEqual(len(h.updated_solr_docs), 0)
 
     @patch("requests.Session.get")
-    def test_fetch_downloads_file(
-        self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query
-    ):
+    def test_fetch_downloads_file(self, mock_requests, mock_cmr_query, mock_solr_query):
         """Test fetch downloads files correctly."""
         mock_solr_query.return_value = []
 
@@ -143,7 +138,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
 
     @patch("requests.Session.get")
     def test_fetch_skips_nrt_files(
-        self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query
+        self, mock_requests, mock_cmr_query, mock_solr_query
     ):
         """Test fetch skips NRT (Near Real Time) files."""
         mock_solr_query.return_value = []
@@ -168,7 +163,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
 
     @patch("requests.Session.get")
     def test_fetch_skips_out_of_range_dates(
-        self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query
+        self, mock_requests, mock_cmr_query, mock_solr_query
     ):
         """Test fetch skips granules outside date range."""
         mock_solr_query.return_value = []
@@ -193,7 +188,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
 
     @patch("requests.Session.get")
     def test_fetch_handles_download_failure(
-        self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query
+        self, mock_requests, mock_cmr_query, mock_solr_query
     ):
         """Test fetch handles download failures gracefully."""
         mock_solr_query.return_value = []
@@ -224,7 +219,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
 
     @patch("requests.Session.get")
     def test_fetch_skips_existing_up_to_date_files(
-        self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query
+        self, mock_requests, mock_cmr_query, mock_solr_query
     ):
         """Test fetch skips files that are already up to date."""
         mock_solr_query.return_value = []
@@ -255,7 +250,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
 
     @patch("requests.Session.get")
     def test_fetch_multiple_granules(
-        self, mock_requests, mock_cmr_query, mock_clean, mock_solr_query
+        self, mock_requests, mock_cmr_query, mock_solr_query
     ):
         """Test fetch handles multiple granules."""
         mock_solr_query.return_value = []
@@ -286,7 +281,7 @@ class CMRHarvesterTestCase(unittest.TestCase):
     @patch("harvesters.cmr_harvester.time.sleep")
     @patch("requests.Session.get")
     def test_dl_file_retries_on_failure(
-        self, mock_requests, mock_sleep, mock_cmr_query, mock_clean, mock_solr_query
+        self, mock_requests, mock_sleep, mock_cmr_query, mock_solr_query
     ):
         """Test dl_file retries on initial failure."""
         mock_solr_query.return_value = []
@@ -324,7 +319,6 @@ class CMRHarvesterTestCase(unittest.TestCase):
 
 
 @patch("harvesters.harvesterclasses.solr_utils.solr_query")
-@patch("harvesters.harvesterclasses.solr_utils.clean_solr")
 @patch("harvesters.harvesterclasses.solr_utils.solr_update")
 @patch("harvesters.harvesterclasses.solr_utils.solr_count")
 @patch("harvesters.cmr_harvester.CMRQuery")
@@ -332,7 +326,7 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
     """Tests for the harvester() module function."""
 
     def test_harvester_function_standard(
-        self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query
+        self, mock_cmr_query, mock_count, mock_update, mock_solr_query
     ):
         """Test the harvester() function runs standard fetch workflow."""
         mock_solr_query.return_value = []
@@ -353,7 +347,7 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
                 mock_update.assert_called()
 
     def test_harvester_function_atl20(
-        self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query
+        self, mock_cmr_query, mock_count, mock_update, mock_solr_query
     ):
         """Test the harvester() function calls fetch_atl_daily for ATL20."""
         mock_solr_query.return_value = []
@@ -374,7 +368,7 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
                     mock_fetch.assert_called_once()
 
     def test_harvester_function_tellus_grac_grfo(
-        self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query
+        self, mock_cmr_query, mock_count, mock_update, mock_solr_query
     ):
         """Test the harvester() function calls fetch_tellus_grac_grfo for TELLUS dataset."""
         mock_solr_query.return_value = []
@@ -397,7 +391,7 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
                     mock_fetch.assert_called_once()
 
     def test_harvester_function_rdeft4(
-        self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query
+        self, mock_cmr_query, mock_count, mock_update, mock_solr_query
     ):
         """Test the harvester() function calls fetch_rdeft4 for RDEFT4."""
         mock_solr_query.return_value = []
@@ -418,7 +412,7 @@ class CMRHarvesterFunctionTestCase(unittest.TestCase):
                     mock_fetch.assert_called_once()
 
     def test_harvester_function_tellus_tolerance(
-        self, mock_cmr_query, mock_count, mock_update, mock_clean, mock_solr_query
+        self, mock_cmr_query, mock_count, mock_update, mock_solr_query
     ):
         """Test the harvester() function calls fetch_tolerance_filter for other TELLUS datasets."""
         mock_solr_query.return_value = []
@@ -446,14 +440,12 @@ class CMRHarvesterSpecialFetchTestCase(unittest.TestCase):
 
     @patch("harvesters.harvesterclasses.solr_utils.solr_update")
     @patch("harvesters.harvesterclasses.solr_utils.solr_query")
-    @patch("harvesters.harvesterclasses.solr_utils.clean_solr")
     @patch("harvesters.cmr_harvester.CMRQuery")
     @patch("requests.Session.get")
     def test_fetch_rdeft4_filters_end_of_month(
         self,
         mock_requests,
         mock_cmr_query,
-        mock_clean,
         mock_solr_query,
         mock_solr_update,
     ):

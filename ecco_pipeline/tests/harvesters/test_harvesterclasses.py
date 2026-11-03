@@ -112,7 +112,6 @@ class GranuleTestCase(unittest.TestCase):
 
 
 @patch("harvesters.harvesterclasses.solr_utils.solr_query")
-@patch("harvesters.harvesterclasses.solr_utils.clean_solr")
 class HarvesterTestCase(unittest.TestCase):
     """Tests for the Harvester base class. All Solr calls are mocked."""
 
@@ -149,7 +148,7 @@ class HarvesterTestCase(unittest.TestCase):
             "notes": "",
         }
 
-    def test_harvester_initialization(self, mock_clean, mock_query):
+    def test_harvester_initialization(self, mock_query):
         """Test Harvester initializes correctly."""
         mock_query.return_value = []
 
@@ -166,10 +165,9 @@ class HarvesterTestCase(unittest.TestCase):
                 self.assertTrue(os.path.exists(harvester.target_dir))
 
                 # Verify Solr was called
-                self.assertTrue(mock_clean.called)
                 self.assertTrue(mock_query.called)
 
-    def test_harvester_cmr_parsing(self, mock_clean, mock_query):
+    def test_harvester_cmr_parsing(self, mock_query):
         """Test Harvester parses CMR-specific config."""
         mock_query.return_value = []
 
@@ -185,7 +183,7 @@ class HarvesterTestCase(unittest.TestCase):
                 self.assertEqual(harvester.cmr_concept_id, "C12345-TEST")
                 self.assertEqual(harvester.provider, "TEST_PROVIDER")
 
-    def test_check_update_new_file(self, mock_clean, mock_query):
+    def test_check_update_new_file(self, mock_query):
         """Test check_update returns True for new files."""
         mock_query.return_value = []
 
@@ -199,7 +197,7 @@ class HarvesterTestCase(unittest.TestCase):
                 result = harvester.check_update("new_file.nc", datetime(2020, 1, 1))
                 self.assertTrue(result)
 
-    def test_check_update_failed_previous(self, mock_clean, mock_query):
+    def test_check_update_failed_previous(self, mock_query):
         """Test check_update returns True for previously failed files."""
         mock_query.return_value = []
 
@@ -218,7 +216,7 @@ class HarvesterTestCase(unittest.TestCase):
                 result = harvester.check_update("failed_file.nc", datetime(2020, 1, 1))
                 self.assertTrue(result)
 
-    def test_check_update_outdated_file(self, mock_clean, mock_query):
+    def test_check_update_outdated_file(self, mock_query):
         """Test check_update returns True for outdated files."""
         mock_query.return_value = []
 
@@ -240,7 +238,7 @@ class HarvesterTestCase(unittest.TestCase):
                 )
                 self.assertTrue(result)
 
-    def test_check_update_up_to_date(self, mock_clean, mock_query):
+    def test_check_update_up_to_date(self, mock_query):
         """Test check_update returns False for up-to-date files."""
         mock_query.return_value = []
 
@@ -260,7 +258,7 @@ class HarvesterTestCase(unittest.TestCase):
                 result = harvester.check_update("current_file.nc", datetime(2020, 1, 1))
                 self.assertFalse(result)
 
-    def test_need_to_download_missing_file(self, mock_clean, mock_query):
+    def test_need_to_download_missing_file(self, mock_query):
         """Test need_to_download returns True for missing files."""
         mock_query.return_value = []
 
@@ -280,7 +278,7 @@ class HarvesterTestCase(unittest.TestCase):
 
                 self.assertTrue(harvester.need_to_download(granule))
 
-    def test_need_to_download_outdated_file(self, mock_clean, mock_query):
+    def test_need_to_download_outdated_file(self, mock_query):
         """Test need_to_download returns True for outdated local files."""
         mock_query.return_value = []
 
@@ -312,7 +310,7 @@ class HarvesterTestCase(unittest.TestCase):
                 finally:
                     os.unlink(temp_path)
 
-    def test_make_ds_doc(self, mock_clean, mock_query):
+    def test_make_ds_doc(self, mock_query):
         """Test make_ds_doc creates correct dataset document."""
         mock_query.return_value = []
 
@@ -334,7 +332,7 @@ class HarvesterTestCase(unittest.TestCase):
                 self.assertEqual(ds_doc["t_version_f"], 1.0)
 
     @patch("harvesters.harvesterclasses.solr_utils.solr_update")
-    def test_post_fetch_no_updates(self, mock_update, mock_clean, mock_query):
+    def test_post_fetch_no_updates(self, mock_update, mock_query):
         """Test post_fetch when no downloads occurred."""
         mock_query.return_value = []
         mock_response = Mock()
@@ -357,9 +355,7 @@ class HarvesterTestCase(unittest.TestCase):
 
     @patch("harvesters.harvesterclasses.solr_utils.commit_solr")
     @patch("harvesters.harvesterclasses.solr_utils.solr_update")
-    def test_post_fetch_with_updates(
-        self, mock_update, mock_commit, mock_clean, mock_query
-    ):
+    def test_post_fetch_with_updates(self, mock_update, mock_commit, mock_query):
         """Test post_fetch when downloads occurred."""
         mock_query.return_value = []
         mock_response = Mock()
@@ -388,7 +384,7 @@ class HarvesterTestCase(unittest.TestCase):
                     # Verify solr_update was called
                     self.assertTrue(mock_update.called)
 
-    def test_harvester_status_all_success(self, mock_clean, mock_query):
+    def test_harvester_status_all_success(self, mock_query):
         """Test harvester_status when all granules succeeded."""
         mock_query.return_value = []
 
@@ -405,7 +401,7 @@ class HarvesterTestCase(unittest.TestCase):
 
                     self.assertEqual(status, "All granules successfully harvested")
 
-    def test_harvester_status_with_failures(self, mock_clean, mock_query):
+    def test_harvester_status_with_failures(self, mock_query):
         """Test harvester_status when some granules failed."""
         mock_query.return_value = []
 
@@ -423,7 +419,7 @@ class HarvesterTestCase(unittest.TestCase):
                     self.assertIn("2", status)
                     self.assertIn("failed", status)
 
-    def test_get_solr_docs_with_existing(self, mock_clean, mock_query):
+    def test_get_solr_docs_with_existing(self, mock_query):
         """Test get_solr_docs retrieves existing granule documents."""
         mock_query.return_value = [
             {"filename_s": "file1.nc", "id": "id1"},
