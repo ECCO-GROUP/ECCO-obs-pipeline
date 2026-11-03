@@ -288,7 +288,9 @@ Named after the moon jellyfish (_Aurelia aurita_) — like the pipeline, it grac
 
 ---
 
-[Unreleased]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.2.2...HEAD
+[Unreleased]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.4.0...HEAD
+[v2.4.0]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.3.0...v2.4.0
+[v2.3.0]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.2.2...v2.3.0
 [v2.2.2]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.2.1...v2.2.2
 [v2.2.1]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.2.0...v2.2.1
 [v2.2.0]: https://github.com/ECCO-GROUP/ECCO-obs-pipeline/compare/v2.1.1...v2.2.0
