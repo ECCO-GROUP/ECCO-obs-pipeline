@@ -10,7 +10,7 @@ import xarray as xr
 import baseclasses
 from conf.global_settings import OUTPUT_DIR
 from transformations.grid_transformation import Transformation, TxResult, transform
-from utils.pipeline_utils import file_utils, log_config, solr_utils
+from utils.pipeline_utils import file_utils, grid_registry, log_config, solr_utils
 
 logger = logging.getLogger("pipeline")
 
@@ -153,15 +153,11 @@ class TxJobFactory(baseclasses.Dataset):
             fl="filename_s,date_dt,pre_transformation_file_path_s,checksum_s,file_size_l",
         )
 
-        if not baseclasses.Config.grids_to_use:
-            fq = ["type_s:grid"]
-            docs = solr_utils.solr_query(fq)
-            self.grids = [doc["grid_name_s"] for doc in docs]
-        else:
-            self.grids = baseclasses.Config.grids_to_use
-        if "hemi_pattern" in self.config:
-            logger.info("Skipping job creation for TPOSE grid on sea ice data.")
-            self.grids = [grid for grid in self.grids if "TPOSE" not in grid]
+        # Which grids this dataset goes to: the run's enabled grids intersected with
+        # the dataset's coverage in conf/grid_coverage.yaml. That file also carries the
+        # sea-ice/TPOSE rule that used to be hardcoded here and in AgJobFactory.
+        self.grids = baseclasses.Config.grids_for(self.config)
+        logger.debug(f"{self.ds_name} grids: {', '.join(self.grids) or 'none'}")
 
     def start_factory(self) -> str:
         if not self.harvested_granules:
@@ -353,7 +349,9 @@ class TxJobFactory(baseclasses.Dataset):
             return
         for grid in self.grids:
             for granule in self.find_data_for_factors():
-                grid_ds = xr.open_dataset(f"grids/{grid}.nc")
+                # Path from the registry, not f"grids/{grid}.nc": a grid's name is its
+                # ``name`` global attribute and may differ from its filename.
+                grid_ds = xr.open_dataset(grid_registry.grid_path(grid))
                 T = Transformation(
                     self.config, granule["pre_transformation_file_path_s"], "1972-01-01"
                 )

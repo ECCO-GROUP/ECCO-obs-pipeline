@@ -5,9 +5,15 @@ import logging
 from typing import Iterable
 import requests
 import netrc
-import xarray as xr
+import yaml
 from datetime import datetime
-from utils.pipeline_utils import solr_utils, config_validator, log_config, file_utils
+from utils.pipeline_utils import (
+    solr_utils,
+    config_validator,
+    grid_registry,
+    log_config,
+    file_utils,
+)
 import baseclasses
 
 try:
@@ -179,7 +185,32 @@ def update_solr_grid(grid_name: str, grid_type: str, grid_file_path: str):
                 }
             ]
         else:
-            return
+            # Contents unchanged, but the file may have been renamed or moved. Refresh
+            # the stored path/type so they keep pointing at the real file: aggregation
+            # opens the grid via grid_path_s (aggregations/aggregation.py:327), so a
+            # stale path breaks it. Deliberately does NOT delete transformation or
+            # aggregation docs the way a checksum change does: the grid's contents are
+            # identical, so existing work remains valid.
+            stale = {}
+            for doc in grid_docs:
+                if doc["grid_name_s"] != grid_name:
+                    continue
+                if doc.get("grid_path_s") != str(grid_file_path):
+                    stale["grid_path_s"] = {"set": str(grid_file_path)}
+                if doc.get("grid_type_s") != grid_type:
+                    stale["grid_type_s"] = {"set": grid_type}
+                if stale:
+                    stale["id"] = doc["id"]
+                break
+
+            if not stale:
+                return
+
+            logger.info(
+                f"Refreshing Solr grid document for {grid_name}: "
+                f"{', '.join(k for k in stale if k != 'id')} changed"
+            )
+            update_body = [stale]
 
     r = solr_utils.solr_update(update_body, r=True)
     if r.status_code == 200:
@@ -191,21 +222,16 @@ def update_solr_grid(grid_name: str, grid_type: str, grid_file_path: str):
 def grids_to_solr(grids_to_use: Iterable[str] = []):
     logger = logging.getLogger("pipeline")
 
-    grid_files = glob("grids/*.nc")
-
-    grids = []
-    for grid_file_path in grid_files:
-        ds = xr.open_dataset(grid_file_path)
-        # Assumes grids conform to metadata standard (see documentation)
-        grid_name = ds.attrs["name"]
-        grid_type = ds.attrs["type"]
-        grids.append((grid_name, grid_type, grid_file_path))
-        logger.debug(f"Loaded {grid_name} {grid_type} {grid_file_path}")
+    # Grid identity (name/path/type) is owned by the registry, which validates the
+    # metadata standard in grids/README.md and rejects duplicate names. This loop used
+    # to subscript ds.attrs directly, so a grid file missing an attribute raised
+    # KeyError into a caller that logged and continued, silently dropping the grid.
+    registry = grid_registry.load_registry()
 
     # Create Solr grid-type document for each missing grid type
-    for grid_name, grid_type, grid_file_path in grids:
-        logger.debug(f"Uploading solr grid {grid_name} {grid_type} {grid_file_path}")
-        update_solr_grid(grid_name, grid_type, grid_file_path)
+    for grid in registry.values():
+        logger.debug(f"Uploading solr grid {grid.name} {grid.type} {grid.path}")
+        update_solr_grid(grid.name, grid.type, grid.path)
 
     # Verify grid names supplied exist on Solr
     grids_not_in_solr = []
@@ -217,6 +243,41 @@ def grids_to_solr(grids_to_use: Iterable[str] = []):
             grids_not_in_solr.append(grid_name)
 
     return grids_not_in_solr
+
+
+def resolve_grid_coverage(grids_to_use: Iterable[str]) -> dict:
+    """
+    Resolve the enabled grids against every active dataset config, returning
+    ``{grid_name: [ds_name, ...]}``.
+
+    Used for the startup log line and the run summary. Once grids vary by dataset,
+    "which grids did this run use" is no longer answerable from the CLI arguments
+    alone.
+    """
+    resolved = {grid_name: [] for grid_name in grids_to_use}
+
+    for filepath in sorted(glob(config_validator._ABS_DS_CONFIG_GLOB)):
+        with open(filepath, "r") as f:
+            config = yaml.load(f, Loader=yaml.Loader) or {}
+        ds_name = (
+            config.get("ds_name") or os.path.splitext(os.path.basename(filepath))[0]
+        )
+        for grid_name in baseclasses.Config.grids_for(config):
+            resolved.setdefault(grid_name, []).append(ds_name)
+
+    return resolved
+
+
+def log_grid_coverage(grids_to_use: Iterable[str]):
+    logger = logging.getLogger("pipeline")
+    resolved = resolve_grid_coverage(grids_to_use)
+    baseclasses.set_resolved_grid_coverage(resolved)
+    summary = ", ".join(
+        f"{grid_name} ({len(datasets)})" for grid_name, datasets in resolved.items()
+    )
+    logger.info(f"Grid coverage, datasets per grid: {summary or 'none'}")
+    for grid_name, datasets in resolved.items():
+        logger.debug(f"{grid_name}: {', '.join(datasets) or 'no datasets'}")
 
 
 def init_pipeline(args: Namespace):
@@ -236,11 +297,35 @@ def init_pipeline(args: Namespace):
         solr_utils.delete_mismatch_transformations()
         pass
 
-    if isinstance(args.grids_to_use, list):
+    # A bare --grids_to_use (nargs="*") yields [], which must not be read as "every
+    # grid": with per-grid dataset coverage that would fan a narrow grid across every
+    # dataset. Fall back to the configured GRIDS in both the absent and empty cases.
+    if isinstance(args.grids_to_use, list) and args.grids_to_use:
         grids_to_use = args.grids_to_use
     else:
         grids_to_use = GRIDS
     baseclasses.set_grids(grids_to_use)
+
+    # Grid identity and dataset coverage, both validated before any stage runs.
+    # Raised as PipelinePreconditionError so run_pipeline records the aborted run;
+    # loaded here rather than inside the Solr block below, whose except clause logs
+    # and continues.
+    try:
+        registry = grid_registry.load_registry()
+        baseclasses.set_grid_coverage(baseclasses.load_grid_coverage())
+    except (grid_registry.GridRegistryError, baseclasses.GridCoverageError) as e:
+        logger.fatal(str(e))
+        raise PipelinePreconditionError(str(e))
+
+    coverage_problems = config_validator.validate_grid_coverage(grids_to_use, registry)
+    if coverage_problems:
+        for problem in coverage_problems:
+            logger.error(problem)
+        raise PipelinePreconditionError(
+            f"Invalid grid coverage configuration: {'; '.join(coverage_problems)}"
+        )
+
+    log_grid_coverage(grids_to_use)
 
     if args.grids_to_solr or solr_utils.check_grids():
         grids_not_in_solr = []

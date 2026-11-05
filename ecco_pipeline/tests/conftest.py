@@ -24,6 +24,51 @@ if not os.path.exists(_SETTINGS) and os.path.exists(_SETTINGS + ".example"):
     shutil.copyfile(_SETTINGS + ".example", _SETTINGS)
 
 
+def grid_block(name, datasets=None, exclude_ecco_variables=()):
+    """
+    Build a real baseclasses.GridBlock for tests.
+
+    ``datasets=None`` means "all datasets" (the ``datasets: all`` form in
+    conf/grid_coverage.yaml); pass a list for an explicit coverage list.
+    """
+    import baseclasses
+
+    return baseclasses.GridBlock(
+        name=name,
+        datasets=None if datasets is None else list(datasets),
+        excluded_ecco_variables=frozenset(exclude_ecco_variables),
+    )
+
+
+def mock_grid_coverage(mock_config, grids, coverage=None):
+    """
+    Wire a patched ``baseclasses.Config`` mock so ``grids_for`` behaves like the real
+    classmethod.
+
+    The factories patch Config wholesale, which would otherwise make grids_for return
+    a MagicMock. Resolution delegates to the real GridBlock.covers, so coverage rules
+    stay genuinely under test rather than being restated in the mock.
+
+    ``coverage`` maps grid name to GridBlock (see grid_block); omit it when the test
+    only cares that the enabled grids come through unfiltered.
+    """
+    grids = list(grids)
+    mock_config.grids_to_use = grids
+
+    if coverage is None:
+        mock_config.grids_for.side_effect = lambda config: list(grids)
+        return
+
+    def grids_for(config):
+        return [
+            name
+            for name in grids
+            if coverage[name].covers(config.get("ds_name"), config.get("ecco_variable"))
+        ]
+
+    mock_config.grids_for.side_effect = grids_for
+
+
 def make_mock_download_response(content: bytes = b"mock netcdf file content"):
     """
     Build a mock requests response for Harvester._stream_download.

@@ -13,6 +13,53 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 
 ## [Unreleased]
 
+### Features
+
+- **Per-grid dataset coverage**: a new `conf/grid_coverage.yaml` declares which datasets are
+  transformed to which target grids, so a narrow grid can take a handful of datasets instead of
+  all of them. Keyed by grid, because grids are the axis that changes: adding one is a single new
+  block rather than an edit to every dataset config that should not receive it. `GRIDS` and
+  `--grids_to_use` keep their meanings and compose with it, narrowing in that order; coverage can
+  never widen the set past what they enabled. Invalid coverage aborts the run before any stage:
+  an enabled grid with no block, a block naming a grid with no file in `grids/` or a dataset with
+  no config in `conf/ds_configs/`, or an `exclude_ecco_variables` value no config uses. That
+  dataset check is what keeps version bumps honest, since moving the old config to
+  `deprecated/` dangles its coverage entry in the same commit that adds the replacement.
+- **Grid registry**: `utils/pipeline_utils/grid_registry.py` now owns grid identity (name, path,
+  type) and is the single place `grids/*.nc` is scanned. It rejects a grid file missing its `name`
+  or `type` attribute, declaring an unrecognized `type`, or claiming a `name` another file already
+  uses, instead of letting the pipeline proceed with the grid silently absent.
+- The run summary records a `grid_coverage` map of which datasets each grid covered. The existing
+  `grids` field is only the CLI filter, which no longer describes what a run did.
+
+### Bug Fixes
+
+- **Transformation could not load a grid whose `name` differed from its filename**: both
+  `grid_transformation.load_grid` and `TxJobFactory.pregenerate_factors` rebuilt the path as
+  `grids/{grid_name}.nc`, raising `FileNotFoundError` inside a worker for any such grid, while the
+  aggregation path resolved it correctly from Solr's `grid_path_s`. `grids/polar_stereo_n_25km.nc`
+  is named `polar_stereo_n_25km_demo` and already hit this. Both now resolve through the registry.
+- **A moved grid file left Solr pointing at a path that no longer existed**: `update_solr_grid`
+  returned early whenever the checksum matched, so `grid_path_s` was never refreshed for a
+  content-identical rename or move, and aggregation opens the grid through that field. It now
+  updates the stored path and type without deleting the grid's transformations and aggregations,
+  which only a genuine content change warrants.
+- **Duplicate grid names went undetected**: Solr grid docs are keyed by `name` and a checksum
+  change deletes all of that grid's transformations and aggregations, so two files claiming one
+  name would have made alternating runs wipe each other's work.
+
+### Behavior Changes
+
+- **RDEFT4 is no longer transformed to TPOSE.** The sea ice / TPOSE exclusion was a hardcoded
+  `if "hemi_pattern" in config` check duplicated in the transformation and aggregation factories.
+  It now lives in `grid_coverage.yaml` as `exclude_ecco_variables: [sea_ice]`, which keys off
+  `ecco_variable` rather than using `hemi_pattern` as a proxy. RDEFT4 is sea ice but has no
+  hemispheric split, so the old check let it through to a tropical Pacific grid. Existing
+  RDEFT4/TPOSE output and Solr documents are left in place, not deleted; remove them manually if
+  wanted.
+- A bare `--grids_to_use` with no names now falls back to `GRIDS` rather than meaning "every grid
+  in Solr", so it cannot fan a narrow grid across every dataset.
+
 ## [v2.4.0] — 2026-11-03
 
 ### Bug Fixes

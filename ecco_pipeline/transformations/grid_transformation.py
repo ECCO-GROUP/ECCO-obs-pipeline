@@ -13,7 +13,7 @@ import pyresample as pr
 import xarray as xr
 from baseclasses import Dataset, Field
 from conf.global_settings import OUTPUT_DIR
-from utils.pipeline_utils import file_utils
+from utils.pipeline_utils import file_utils, grid_registry
 from utils.processing_utils import ds_functions, records, transformation_utils
 from utils.processing_utils.ds_functions import (
     PosttransformationFuncs,
@@ -65,10 +65,15 @@ def load_grid(grid_name: str) -> xr.Dataset:
     Cached post-``reset_coords()`` to match the transform() call site. The returned
     dataset is treated as read-only downstream (make_factors / transform only read
     from it); any caller that needs to mutate it must copy first.
+
+    The path comes from the grid registry rather than ``f"grids/{grid_name}.nc"``: a
+    grid's name is its ``name`` global attribute, which is allowed to differ from its
+    filename, and rebuilding the path from the name raised FileNotFoundError here for
+    any grid where the two diverge.
     """
     grid_ds = _grid_ds_cache.get(grid_name)
     if grid_ds is None:
-        grid_ds = xr.open_dataset(f"grids/{grid_name}.nc").reset_coords()
+        grid_ds = xr.open_dataset(grid_registry.grid_path(grid_name)).reset_coords()
         _grid_ds_cache[grid_name] = grid_ds
     return grid_ds
 
