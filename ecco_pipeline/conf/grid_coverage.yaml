@@ -1,0 +1,42 @@
+# Which datasets get transformed to which target grids.
+#
+# Keyed by grid, because grids are the axis that changes: a new grid is one new block
+# here, rather than an edit to every dataset config that should not receive it.
+#
+# Every grid enabled for a run (GRIDS in global_settings.py, or --grids_to_use) must
+# have a block here or the run aborts at startup. Likewise every dataset named below
+# must have an active config in conf/ds_configs/. That abort is what keeps a version
+# bump honest: moving the old config into conf/ds_configs/deprecated/ makes its entry
+# here dangling, in the same commit where the new version is added.
+#
+# Grid keys are a grid file's `name` global attribute, which is not necessarily its
+# filename (see grids/README.md).
+#
+# Per grid:
+#   datasets                  "all", or an explicit list of dataset config names.
+#   exclude_ecco_variables    Optional. Drops datasets whose `ecco_variable` is listed.
+#
+# A dataset added to conf/ds_configs/ joins the `datasets: all` grids automatically and
+# the explicitly-listed grids not at all. Removing a dataset from a grid stops future
+# processing but does not delete output already written; see conf/README.md.
+
+grids:
+  ECCO_llc90:
+    datasets: all
+
+  ECCO_llc270:
+    datasets: all
+
+  ECCO_llc540:
+    datasets:
+      - AVHRR_OI-NCEI-L4-GLOB-v2.0
+      - AVHRR_OI-NCEI-L4-GLOB-v2.1
+      - TELLUS_GRAC-GRFO_MASCON_CRI_GRID_RL06.3_V4
+
+  TPOSE:
+    # TPOSE is a tropical Pacific grid, so sea ice on it is not meaningful. This
+    # replaces a hardcoded `if "hemi_pattern" in config` check that lived in both the
+    # transformation and aggregation factories.
+    datasets: all
+    exclude_ecco_variables:
+      - sea_ice

@@ -8,6 +8,8 @@ from unittest.mock import patch, MagicMock
 
 from aggregations.aggregation_factory import AgJobFactory, multiprocess_aggregate
 
+from tests.conftest import grid_block, mock_grid_coverage
+
 
 class AgJobFactoryInitTestCase(unittest.TestCase):
     """Tests for AgJobFactory initialization."""
@@ -37,7 +39,7 @@ class AgJobFactoryInitTestCase(unittest.TestCase):
     def test_initialization(self, mock_config, mock_query):
         """Test AgJobFactory initialization."""
         mock_config.user_cpus = 4
-        mock_config.grids_to_use = ["GRID1", "GRID2"]
+        mock_grid_coverage(mock_config, ["GRID1", "GRID2"])
 
         # Mock Solr queries for grids and dataset metadata
         mock_query.side_effect = [
@@ -69,7 +71,7 @@ class AgJobFactoryInitTestCase(unittest.TestCase):
     def test_initialization_filters_grids(self, mock_config, mock_query):
         """Test that grids are filtered based on grids_to_use."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["GRID1"]  # Only want GRID1
+        mock_grid_coverage(mock_config, ["GRID1"])  # Only want GRID1
 
         mock_query.side_effect = [
             [  # All available grids
@@ -94,15 +96,29 @@ class AgJobFactoryInitTestCase(unittest.TestCase):
 
     @patch("aggregations.aggregation_factory.solr_utils.solr_query")
     @patch("aggregations.aggregation_factory.baseclasses.Config")
-    def test_initialization_excludes_tpose_for_hemi(self, mock_config, mock_query):
-        """Test that TPOSE grid is excluded for hemispheric data."""
+    def test_initialization_excludes_grid_by_ecco_variable(
+        self, mock_config, mock_query
+    ):
+        """
+        exclude_ecco_variables drops a grid for a dataset of that variable.
+
+        This is the TPOSE/sea_ice rule, previously a hardcoded
+        `if "hemi_pattern" in config` check in get_grids.
+        """
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["ECCO_GRID", "TPOSE_GRID"]
+        mock_grid_coverage(
+            mock_config,
+            ["ECCO_GRID", "TPOSE"],
+            coverage={
+                "ECCO_GRID": grid_block("ECCO_GRID"),
+                "TPOSE": grid_block("TPOSE", exclude_ecco_variables=["sea_ice"]),
+            },
+        )
 
         mock_query.side_effect = [
             [
                 {"grid_name_s": "ECCO_GRID", "grid_type_s": "latlon"},
-                {"grid_name_s": "TPOSE_GRID", "grid_type_s": "latlon"},
+                {"grid_name_s": "TPOSE", "grid_type_s": "latlon"},
             ],
             [  # Dataset metadata query
                 {
@@ -115,13 +131,13 @@ class AgJobFactoryInitTestCase(unittest.TestCase):
         ]
 
         config = self.get_base_config()
-        config["hemi_pattern"] = {"north": "_nh_", "south": "_sh_"}
+        config["ecco_variable"] = "sea_ice"
 
         factory = AgJobFactory(config)
 
         grid_names = [g["grid_name_s"] for g in factory.grids]
         self.assertIn("ECCO_GRID", grid_names)
-        self.assertNotIn("TPOSE_GRID", grid_names)
+        self.assertNotIn("TPOSE", grid_names)
 
 
 class AgJobFactoryGetGridsTestCase(unittest.TestCase):
@@ -148,9 +164,12 @@ class AgJobFactoryGetGridsTestCase(unittest.TestCase):
     @patch("aggregations.aggregation_factory.solr_utils.solr_query")
     @patch("aggregations.aggregation_factory.baseclasses.Config")
     def test_get_grids_queries_solr(self, mock_config, mock_query):
-        """Test that get_grids queries Solr for grids."""
+        """
+        get_grids still reads full Solr grid docs, which Aggregation needs for
+        grid_path_s and grid_type_s, and keeps those the dataset is covered for.
+        """
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = []
+        mock_grid_coverage(mock_config, ["GRID_A", "GRID_B"])
 
         mock_query.side_effect = [
             [  # Grids query
@@ -179,7 +198,7 @@ class AgJobFactoryGetGridsTestCase(unittest.TestCase):
     def test_get_grids_filters_by_grids_to_use(self, mock_config, mock_query):
         """Test filtering grids by grids_to_use list."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["GRID_A"]
+        mock_grid_coverage(mock_config, ["GRID_A"])
 
         mock_query.side_effect = [
             [  # Grids query
@@ -232,7 +251,7 @@ class AgJobFactoryGetJobsTestCase(unittest.TestCase):
     ):
         """Test that all years are processed when version changes."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["GRID1"]
+        mock_grid_coverage(mock_config, ["GRID1"])
 
         mock_query.side_effect = [
             [{"grid_name_s": "GRID1"}],  # grids
@@ -258,7 +277,7 @@ class AgJobFactoryGetJobsTestCase(unittest.TestCase):
     ):
         """Test that only needed jobs are created when version is same."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["GRID1"]
+        mock_grid_coverage(mock_config, ["GRID1"])
 
         mock_query.side_effect = [
             [{"grid_name_s": "GRID1"}],  # grids
@@ -309,7 +328,7 @@ class AgJobFactoryMakeJobsTestCase(unittest.TestCase):
     ):
         """Test creating job when new transformation exists."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["GRID1"]
+        mock_grid_coverage(mock_config, ["GRID1"])
 
         mock_query.side_effect = [
             [{"grid_name_s": "GRID1"}],  # grids
@@ -337,7 +356,7 @@ class AgJobFactoryMakeJobsTestCase(unittest.TestCase):
     ):
         """Test skipping job when aggregation is up to date."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["GRID1"]
+        mock_grid_coverage(mock_config, ["GRID1"])
 
         mock_query.side_effect = [
             [{"grid_name_s": "GRID1"}],  # grids
@@ -375,7 +394,7 @@ class AgJobFactoryMakeJobsTestCase(unittest.TestCase):
     ):
         """Test creating job when transformation is newer than aggregation."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["GRID1"]
+        mock_grid_coverage(mock_config, ["GRID1"])
 
         mock_query.side_effect = [
             [{"grid_name_s": "GRID1"}],  # grids
@@ -432,7 +451,7 @@ class AgJobFactoryMakeJobsAllYearsTestCase(unittest.TestCase):
     ):
         """Test creating jobs for all years in date range."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["GRID1"]
+        mock_grid_coverage(mock_config, ["GRID1"])
 
         mock_query.side_effect = [
             [{"grid_name_s": "GRID1"}],  # grids
@@ -480,7 +499,7 @@ class AgJobFactoryGetAggStatusTestCase(unittest.TestCase):
     def test_get_agg_status_all_successful(self, mock_config, mock_query, mock_count):
         """Test status when all aggregations successful."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = []
+        mock_grid_coverage(mock_config, [])
 
         mock_query.side_effect = [
             [],  # No grids
@@ -502,7 +521,7 @@ class AgJobFactoryGetAggStatusTestCase(unittest.TestCase):
     def test_get_agg_status_some_failed(self, mock_config, mock_query, mock_count):
         """Test status when some aggregations failed."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = []
+        mock_grid_coverage(mock_config, [])
 
         mock_query.side_effect = [
             [],  # No grids
@@ -523,7 +542,7 @@ class AgJobFactoryGetAggStatusTestCase(unittest.TestCase):
     def test_get_agg_status_none_performed(self, mock_config, mock_query, mock_count):
         """Test status when no aggregations performed."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = []
+        mock_grid_coverage(mock_config, [])
 
         mock_query.side_effect = [
             [],  # No grids
@@ -544,7 +563,7 @@ class AgJobFactoryGetAggStatusTestCase(unittest.TestCase):
     def test_get_agg_status_no_successful(self, mock_config, mock_query, mock_count):
         """Test status when no successful aggregations."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = []
+        mock_grid_coverage(mock_config, [])
 
         mock_query.side_effect = [
             [],  # No grids
@@ -588,7 +607,7 @@ class AgJobFactoryUpdateSolrDsTestCase(unittest.TestCase):
     def test_update_solr_ds(self, mock_config, mock_query, mock_update, mock_agg_class):
         """Test updating Solr dataset entry."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["GRID1"]
+        mock_grid_coverage(mock_config, ["GRID1"])
 
         mock_query.side_effect = [
             [{"grid_name_s": "GRID1"}],  # Grids (get_grids during init)
@@ -653,7 +672,7 @@ class AgJobFactoryExecuteJobsTestCase(unittest.TestCase):
     ):
         """Test executing jobs with single CPU (no multiprocessing)."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["GRID1"]
+        mock_grid_coverage(mock_config, ["GRID1"])
 
         mock_query.side_effect = [
             [{"grid_name_s": "GRID1"}],  # Grids (get_grids during init)
@@ -696,7 +715,7 @@ class AgJobFactoryExecuteJobsTestCase(unittest.TestCase):
     ):
         """Test executing jobs with multiprocessing."""
         mock_config.user_cpus = 4
-        mock_config.grids_to_use = ["GRID1"]
+        mock_grid_coverage(mock_config, ["GRID1"])
 
         mock_query.side_effect = [
             [{"grid_name_s": "GRID1"}],  # Grids (get_grids during init)
@@ -770,7 +789,7 @@ class AgJobFactoryPipelineCleanupTestCase(unittest.TestCase):
     ):
         """Test that pipeline_cleanup returns status."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["GRID1"]
+        mock_grid_coverage(mock_config, ["GRID1"])
 
         mock_query.side_effect = [
             [{"grid_name_s": "GRID1"}],  # Grids (get_grids during init)
@@ -834,7 +853,7 @@ class AgJobFactoryStartFactoryTestCase(unittest.TestCase):
     ):
         """Test start_factory when there are no jobs."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["GRID1"]
+        mock_grid_coverage(mock_config, ["GRID1"])
 
         mock_query.side_effect = [
             [{"grid_name_s": "GRID1"}],  # Grids (get_grids during init)

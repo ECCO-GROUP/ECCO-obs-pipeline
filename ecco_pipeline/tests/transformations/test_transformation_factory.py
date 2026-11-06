@@ -16,6 +16,7 @@ from unittest.mock import patch, MagicMock
 import numpy as np
 import xarray as xr
 
+from tests.conftest import grid_block, mock_grid_coverage
 from transformations.grid_transformation import TxResult
 from transformations.transformation_factory import (
     TxJobFactory,
@@ -59,7 +60,7 @@ class TxJobFactoryInitTestCase(unittest.TestCase):
     def test_initialization(self, mock_config, mock_query):
         """Test TxJobFactory initialization."""
         mock_config.user_cpus = 4
-        mock_config.grids_to_use = ["grid1", "grid2"]
+        mock_grid_coverage(mock_config, ["grid1", "grid2"])
 
         mock_query.return_value = [
             {
@@ -77,38 +78,90 @@ class TxJobFactoryInitTestCase(unittest.TestCase):
 
     @patch("transformations.transformation_factory.solr_utils.solr_query")
     @patch("transformations.transformation_factory.baseclasses.Config")
-    def test_initialization_loads_grids_from_solr(self, mock_config, mock_query):
-        """Test that grids are loaded from Solr when not specified."""
+    def test_initialization_respects_coverage_list(self, mock_config, mock_query):
+        """
+        A grid covering only some datasets is dropped for a dataset it does not name.
+
+        Replaces a test that asserted grids were read from Solr when grids_to_use was
+        empty: grid selection now comes from conf/grid_coverage.yaml, not Solr.
+        """
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = []  # Empty, should query Solr
+        mock_grid_coverage(
+            mock_config,
+            ["grid_A", "grid_B"],
+            coverage={
+                "grid_A": grid_block("grid_A"),  # all datasets
+                "grid_B": grid_block("grid_B", datasets=["SOME_OTHER_DATASET"]),
+            },
+        )
 
-        # First call for granules, second for grids
-        mock_query.side_effect = [
-            [{"filename_s": "test1.nc"}],  # Granules
-            [{"grid_name_s": "grid_A"}, {"grid_name_s": "grid_B"}],  # Grids
-        ]
+        mock_query.return_value = [{"filename_s": "test1.nc"}]
 
-        config = self.get_base_config()
-        factory = TxJobFactory(config)
+        factory = TxJobFactory(self.get_base_config())
 
-        self.assertEqual(factory.grids, ["grid_A", "grid_B"])
+        self.assertEqual(factory.grids, ["grid_A"])
 
     @patch("transformations.transformation_factory.solr_utils.solr_query")
     @patch("transformations.transformation_factory.baseclasses.Config")
-    def test_initialization_excludes_tpose_for_hemi(self, mock_config, mock_query):
-        """Test that TPOSE grid is excluded for hemispheric data."""
+    def test_initialization_excludes_grid_by_ecco_variable(
+        self, mock_config, mock_query
+    ):
+        """
+        exclude_ecco_variables drops a grid for a dataset of that variable.
+
+        This is the TPOSE/sea_ice rule, which used to be a hardcoded
+        `if "hemi_pattern" in config` check here and in AgJobFactory.
+        """
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["ECCO_grid", "TPOSE_grid"]
+        mock_grid_coverage(
+            mock_config,
+            ["ECCO_grid", "TPOSE"],
+            coverage={
+                "ECCO_grid": grid_block("ECCO_grid"),
+                "TPOSE": grid_block("TPOSE", exclude_ecco_variables=["sea_ice"]),
+            },
+        )
 
         mock_query.return_value = [{"filename_s": "test1.nc"}]
 
         config = self.get_base_config()
-        config["hemi_pattern"] = {"north": "_nh_", "south": "_sh_"}
+        config["ecco_variable"] = "sea_ice"
 
         factory = TxJobFactory(config)
 
         self.assertIn("ECCO_grid", factory.grids)
-        self.assertNotIn("TPOSE_grid", factory.grids)
+        self.assertNotIn("TPOSE", factory.grids)
+
+    @patch("transformations.transformation_factory.solr_utils.solr_query")
+    @patch("transformations.transformation_factory.baseclasses.Config")
+    def test_initialization_keeps_grid_for_other_variable(
+        self, mock_config, mock_query
+    ):
+        """
+        The same excluded grid is kept for a dataset of a different ecco_variable.
+
+        Guards the RDEFT4 case: exclusion is by ecco_variable, not by hemi_pattern, so
+        a sea ice dataset without a hemispheric split is still excluded while a
+        non-sea-ice dataset is not.
+        """
+        mock_config.user_cpus = 1
+        mock_grid_coverage(
+            mock_config,
+            ["ECCO_grid", "TPOSE"],
+            coverage={
+                "ECCO_grid": grid_block("ECCO_grid"),
+                "TPOSE": grid_block("TPOSE", exclude_ecco_variables=["sea_ice"]),
+            },
+        )
+
+        mock_query.return_value = [{"filename_s": "test1.nc"}]
+
+        config = self.get_base_config()
+        config["ecco_variable"] = "ssh"
+
+        factory = TxJobFactory(config)
+
+        self.assertEqual(factory.grids, ["ECCO_grid", "TPOSE"])
 
 
 class TxJobFactoryNeedToUpdateTestCase(unittest.TestCase):
@@ -136,7 +189,7 @@ class TxJobFactoryNeedToUpdateTestCase(unittest.TestCase):
     def test_need_to_update_false_when_current(self, mock_config, mock_query):
         """Test that update is not needed when transformation is current."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["grid"]
+        mock_grid_coverage(mock_config, ["grid"])
         mock_query.return_value = []
 
         config = self.get_base_config()
@@ -157,7 +210,7 @@ class TxJobFactoryNeedToUpdateTestCase(unittest.TestCase):
     def test_need_to_update_true_when_version_changed(self, mock_config, mock_query):
         """Test that update is needed when version changed."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["grid"]
+        mock_grid_coverage(mock_config, ["grid"])
         mock_query.return_value = []
 
         config = self.get_base_config()
@@ -178,7 +231,7 @@ class TxJobFactoryNeedToUpdateTestCase(unittest.TestCase):
     def test_need_to_update_true_when_checksum_changed(self, mock_config, mock_query):
         """Test that update is needed when source checksum changed."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["grid"]
+        mock_grid_coverage(mock_config, ["grid"])
         mock_query.return_value = []
 
         config = self.get_base_config()
@@ -199,7 +252,7 @@ class TxJobFactoryNeedToUpdateTestCase(unittest.TestCase):
     def test_need_to_update_true_when_failed(self, mock_config, mock_query):
         """Test that update is needed when previous transformation failed."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["grid"]
+        mock_grid_coverage(mock_config, ["grid"])
         mock_query.return_value = []
 
         config = self.get_base_config()
@@ -241,7 +294,7 @@ class TxJobFactoryFindDataForFactorsTestCase(unittest.TestCase):
     def test_find_data_for_factors_non_hemi(self, mock_config, mock_query):
         """Test finding data for factors with non-hemispheric data."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["grid"]
+        mock_grid_coverage(mock_config, ["grid"])
         mock_query.return_value = [
             {"pre_transformation_file_path_s": "/data/test1.nc"},
             {"pre_transformation_file_path_s": "/data/test2.nc"},
@@ -260,7 +313,7 @@ class TxJobFactoryFindDataForFactorsTestCase(unittest.TestCase):
     def test_find_data_for_factors_hemi(self, mock_config, mock_query):
         """Test finding data for factors with hemispheric data."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["grid"]
+        mock_grid_coverage(mock_config, ["grid"])
         mock_query.return_value = [
             {"pre_transformation_file_path_s": "/data/test_nh_1.nc"},
             {"pre_transformation_file_path_s": "/data/test_sh_1.nc"},
@@ -308,7 +361,7 @@ class TxJobFactoryPregenerateFactorsTestCase(unittest.TestCase):
     ):
         """along_track skips factor warm-up entirely (no grid open, no make_factors)."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["grid"]
+        mock_grid_coverage(mock_config, ["grid"])
         mock_query.return_value = [{"pre_transformation_file_path_s": "/data/test1.nc"}]
 
         config = self.get_base_config()
@@ -321,16 +374,18 @@ class TxJobFactoryPregenerateFactorsTestCase(unittest.TestCase):
         mock_open.assert_not_called()
 
     @patch("transformations.transformation_factory.Transformation.make_factors")
+    @patch("transformations.transformation_factory.grid_registry.grid_path")
     @patch("transformations.transformation_factory.xr.open_dataset")
     @patch("transformations.transformation_factory.solr_utils.solr_query")
     @patch("transformations.transformation_factory.baseclasses.Config")
     def test_pregenerate_factors_runs_for_grid(
-        self, mock_config, mock_query, mock_open, mock_make_factors
+        self, mock_config, mock_query, mock_open, mock_grid_path, mock_make_factors
     ):
         """The grid path still warms factors (regression guard on the branch)."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["grid"]
+        mock_grid_coverage(mock_config, ["grid"])
         mock_query.return_value = [{"pre_transformation_file_path_s": "/data/test1.nc"}]
+        mock_grid_path.return_value = "grids/grid.nc"
 
         config = self.get_base_config()  # no source_type -> grid
         factory = TxJobFactory(config)
@@ -338,6 +393,9 @@ class TxJobFactoryPregenerateFactorsTestCase(unittest.TestCase):
         factory.pregenerate_factors()
 
         mock_make_factors.assert_called()
+        # Resolved through the registry, not rebuilt as f"grids/{name}.nc", so a grid
+        # whose `name` attribute differs from its filename still loads.
+        mock_grid_path.assert_called_with("grid")
 
 
 class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
@@ -369,7 +427,7 @@ class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
     ):
         """Test cleanup when all transformations successful."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["grid"]
+        mock_grid_coverage(mock_config, ["grid"])
 
         # Return values for each query
         mock_query.side_effect = [
@@ -399,7 +457,7 @@ class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
     ):
         """Test cleanup when some transformations failed."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["grid"]
+        mock_grid_coverage(mock_config, ["grid"])
 
         mock_query.side_effect = [
             [],  # harvested granules
@@ -427,7 +485,7 @@ class TxJobFactoryPipelineCleanupTestCase(unittest.TestCase):
     ):
         """Test cleanup when no transformations performed."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["grid"]
+        mock_grid_coverage(mock_config, ["grid"])
 
         mock_query.side_effect = [
             [],  # harvested granules
@@ -556,7 +614,7 @@ class TxJobFactoryParentSolrIOTestCase(unittest.TestCase):
     @patch("transformations.transformation_factory.baseclasses.Config")
     def _factory(self, mock_config, mock_query):
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["grid"]
+        mock_grid_coverage(mock_config, ["grid"])
         mock_query.return_value = []
         return TxJobFactory(self.get_base_config())
 
@@ -722,7 +780,7 @@ class TxJobFactoryReconstructTestCase(unittest.TestCase):
         """Reconstruct writes must use commitWithin (commit=False), not a per-doc hard
         commit — the latter was a commit storm that hung job generation for minutes."""
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["grid"]
+        mock_grid_coverage(mock_config, ["grid"])
         mock_query.return_value = []
         mock_getmtime.return_value = 0
         mock_md5.return_value = "checksum"
@@ -783,7 +841,7 @@ class InterruptedRunRecoveryTestCase(unittest.TestCase):
     @patch("transformations.transformation_factory.baseclasses.Config")
     def _factory(self, mock_config, mock_query):
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["grid"]
+        mock_grid_coverage(mock_config, ["grid"])
         mock_query.return_value = []
         return TxJobFactory(self.get_base_config())
 
@@ -929,7 +987,7 @@ class OutputFileTrustTestCase(unittest.TestCase):
     @patch("transformations.transformation_factory.baseclasses.Config")
     def _factory(self, mock_config, mock_query):
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["grid"]
+        mock_grid_coverage(mock_config, ["grid"])
         mock_query.return_value = []
         return TxJobFactory(self.get_base_config())
 
@@ -1073,7 +1131,7 @@ class IncrementalFlushTestCase(unittest.TestCase):
     @patch("transformations.transformation_factory.baseclasses.Config")
     def _factory(self, mock_config, mock_query):
         mock_config.user_cpus = 1
-        mock_config.grids_to_use = ["grid"]
+        mock_grid_coverage(mock_config, ["grid"])
         mock_query.return_value = []
         return TxJobFactory(self.get_base_config())
 

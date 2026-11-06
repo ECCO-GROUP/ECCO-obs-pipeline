@@ -44,7 +44,7 @@ class AgJobFactory(baseclasses.Dataset):
         super().__init__(config)
         self.config = config
         self.user_cpus = baseclasses.Config.user_cpus
-        self.grids = self.get_grids(baseclasses.Config.grids_to_use)
+        self.grids = self.get_grids()
         # Worker-level failure markers collected by execute_jobs. Read back by the
         # caller for the run summary: a worker that dies before writing its Solr doc
         # leaves no other record of the failure.
@@ -177,17 +177,32 @@ class AgJobFactory(baseclasses.Dataset):
                 f"Failed to update Solr dataset entry with aggregation information for {self.ds_name}"
             )
 
-    def get_grids(self, grids_to_use: Iterable[str]) -> Iterable[dict]:
+    def get_grids(self) -> Iterable[dict]:
         """
-        Queries for grids on Solr and filters based on grids to use
+        Queries for grids on Solr and keeps those this dataset is covered for.
+
+        Still reads full Solr grid docs rather than just names because Aggregation
+        consumes grid_path_s and grid_type_s as well (aggregations/aggregation.py:327).
+        Coverage, including the sea-ice/TPOSE rule that was hardcoded here, now comes
+        from conf/grid_coverage.yaml.
         """
+        wanted = baseclasses.Config.grids_for(self.config)
+        logger.debug(f"{self.ds_name} grids: {', '.join(wanted) or 'none'}")
+
         fq = ["type_s:grid"]
-        grids = [grid for grid in solr_utils.solr_query(fq)]
-        if grids_to_use:
-            grids = [grid for grid in grids if grid["grid_name_s"] in grids_to_use]
-        if "hemi_pattern" in self.config:
-            logger.info("Skipping job creation for TPOSE grid on sea ice data.")
-            grids = [grid for grid in grids if "TPOSE" not in grid["grid_name_s"]]
+        by_name = {grid["grid_name_s"]: grid for grid in solr_utils.solr_query(fq)}
+
+        grids = []
+        for grid_name in wanted:
+            grid = by_name.get(grid_name)
+            if grid is None:
+                # init_pipeline aborts the run when an enabled grid is absent from
+                # Solr, so this is only reachable for a grid covered but not enabled.
+                logger.warning(
+                    f"Grid {grid_name} is not in Solr; skipping its {self.ds_name} aggregations."
+                )
+                continue
+            grids.append(grid)
         return grids
 
     def get_jobs(self) -> Iterable[Aggregation]:

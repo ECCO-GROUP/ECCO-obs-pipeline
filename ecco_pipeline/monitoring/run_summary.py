@@ -44,6 +44,7 @@ from glob import glob
 from pathlib import Path
 from typing import Iterable, Optional
 
+import baseclasses
 from utils.pipeline_utils import log_config, solr_utils
 
 logger = logging.getLogger("pipeline")
@@ -400,6 +401,15 @@ def build_summary(
             "step": getattr(args, "step", None),
             "dataset": getattr(args, "dataset", None),
             "grids": getattr(args, "grids_to_use", None) or None,
+            # Which datasets each grid actually covered. "grids" above is only the CLI
+            # filter, which since per-grid coverage no longer says what a run did.
+            "grid_coverage": {
+                grid_name: sorted(datasets)
+                for grid_name, datasets in (
+                    baseclasses.Config.resolved_grid_coverage or {}
+                ).items()
+            }
+            or None,
             "multiprocesses": getattr(args, "multiprocesses", None),
             "git_commit": _git_commit(),
             "hostname": socket.gethostname(),
