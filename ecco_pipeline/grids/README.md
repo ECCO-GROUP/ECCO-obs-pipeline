@@ -12,4 +12,4 @@ These are enforced at startup by `utils/pipeline_utils/grid_registry.py`, which 
 
 1. Drop the netCDF file in this directory.
 2. Add a block for it in `ecco_pipeline/conf/grid_coverage.yaml` naming the datasets it should receive. A grid with no block aborts the run when enabled, which is deliberate: without it a new grid would silently inherit every dataset, which is wrong for a grid meant for a handful.
-3. Add its `name` to `GRIDS` in `global_settings.py`, and run the pipeline once with `--grids_to_solr` to register it.
+3. Add its `name` to `GRIDS` in `global_settings.py`. The next run registers it in Solr automatically, since startup registers any enabled grid Solr lacks. `global_settings.py` is gitignored, so this edit is needed on each deployment.

@@ -165,15 +165,6 @@ def collection_check() -> bool:
     return False
 
 
-def check_grids():
-    """
-    Check if grids have been written to Solr
-    """
-    if solr_count(["type_s:grid"]) == 0:
-        return True
-    return False
-
-
 def validate_granules():
     granules = solr_query(["type_s:granule"], fl="id,pre_transformation_file_path_s")
     docs_to_remove = []

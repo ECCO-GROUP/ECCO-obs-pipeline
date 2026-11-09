@@ -170,3 +170,53 @@ class GridsToSolrTestCase(unittest.TestCase):
             missing = init_pipeline.grids_to_solr(["ECCO_llc540"])
 
         self.assertEqual(missing, ["ECCO_llc540"])
+
+
+class InitPipelineGridSyncTestCase(unittest.TestCase):
+    """
+    init_pipeline registers any enabled grid Solr lacks, so enabling a new grid only
+    takes a GRIDS edit. It used to sync only when Solr had no grid docs at all, which
+    left a newly enabled grid transformed but silently never aggregated.
+    """
+
+    def run_init(self, grids_to_solr=False, missing=()):
+        args = MagicMock(
+            grids_to_use=["ECCO_llc90", "ECCO_llc540"],
+            grids_to_solr=grids_to_solr,
+            harvested_entry_validation=False,
+            wipe_transformations=False,
+            wipe_factors=False,
+            multiprocesses=1,
+        )
+        base = "utils.pipeline_utils.init_pipeline"
+        with (
+            patch(f"{base}.setup_logger"),
+            patch(f"{base}.validate_output_dir"),
+            patch(f"{base}.validate_solr"),
+            patch(f"{base}.validate_netrc"),
+            patch(f"{base}.config_validator.validate_configs"),
+            patch(f"{base}.config_validator.validate_grid_coverage", return_value=[]),
+            patch(f"{base}.grid_registry.load_registry", return_value={}),
+            patch(f"{base}.baseclasses.load_grid_coverage", return_value={}),
+            patch(f"{base}.baseclasses.set_grid_coverage"),
+            patch(f"{base}.log_grid_coverage"),
+            patch(
+                f"{base}.grids_missing_from_solr", return_value=list(missing)
+            ) as mock_missing,
+            patch(f"{base}.grids_to_solr", return_value=[]) as mock_sync,
+        ):
+            init_pipeline.init_pipeline(args)
+        return mock_missing, mock_sync
+
+    def test_unregistered_enabled_grid_triggers_sync(self):
+        _, mock_sync = self.run_init(missing=["ECCO_llc540"])
+        mock_sync.assert_called_once_with(["ECCO_llc90", "ECCO_llc540"])
+
+    def test_all_registered_skips_sync(self):
+        _, mock_sync = self.run_init(missing=[])
+        mock_sync.assert_not_called()
+
+    def test_explicit_flag_syncs_without_checking(self):
+        mock_missing, mock_sync = self.run_init(grids_to_solr=True)
+        mock_missing.assert_not_called()
+        mock_sync.assert_called_once()

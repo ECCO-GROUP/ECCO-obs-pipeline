@@ -234,15 +234,17 @@ def grids_to_solr(grids_to_use: Iterable[str] = []):
         update_solr_grid(grid.name, grid.type, grid.path)
 
     # Verify grid names supplied exist on Solr
-    grids_not_in_solr = []
     logger.debug(f"Grids to use: {grids_to_use}")
-    for grid_name in grids_to_use:
-        fq = ["type_s:grid", f"grid_name_s:{grid_name}"]
-        docs = solr_utils.solr_query(fq)
-        if not docs:
-            grids_not_in_solr.append(grid_name)
+    return grids_missing_from_solr(grids_to_use)
 
-    return grids_not_in_solr
+
+def grids_missing_from_solr(grids_to_use: Iterable[str]) -> list[str]:
+    """Enabled grids with no Solr grid doc, in the order given."""
+    return [
+        grid_name
+        for grid_name in grids_to_use
+        if not solr_utils.solr_query(["type_s:grid", f"grid_name_s:{grid_name}"])
+    ]
 
 
 def resolve_grid_coverage(grids_to_use: Iterable[str]) -> dict:
@@ -327,7 +329,14 @@ def init_pipeline(args: Namespace):
 
     log_grid_coverage(grids_to_use)
 
-    if args.grids_to_solr or solr_utils.check_grids():
+    # Sync when asked, or when any enabled grid has no Solr doc yet. Checking per grid
+    # rather than "Solr has no grids at all" is what lets a new grid be enabled by
+    # adding it to GRIDS alone: aggregation builds its grid list from Solr, so an
+    # unregistered grid would be transformed but never aggregated, with no error.
+    unregistered = [] if args.grids_to_solr else grids_missing_from_solr(grids_to_use)
+    if unregistered:
+        logger.info(f"Registering grids missing from Solr: {', '.join(unregistered)}")
+    if args.grids_to_solr or unregistered:
         grids_not_in_solr = []
         try:
             grids_not_in_solr = grids_to_solr(grids_to_use)
@@ -337,11 +346,11 @@ def init_pipeline(args: Namespace):
             logger.exception(e)
         # Raised outside the try: PipelinePreconditionError is an Exception, so raising
         # it inside would be swallowed by the handler above and the run would continue
-        # without its grids — the bare exit() this replaced escaped as SystemExit.
+        # without its grids; the bare exit() this replaced escaped as SystemExit.
         if grids_not_in_solr:
             for name in grids_not_in_solr:
                 logger.error(
-                    f'Grid "{name}" not in Solr. Ensure it\'s file name is present in grids_config.yaml and run pipeline with the --grids_to_solr argument'
+                    f'Grid "{name}" not in Solr. No file in grids/ has a matching `name` attribute'
                 )
             raise PipelinePreconditionError(
                 f"Grids missing from Solr: {', '.join(grids_not_in_solr)}"

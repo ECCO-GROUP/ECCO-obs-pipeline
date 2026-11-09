@@ -47,6 +47,8 @@ Version numbers follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.
 - **Duplicate grid names went undetected**: Solr grid docs are keyed by `name` and a checksum
   change deletes all of that grid's transformations and aggregations, so two files claiming one
   name would have made alternating runs wipe each other's work.
+- **A newly enabled grid was transformed but never aggregated**: Startup now registers any enabled 
+  grid Solr lacks, so enabling a grid takes only a `GRIDS` edit in `global_settings`.
 
 ### Behavior Changes
 
