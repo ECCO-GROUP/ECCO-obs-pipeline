@@ -14,6 +14,7 @@ a hard import would break collection everywhere.
 """
 
 import argparse
+import html
 import logging
 import smtplib
 import sys
@@ -343,7 +344,16 @@ def build_message(summary: dict, previous: Optional[dict] = None) -> EmailMessag
     if isinstance(recipients, str):
         recipients = [recipients]
     msg["To"] = ", ".join(recipients)
-    msg.set_content(body_for(summary, previous))
+    body = body_for(summary, previous)
+    msg.set_content(body)
+    # The digest is aligned with spaces, and Outlook renders text/plain in a
+    # proportional font, which breaks the columns. An HTML alternative of the same text
+    # in <pre> forces monospace; clients that prefer plain text still get that part.
+    msg.add_alternative(
+        '<html><body><pre style="font-family: Consolas, Menlo, monospace; '
+        f'font-size: 13px;">{html.escape(body)}</pre></body></html>',
+        subtype="html",
+    )
     return msg
 
 
@@ -385,7 +395,7 @@ def notify(run_id: str = "latest", dry_run: bool = False) -> int:
         print(f"Subject: {msg['Subject']}")
         print(f"To: {msg['To']}")
         print()
-        print(msg.get_content())
+        print(msg.get_body(preferencelist=("plain",)).get_content())
         return 0
 
     if not is_configured():

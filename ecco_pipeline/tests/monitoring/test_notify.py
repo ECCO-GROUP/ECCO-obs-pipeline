@@ -340,6 +340,28 @@ class BodyTestCase(unittest.TestCase):
         self.assertIn("(1 dataset had nothing new)", body)
 
 
+class MessageTestCase(unittest.TestCase):
+    def test_html_part_keeps_alignment_in_monospace(self):
+        """Outlook shows text/plain in a proportional font, which breaks the columns."""
+        with patch.object(notify, "setting", fake_setting()):
+            msg = notify.build_message(summary())
+
+        plain = msg.get_body(preferencelist=("plain",)).get_content()
+        html_part = msg.get_body(preferencelist=("html",)).get_content()
+
+        self.assertIn("Activity this run", plain)
+        self.assertIn("<pre", html_part)
+        self.assertIn("Activity this run", html_part)
+
+    def test_html_part_escapes_the_body(self):
+        s = summary("aborted", abort_reason="bad <tag> & more")
+        with patch.object(notify, "setting", fake_setting()):
+            msg = notify.build_message(s)
+
+        html_part = msg.get_body(preferencelist=("html",)).get_content()
+        self.assertIn("bad &lt;tag&gt; &amp; more", html_part)
+
+
 class GatingTestCase(unittest.TestCase):
     def test_always_sends_on_success(self):
         with patch.object(notify, "setting", fake_setting()):
