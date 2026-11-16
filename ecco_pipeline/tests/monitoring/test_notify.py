@@ -2,6 +2,8 @@
 Unit tests for monitoring.notify. SMTP and settings are mocked.
 """
 
+import os
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -177,8 +179,9 @@ class BodyTestCase(unittest.TestCase):
             },
         ]
         body = notify.body_for(summary("failures", 2, datasets))
+        failures = body[body.index("Failures\n--------") :]
 
-        self.assertLess(body.index("DS_OLD"), body.index("DS_NEW"))
+        self.assertLess(failures.index("DS_OLD"), failures.index("DS_NEW"))
 
     def test_traceback_is_included(self):
         datasets = [
@@ -263,6 +266,78 @@ class BodyTestCase(unittest.TestCase):
 
     def test_no_previous_run_is_stated(self):
         self.assertIn("No previous run on record", notify.body_for(summary()))
+
+    def test_clean_run_omits_zero_failure_counts(self):
+        body = notify.body_for(summary())
+
+        self.assertNotIn("failed", body)
+        self.assertNotIn("with failures", body)
+        self.assertNotIn("ERROR log lines", body)
+        self.assertNotIn("(exit 0)", body)
+
+    def test_nonzero_failure_counts_are_shown(self):
+        s = summary("failures", 1)
+        s["totals"]["log_error_lines"] = 4
+
+        body = notify.body_for(s)
+
+        self.assertIn("(exit 1)", body)
+        self.assertIn("(1 with failures)", body)
+        self.assertIn("42 attempted, 2 failed", body)
+        self.assertIn("ERROR log lines: 4", body)
+
+    def test_start_time_is_shown_in_local_time(self):
+        try:
+            with patch.dict(os.environ, {"TZ": "America/Los_Angeles"}):
+                time.tzset()
+                body = notify.body_for(summary(started="2026-11-16T17:00:40Z"))
+        finally:
+            time.tzset()  # patch.dict has restored TZ by now
+
+        self.assertIn("Started:  2026-11-16 09:00:40 PST", body)
+
+    def test_relative_log_dir_from_older_summaries_is_made_absolute(self):
+        body = notify.body_for(summary())
+
+        expected = notify.PIPELINE_DIR / "logs" / RUN_ID
+        self.assertIn(f"Logs: {expected}", body)
+
+    def test_absolute_log_dir_is_left_alone(self):
+        s = summary()
+        s["log_dir"] = f"/data/ecco/logs/{RUN_ID}"
+
+        self.assertIn(f"Logs: /data/ecco/logs/{RUN_ID}", notify.body_for(s))
+
+    def test_per_dataset_activity_lists_only_datasets_with_work(self):
+        def stage(attempted):
+            return {"ran": True, "attempted": attempted, "failed": 0}
+
+        datasets = [
+            {
+                "dataset": "BUSY_DS",
+                "stages": {
+                    "harvest": stage(12),
+                    "transform": stage(80),
+                    "aggregate": stage(6),
+                },
+            },
+            {
+                "dataset": "IDLE_DS",
+                "stages": {"harvest": stage(0), "transform": stage(0)},
+            },
+            {
+                "dataset": "UNTOUCHED_DS",
+                "stages": {"harvest": {"ran": False, "consecutive_failures": 0}},
+            },
+        ]
+
+        body = notify.body_for(summary(datasets=datasets))
+
+        self.assertIn("Datasets with new data", body)
+        self.assertIn("BUSY_DS  12 granules  80 transformations  6 aggregations", body)
+        self.assertNotIn("IDLE_DS", body)
+        self.assertNotIn("UNTOUCHED_DS", body)
+        self.assertIn("(1 dataset had nothing new)", body)
 
 
 class GatingTestCase(unittest.TestCase):

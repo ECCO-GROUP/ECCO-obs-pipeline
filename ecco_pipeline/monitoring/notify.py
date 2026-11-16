@@ -17,12 +17,14 @@ import argparse
 import logging
 import smtplib
 import sys
-from datetime import datetime
+import os
+from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Optional
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+PIPELINE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PIPELINE_DIR))
 
 from monitoring import run_summary  # noqa: E402
 
@@ -71,6 +73,78 @@ def _fmt_duration(seconds: int) -> str:
     if minutes:
         return f"{minutes}m{secs:02d}s"
     return f"{secs}s"
+
+
+def _fmt_local(utc_str: Optional[str]) -> str:
+    """
+    A summary's UTC timestamp in the host's local time, with the zone named.
+
+    The run id is local time (it is the log directory name), so showing the start in UTC
+    next to it reads as two times that disagree.
+    """
+    try:
+        dt = datetime.strptime(utc_str, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        )
+    except Exception:
+        return str(utc_str)
+    return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
+# (stage, column label) in the order the per-dataset table shows them.
+_ACTIVITY_COLUMNS = (
+    ("harvest", "granules"),
+    ("transform", "transformations"),
+    ("aggregate", "aggregations"),
+)
+
+
+def _activity_lines(summary: dict) -> list:
+    """
+    One line per dataset that did work this run, plus a count of those that ran idle.
+
+    Datasets the run never touched (a partial --dataset run carries the rest forward
+    with ran=False) appear in neither.
+    """
+    active, idle = [], 0
+    for entry in summary.get("datasets", []):
+        ran = {
+            name: stage
+            for name, stage in entry.get("stages", {}).items()
+            if stage.get("ran")
+        }
+        if not ran:
+            continue
+        counts = [
+            ran.get(stage, {}).get("attempted", 0) for stage, _ in _ACTIVITY_COLUMNS
+        ]
+        if any(counts):
+            active.append((entry["dataset"], counts))
+        else:
+            idle += 1
+
+    if not active and not idle:
+        return []
+
+    lines = ["", "Datasets with new data", "----------------------"]
+    if active:
+        name_width = max(len(name) for name, _ in active)
+        num_widths = [
+            max(len(str(counts[i])) for _, counts in active)
+            for i in range(len(_ACTIVITY_COLUMNS))
+        ]
+        for name, counts in active:
+            cells = [
+                f"{n:>{w}} {label}"
+                for n, w, (_, label) in zip(counts, num_widths, _ACTIVITY_COLUMNS)
+            ]
+            lines.append(f"  {name:<{name_width}}  " + "  ".join(cells))
+    else:
+        lines.append("  None.")
+    if idle:
+        plural = "dataset" if idle == 1 else "datasets"
+        lines.append(f"  ({idle} {plural} had nothing new)")
+    return lines
 
 
 def _gap_note(summary: dict, previous: Optional[dict]) -> Optional[str]:
@@ -137,10 +211,14 @@ def _failed_stages(summary: dict) -> list:
 
 def body_for(summary: dict, previous: Optional[dict] = None) -> str:
     totals = summary.get("totals", {})
+    outcome = summary.get("outcome")
+    outcome_line = f"Outcome:  {outcome}"
+    if summary.get("exit_code"):
+        outcome_line += f" (exit {summary.get('exit_code')})"
     lines = [
         f"Run:      {summary.get('run_id')}",
-        f"Outcome:  {summary.get('outcome')} (exit {summary.get('exit_code')})",
-        f"Started:  {summary.get('started_dt')}",
+        outcome_line,
+        f"Started:  {_fmt_local(summary.get('started_dt'))}",
         f"Duration: {_fmt_duration(summary.get('duration_s', 0))}",
     ]
 
@@ -167,20 +245,29 @@ def body_for(summary: dict, previous: Optional[dict] = None) -> str:
     if gap:
         lines += ["", gap]
 
+    # Zero failure counts are left off: on a clean run they are noise, and their absence
+    # is what makes a non-zero one stand out.
+    def counted(label: str, key: str) -> str:
+        line = f"  {label:<17}{totals.get(f'{key}_attempted', 0)} attempted"
+        failed = totals.get(f"{key}_failed", 0)
+        return line + (f", {failed} failed" if failed else "")
+
+    datasets_line = f"  {'Datasets:':<17}{totals.get('datasets', 0)}"
+    if totals.get("datasets_with_failures"):
+        datasets_line += f" ({totals['datasets_with_failures']} with failures)"
     lines += [
         "",
         "Activity this run",
         "-----------------",
-        f"  Datasets:        {totals.get('datasets', 0)} "
-        f"({totals.get('datasets_with_failures', 0)} with failures)",
-        f"  Granules:        {totals.get('granules_attempted', 0)} attempted, "
-        f"{totals.get('granules_failed', 0)} failed",
-        f"  Transformations: {totals.get('transformations_attempted', 0)} attempted, "
-        f"{totals.get('transformations_failed', 0)} failed",
-        f"  Aggregations:    {totals.get('aggregations_attempted', 0)} attempted, "
-        f"{totals.get('aggregations_failed', 0)} failed",
-        f"  ERROR log lines: {totals.get('log_error_lines', 0)}",
+        datasets_line,
+        counted("Granules:", "granules"),
+        counted("Transformations:", "transformations"),
+        counted("Aggregations:", "aggregations"),
     ]
+    if totals.get("log_error_lines"):
+        lines.append(f"  {'ERROR log lines:':<17}{totals['log_error_lines']}")
+
+    lines += _activity_lines(summary)
 
     divergence = totals.get("count_divergence") or []
     if divergence:
@@ -234,8 +321,18 @@ def body_for(summary: dict, previous: Optional[dict] = None) -> str:
                     f"    {log_errors['count']} ERROR lines in this stage's logs"
                 )
 
-    lines += ["", f"Logs: {summary.get('log_dir')}", ""]
+    lines += ["", f"Logs: {_abs_log_dir(summary.get('log_dir'))}", ""]
     return "\n".join(lines)
+
+
+def _abs_log_dir(log_dir: Optional[str]) -> Optional[str]:
+    """
+    Summaries written before log_dir was stored absolute hold "logs/<run_id>", relative
+    to the ecco_pipeline directory; resolve those so re-rendered old digests match.
+    """
+    if not log_dir or os.path.isabs(log_dir):
+        return log_dir
+    return str(PIPELINE_DIR / log_dir)
 
 
 def build_message(summary: dict, previous: Optional[dict] = None) -> EmailMessage:

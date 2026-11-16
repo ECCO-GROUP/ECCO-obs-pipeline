@@ -274,7 +274,8 @@ def build_summary(
     `outcome` forces a terminal state ("aborted"/"crashed"); otherwise it is derived
     from whether anything failed.
     """
-    log_dir = f"logs/{run_id}"
+    # Absolute so the path in the digest email is usable away from the pipeline checkout.
+    log_dir = os.path.abspath(f"logs/{run_id}")
     results = list(results)
 
     # Harvest flushes granule docs with commitWithin, so a pending batch would read as
